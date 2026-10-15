@@ -16,7 +16,7 @@ namespace StreamDuel.Core
 
         private void CommitSelection(string kind, string wire)
         {
-            // nonce 是唯一不经过 Battle.Rng 的随机数例外：只隐藏网络选择，不参与对战结算。
+            // nonce 与会话标识仅服务网络协议，不消费对战随机流。
             var bytes = new byte[16];
             using (var random = RandomNumberGenerator.Create()) random.GetBytes(bytes);
             string nonce = Hex(bytes);

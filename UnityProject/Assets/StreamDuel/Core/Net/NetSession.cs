@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 
 namespace StreamDuel.Core
@@ -17,7 +18,7 @@ namespace StreamDuel.Core
         public string Error { get; private set; }
 
         private readonly ContentDb db;
-        private readonly INetTransport transport;
+        private INetTransport transport;
         private readonly IList<string> myTeam;
         private readonly string myName;
         private readonly uint? hostSeed;
@@ -36,11 +37,13 @@ namespace StreamDuel.Core
             public string Hash;
         }
 
-        public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed)
+        public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed, bool enableReconnect = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             MySide = host ? 0 : 1;
+            this.enableReconnect = enableReconnect;
+            if (enableReconnect && host) SessionId = NewSessionId();
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
@@ -52,7 +55,8 @@ namespace StreamDuel.Core
                 return;
             }
             contentHash = db.ContentHash();
-            Send("{\"type\":\"hello\",\"version\":" + Number(ProtocolVersion)
+            Send("{\"type\":\"hello\",\"version\":" + Number(enableReconnect ? ReconnectProtocolVersion : ProtocolVersion)
+                + (enableReconnect ? ",\"sessionId\":" + (SessionId == null ? "null" : NetJson.Quote(SessionId)) : "")
                 + ",\"packId\":" + NetJson.Quote(db.PackId)
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
@@ -62,20 +66,39 @@ namespace StreamDuel.Core
 
         public void Poll()
         {
+            Poll(0);
+        }
+
+        public void Poll(double elapsedSeconds)
+        {
+            TickReconnect(elapsedSeconds);
             if (Faulted) return;
+            if (IsDisconnected && !IsReconnecting) return;
             try
             {
                 string message;
                 while (!Faulted && transport.TryReceive(out message))
                 {
-                    Receive(message);
+                    if (enableReconnect && Battle != null) ReceiveReconnectMessage(message);
+                    else Receive(message);
                     Advance();
+                    TryFinishReconnect();
+                    if (IsDisconnected && !IsReconnecting) break;
                 }
             }
             catch (TcpDisconnectedException ex)
             {
                 // 终局仍接收迟到的协议报错，只有排队消息处理完后的纯断线可以忽略。
-                if (State != NetState.Over) Fault(NetState.Error, ex.Message, false);
+                if (State == NetState.Over && (!enableReconnect || peerCompleted)) return;
+                if (!PauseForReconnect(ex)) Fault(NetState.Error, ex.Message, false);
+            }
+            catch (IOException ex)
+            {
+                if (!PauseForReconnect(ex)) Fault(NetState.Error, "接收消息失败：" + ex.Message, false);
+            }
+            catch (ObjectDisposedException ex)
+            {
+                if (!PauseForReconnect(ex)) Fault(NetState.Error, "连接已经关闭：" + ex.Message, false);
             }
             catch (Exception ex)
             {
@@ -123,6 +146,13 @@ namespace StreamDuel.Core
                 Fault(NetState.Error, "对方报错：" + NetJson.Text(obj, "message"), false);
                 return;
             }
+            if (enableReconnect && type == "goodbye")
+            {
+                if (Battle.Phase != Phase.Over || hashes.Count != 0)
+                    throw new FormatException("对战尚未完成终局校验，不能结束连接。");
+                peerCompleted = true;
+                return;
+            }
             if (State == NetState.Over) throw new FormatException("对战已经结束，不能再接收新的协议操作。");
             if (type == "hello")
             {
@@ -147,7 +177,21 @@ namespace StreamDuel.Core
         {
             if (Battle != null) throw new FormatException("对方重复发送握手。");
             long version = NetJson.Integer(obj, "version", 0, int.MaxValue);
-            if (version != ProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(ProtocolVersion) + "，对方 " + version + "。");
+            int expectedVersion = enableReconnect ? ReconnectProtocolVersion : ProtocolVersion;
+            if (version != expectedVersion) throw new FormatException("协议版本不同：本端 " + Number(expectedVersion) + "，对方 " + version + "。");
+            if (enableReconnect)
+            {
+                if (MySide == 0)
+                {
+                    if (!obj.TryGetValue("sessionId", out var id) || id != null)
+                        throw new FormatException("客机不能指定新的会话标识。");
+                }
+                else
+                {
+                    SessionId = NetJson.Text(obj, "sessionId");
+                    if (!LowerHex(SessionId, 32)) throw new FormatException("主机会话标识无效。");
+                }
+            }
             string packId = NetJson.Text(obj, "packId");
             if (packId != db.PackId) throw new FormatException("内容包不同：本端「" + db.PackId + "」，对方「" + packId + "」。");
             string peerContentHash = NetJson.Text(obj, "contentHash");
@@ -183,14 +227,15 @@ namespace StreamDuel.Core
             names[1 - MySide] = name;
             Battle = new Battle(db, teams, names, sharedSeed);
             rngCheckpoint = Battle.NetRngState;
+            RememberCheckpoint();
             BeginPhase();
         }
 
         private void Advance()
         {
-            if (Terminal || Battle == null || hashes.Count > 0) return;
+            if (Terminal || Battle == null || hashes.Count > 0 || IsDisconnected && !IsReconnecting) return;
             RevealIfReady();
-            if (Faulted) return;
+            if (Faulted || IsDisconnected && !IsReconnecting) return;
             if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
@@ -229,6 +274,7 @@ namespace StreamDuel.Core
             rngCheckpoint = Battle.NetRngState;
             string hash = Battle.StateHash().ToString("x16", CultureInfo.InvariantCulture);
             hashes.Enqueue(new HashStamp { Turn = operationTurn, Hash = hash });
+            RememberCheckpoint();
             Send("{\"type\":\"hash\",\"turn\":" + Number(operationTurn) + ",\"hash\":" + NetJson.Quote(hash) + "}");
         }
 
@@ -267,10 +313,12 @@ namespace StreamDuel.Core
             else if (phase == Phase.Choose) State = NetState.Choose;
             else if (phase == Phase.Replace) State = needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
             else Fault(NetState.Error, "同步协议暂不支持禁用或首发选择阶段。");
+            if (IsDisconnected && !Faulted) State = NetState.Waiting;
         }
 
         private bool Send(string message)
         {
+            if (enableReconnect && Battle != null) return SendJournaled(message);
             try { transport.Send(message); return true; }
             catch (Exception ex)
             {
@@ -285,7 +333,7 @@ namespace StreamDuel.Core
             State = state;
             Error = reason;
             if (!notify) return;
-            try { transport.Send("{\"type\":\"error\",\"message\":" + NetJson.Quote(reason) + "}"); }
+            try { Send("{\"type\":\"error\",\"message\":" + NetJson.Quote(reason) + "}"); }
             catch (Exception) { }
         }
 
