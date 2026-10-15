@@ -57,7 +57,7 @@
 - 新文件 `Core/Preview.cs`：`PreviewDamage(side, skillIndex)` 返回 Min/Max/Eff/Notes，`PreviewOrder(a0, a1)` 返回 First/Reason。**不得消耗随机数。**
 - **验收**：移入 `Pending/T05_PreviewTests.cs`，通过。
 
-### ⬜ T-06 电脑难度：简单 / 普通
+### ✅ T-06 电脑难度：简单 / 普通
 
 - `Ai.cs` 加 `AiLevel` 和 `Choose(b, s, level)`；普通 = 现有行为；简单 = 一半随机选技能、从不主动换人。
 - **验收**：移入 `Pending/T06_AiLevelTests.cs`，通过（普通对简单 300 局胜率 ≥ 60%）。
