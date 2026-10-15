@@ -30,7 +30,7 @@ namespace StreamDuel.Cli
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
-                var player = options.Team ?? db.Streamers.Take(6).Select(s => s.Id).ToArray();
+                var player = options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
@@ -182,8 +182,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）；默认 normal。");
-            Console.WriteLine("  --seed 整数       对战种子 0..4294967295；默认 1。");
-            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；默认内容包前六位，电脑先选剩余再补齐。");
+            Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
+            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定时自动建议，电脑先选剩余再补齐。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
