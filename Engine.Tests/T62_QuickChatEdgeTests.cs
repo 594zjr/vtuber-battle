@@ -44,8 +44,10 @@ public class T62_QuickChatEdgeTests
             LoopbackPair.Create(out var a, out var b);
             A = new Transport(a);
             B = new Transport(b);
-            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 62);
-            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null);
+            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 62,
+                seedContribution: NetSeedTestData.Host);
+            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null,
+                seedContribution: NetSeedTestData.Guest);
             if (handshake)
             {
                 Pump();

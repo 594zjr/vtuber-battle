@@ -109,6 +109,11 @@ namespace StreamDuel.Core
         public void Tick(double seconds)
         {
             if (!ValidSeconds(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), "推进时间必须是有限、非负的秒数。");
+            if (State == NetState.Handshake)
+            {
+                TickSeedHandshake(seconds);
+                return;
+            }
             if (Clock == null || Battle == null || Terminal) return;
             double remaining = seconds;
             int peer = 1 - MySide;

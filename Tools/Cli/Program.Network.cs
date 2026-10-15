@@ -30,20 +30,31 @@ namespace StreamDuel.Cli
 
             using (connection)
             {
-                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null,
+                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", null,
                     turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds);
-                Console.WriteLine("等待对手握手……");
+                Console.WriteLine("等待对手握手，共同生成公平种子……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
                 {
+                    double seconds = handshake.Elapsed.TotalSeconds;
+                    handshake.Restart();
+                    long timerRevision = session.TimerRevision;
                     session.Poll();
+                    CheckNetwork(session);
                     if (session.State != NetState.Handshake) break;
-                    if (handshake.ElapsedMilliseconds >= 10000) throw new IOException("等待对手握手超时。");
+                    // 收到承诺后刚开启的公开窗口不承担上一窗口已经花掉的时间。
+                    if (timerRevision != session.TimerRevision)
+                    {
+                        seconds = 0;
+                        handshake.Restart();
+                    }
+                    session.Tick(seconds);
+                    CheckNetwork(session);
                     Thread.Sleep(10);
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
-                Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
+                Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；公平种子：" + battle.Seed);
                 if (session.Clock != null)
                     Console.WriteLine("已启用房主计时：每阶段 " + session.Clock.TurnLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture)
                         + " 秒；总时间 " + session.Clock.BankLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture) + " 秒。");

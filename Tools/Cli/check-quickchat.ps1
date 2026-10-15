@@ -76,15 +76,25 @@ function Invoke-CompletionCase([bool]$WithError) {
         Assert-Check ($null -ne $hostTcp) '真实 TCP 连接未完成。'
         $listener.Dispose()
         $listener = $null
-        $hostSession = [StreamDuel.Core.NetSession]::new($db, $hostTcp, $true, $hostTeam, '房主', [uint32]7, $null, $null)
-        $guestSession = [StreamDuel.Core.NetSession]::new($db, $guestTcp, $false, $guestTeam, '客机', $null, $null, $null)
+        $hostContribution = [byte[]](0..31)
+        $guestContribution = [byte[]](32..63)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $seedDigest = $sha.ComputeHash([byte[]]($hostContribution + $guestContribution)) }
+        finally { $sha.Dispose() }
+        $expectedSeed = [uint32]($seedDigest[0] + 256L * $seedDigest[1] + 65536L * $seedDigest[2] + 16777216L * $seedDigest[3])
+        $hostSession = [StreamDuel.Core.NetSession]::new($db, $hostTcp, $true, $hostTeam, '房主', [uint32]7, $null, $null, $hostContribution)
+        $guestSession = [StreamDuel.Core.NetSession]::new($db, $guestTcp, $false, $guestTeam, '客机', $null, $null, $null, $guestContribution)
+        $sessionElapsed = [Diagnostics.Stopwatch]::StartNew()
 
         while ($hostSession.State -ne [StreamDuel.Core.NetState]::Over -or
             $guestSession.State -ne [StreamDuel.Core.NetState]::Over) {
             Assert-Check ($elapsed.Elapsed.TotalSeconds -lt $TimeoutSeconds) '真实联网对局未在期限内完成。'
             $hostSession.Poll()
             $guestSession.Poll()
+            $seconds = $sessionElapsed.Elapsed.TotalSeconds
+            $sessionElapsed.Restart()
             foreach ($session in @($hostSession, $guestSession)) {
+                $session.Tick($seconds)
                 Assert-Healthy $session
                 if ($session.State -eq [StreamDuel.Core.NetState]::Choose -and -not $session.HasSubmitted) {
                     $session.Submit([StreamDuel.Core.Ai]::Choose($session.Battle, $session.MySide, [StreamDuel.Core.AiLevel]::Normal))
@@ -97,6 +107,8 @@ function Invoke-CompletionCase([bool]$WithError) {
         }
         Assert-Check ($hostSession.Battle.Phase -eq [StreamDuel.Core.Phase]::Over -and
             $guestSession.Battle.Phase -eq [StreamDuel.Core.Phase]::Over) '会话未完成真实战斗。'
+        Assert-Check ($hostSession.Battle.Seed -eq $expectedSeed -and $guestSession.Battle.Seed -eq $expectedSeed -and
+            $hostSession.Battle.Record.Seed -eq $expectedSeed -and $guestSession.Battle.Record.Seed -eq $expectedSeed) '真实 TCP 会话或回放没有使用双方固定贡献按小端公式算出的公平种子。'
         $hashBefore = $hostSession.Battle.StateHash()
         $recordBefore = $hostSession.Battle.Record.ToJson()
         $rngBefore = $hostSession.Battle.Clone().Random()

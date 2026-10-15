@@ -61,8 +61,10 @@ public class T32_CommitRevealEdgeTests
         {
             A.Peer = B;
             B.Peer = A;
-            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 19);
-            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null);
+            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 19,
+                seedContribution: NetSeedTestData.Host);
+            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null,
+                seedContribution: NetSeedTestData.Guest);
             if (handshake)
             {
                 Pump();
