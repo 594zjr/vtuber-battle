@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
                 if (!options.ListPacks && !options.Glossary) ValidateReportPath(options);
@@ -52,6 +53,8 @@ namespace StreamDuel.Cli
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
                 PrintTeams(battle);
+                // 只读取原始公开六人阵容，必须早于任何禁用/首发确认，也不借用实战随机流。
+                if (options.Advice) PrintTeamAdvice(db, player, opponent);
                 int logIndex = 0;
                 PrintNewLog(battle, ref logIndex);
                 var clock = options.TurnSeconds.HasValue
@@ -187,10 +190,15 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮、录入姓名与队伍码、记录胜负。");
+            Console.WriteLine("                    只可搭配 --pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
+            Console.WriteLine("                    报名时空姓名开始赛事；q 或输入结束保存退出。每次报名、排轮和报分立即保存。");
+            Console.WriteLine("                    自动种子为 0x9E3779B9 加存档中的零起点对局编号（uint 回绕）；不接受 --seed。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
+            Console.WriteLine(Loc.Current.T("advice.cli.help"));
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
@@ -200,6 +208,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
+            Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
             Console.WriteLine("  --help / -h       显示本帮助。");

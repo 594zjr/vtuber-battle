@@ -36,7 +36,9 @@ namespace StreamDuel.Core
                 throw new ArgumentOutOfRangeException(nameof(snapshotEvery), "快照间隔必须大于零");
             this.snapshotEvery = snapshotEvery;
 
-            // 复用回放入口的内容指纹、内容包及开场选项校验，避免游标绕过兼容性检查。
+            // 低层 Run 保留旧解析契约，应用入口须显式拒绝尚不支持的录像版本。
+            var compatibility = Replay.Check(db, record);
+            if (!compatibility.CanReplay) throw new InvalidOperationException(compatibility.Reason);
             var battle = Replay.Run(db, CopyHeader(record));
             entries = record.Events.Select(CopyEntry).ToArray();
             var positions = new List<int>();
