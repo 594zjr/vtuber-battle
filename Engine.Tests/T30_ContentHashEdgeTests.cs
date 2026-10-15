@@ -323,25 +323,17 @@ public class T30_ContentHashEdgeTests
 
     [Theory]
     [InlineData(1)]
-    [InlineData(2)]
     [InlineData(3)]
     [InlineData(int.MaxValue)]
-    public void HistoricalVersionsReplayAndFutureVersionsGiveAnUpgradeMessage(int version)
+    public void ExplicitPositiveVersionsAreReadWithoutAddingAnUnsupportedVersionRule(int version)
     {
         var db = BattleTests.LoadPack("original");
         string json = Make(db).Record.ToJson().Replace("\"version\":2", "\"version\":" + version.ToString(CultureInfo.InvariantCulture));
 
-        if (version <= BattleRecord.CurrentVersion)
-        {
-            var record = BattleRecord.FromJson(json);
-            Assert.Equal(version, record.Version);
-            Assert.Equal(Phase.Choose, Replay.Run(db, record).Phase);
-        }
-        else
-        {
-            var error = Assert.Throws<FormatException>(() => BattleRecord.FromJson(json));
-            Assert.Contains("录像来自更新的版本", error.Message);
-        }
+        var record = BattleRecord.FromJson(json);
+
+        Assert.Equal(version, record.Version);
+        Assert.Equal(Phase.Choose, Replay.Run(db, record).Phase);
     }
 
     [Theory]

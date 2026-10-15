@@ -119,17 +119,23 @@ try {
     Assert-Check ((Get-FileHash -LiteralPath $changedPath -Algorithm SHA256).Hash -ceq $inputHash) '尽力回放改写了来源录像。'
     $checks.Add('指纹不符默认拒绝；显式文件/分享码回看警告，战报标注，来源和再分享记录不变')
 
-    $futurePath = Write-Fixture 'future' '{"version":3,"teams":false}'
-    foreach ($extra in @(@(), @('--replay-best-effort'))) {
-        $future = Invoke-Cli ('future-' + $extra.Count) (@('--replay', $futurePath, '--auto') + $extra) 1
-        Assert-Check ($future.Err.Contains('录像来自更新的版本') -and -not $future.Err.Contains(' at ')) '未来版本未优先给中文提示或泄漏堆栈。'
-    }
     $futureRecord = [StreamDuel.Core.BattleRecord]::FromJson($originalJson)
     $futureRecord.Version = 3
+    $futurePath = Write-Fixture 'future' $futureRecord.ToJson()
+    Assert-Check ([StreamDuel.Core.BattleRecord]::FromJson($futureRecord.ToJson()).Version -eq 3) '读取器未保留任意正版本号的历史行为。'
+    foreach ($extra in @(@(), @('--replay-best-effort'))) {
+        $future = Invoke-Cli ('future-' + $extra.Count) (@('--replay', $futurePath, '--auto') + $extra) 1
+        Assert-Check ($future.Err.Contains('录像来自更新的版本') -and -not $future.Err.Contains(' at ')) '未来版本回看未给中文提示或泄漏堆栈。'
+    }
     $futureCode = [StreamDuel.Core.ShareCode]::Encode($futureRecord)
-    $futureShare = Invoke-Cli 'future-share' @('--replay-code', $futureCode, '--auto', '--replay-best-effort') 1
-    Assert-Check ($futureShare.Err.Contains('录像来自更新的版本')) '未来分享码没有版本提示。'
-    $checks.Add('未来文件与分享码均以中文拒绝，尽力选项不能绕过')
+    foreach ($extra in @(@(), @('--replay-best-effort'))) {
+        $futureShare = Invoke-Cli ('future-share-' + $extra.Count) (@('--replay-code', $futureCode, '--auto') + $extra) 1
+        Assert-Check ($futureShare.Err.Contains('录像来自更新的版本')) '未来分享码没有版本提示。'
+    }
+    $malformedFuturePath = Write-Fixture 'malformed-future' '{"version":3,"teams":false}'
+    $malformedFuture = Invoke-Cli 'malformed-future' @('--replay', $malformedFuturePath, '--auto') 1
+    Assert-Check ($malformedFuture.Err.Contains('teams 必须是数组')) '未来版本的坏结构未继续校验。'
+    $checks.Add('未来版本可解析，文件与分享码的严格/尽力回看均由兼容检查拒绝；坏结构仍报错')
 
     foreach ($kind in @('pack', 'streamer', 'modifier')) {
         $bad = [StreamDuel.Core.BattleRecord]::FromJson($originalJson)
@@ -169,6 +175,10 @@ try {
     Assert-Check ($listed.Out.Contains('录像来自更新的版本') -and $listed.Out.Contains($replayId)) '未来录像妨碍了正常列表或缺少明确提示。'
     $failedLoad = Invoke-Cli 'library-future' @('--replay', 'future', '--auto', '--replay-best-effort', '--save-dir', $librarySave) 1
     Assert-Check ($failedLoad.Err.Contains('录像来自更新的版本')) '录像库未来版本未被拒绝。'
+    $noteError = $null
+    try { $library.SetNote('future', '不应写入') }
+    catch { $noteError = $_.Exception.Message }
+    Assert-Check ($null -ne $noteError -and $noteError.Contains('录像来自更新的版本')) '未来录像可被改备注重写。'
     Assert-Check ((Get-FileHash -LiteralPath $futureLibraryPath -Algorithm SHA256).Hash -ceq $futureHash) '未来录像被改写或清理。'
     Assert-Check (@(Get-ChildItem -LiteralPath $libraryDirectory -File -Filter '*.json' | Where-Object Name -ne 'index.json').Count -eq 2) '回看新增了录像。'
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $librarySave 'profile.json'))) '录像库回看累计了战绩。'

@@ -50,8 +50,6 @@ namespace StreamDuel.Core
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
-            string versionError = VersionError(r);
-            if (versionError != null) throw new FormatException(versionError);
             var compatibility = Check(db, r);
             if (!compatibility.CanReplay) throw new InvalidOperationException(compatibility.Reason);
             return RunEvents(db, r);

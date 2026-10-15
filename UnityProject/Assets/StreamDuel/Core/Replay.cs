@@ -109,15 +109,12 @@ namespace StreamDuel.Core
         {
             if (json == null) throw new ArgumentNullException(nameof(json));
             var root = ReadObject(MiniJson.Parse(json), "记录");
-            int recordVersion = root.TryGetValue("version", out var version)
-                ? (int)ReadInteger(version, "version", 1, int.MaxValue) : 1;
-            if (recordVersion > CurrentVersion)
-                throw new FormatException("录像来自更新的版本：版本 " + recordVersion + "，当前支持至版本 " + CurrentVersion);
             var teams = ReadArray(Required(root, "teams"), "teams");
             if (teams.Count != 2) throw new FormatException("对战记录必须包含两支队伍");
             var record = new BattleRecord
             {
-                Version = recordVersion,
+                Version = root.TryGetValue("version", out var version)
+                    ? (int)ReadInteger(version, "version", 1, int.MaxValue) : 1,
                 Seed = (uint)ReadInteger(Required(root, "seed"), "seed", 0, uint.MaxValue),
                 PackId = ReadString(Required(root, "packId"), "packId"),
                 Teams = new IList<string>[2]
@@ -241,8 +238,6 @@ namespace StreamDuel.Core
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
-            string versionError = VersionError(r);
-            if (versionError != null) throw new FormatException(versionError);
             if (r.ContentHash != null)
             {
                 string contentHash = db.ContentHash();

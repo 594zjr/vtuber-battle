@@ -220,6 +220,9 @@ namespace StreamDuel.Core
             if (!metadata.TryGetValue("note", out var note) || (note != null && !(note is string)))
                 throw new FormatException("录像备注无效：" + id);
             record = BattleRecord.FromJson(json);
+            // 解析保留旧接口的宽容行为，库层禁止重写或清理尚不支持的录像。
+            if (record.Version > BattleRecord.CurrentVersion)
+                throw new FormatException(Replay.Check(null, record).Reason);
             if (turns != record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn))
                 throw new FormatException("录像回合数与记录不一致：" + id);
             return Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));

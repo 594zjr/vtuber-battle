@@ -140,25 +140,35 @@ public class T93_ReplayCompatTests
     [Theory]
     [InlineData(3)]
     [InlineData(int.MaxValue)]
-    public void FutureVersionsAreRejectedBeforeReadingTheirPossiblyDifferentPayload(int version)
+    public void FutureVersionParsingPreservesTheVersionAndStillValidatesPayloadStructure(int version)
     {
+        var record = BattleRecord.FromJson(LegacyJson(version));
+        Assert.Equal(version, record.Version);
+        Assert.Equal(93u, record.Seed);
+        Assert.Equal("original", record.PackId);
+        Assert.Equal(Teams()[0], record.Teams[0]);
+        Assert.Equal(Teams()[1], record.Teams[1]);
+        Assert.Empty(record.Events);
+        Assert.Equal(version, BattleRecord.FromJson(record.ToJson()).Version);
+
         string marker = "\"version\":" + version.ToString(CultureInfo.InvariantCulture);
         foreach (string json in new[]
         {
-            LegacyJson(version),
             "{" + marker + "}",
-            "{\"teams\":false,\"seed\":\"new-format\",\"events\":null," + marker + "}"
+            "{\"teams\":false,\"seed\":\"new-format\",\"events\":null," + marker + "}",
+            LegacyJson(version, "null"),
+            LegacyJson(version, "[{\"type\":\"future-action\"}]")
         })
         {
             var error = Assert.Throws<FormatException>(() => BattleRecord.FromJson(json));
-            Assert.Contains("录像来自更新的版本", error.Message);
+            Assert.DoesNotContain("录像来自更新的版本", error.Message);
         }
     }
 
     [Theory]
     [InlineData(3)]
     [InlineData(int.MaxValue)]
-    public void FutureInMemoryRecordsCannotBypassTheVersionGate(int version)
+    public void FutureRecordsRequireCompatibilityRejectionWhileStrictRunKeepsLegacyBehavior(int version)
     {
         var db = BattleTests.LoadPack("original");
         var record = Make(db).Record;
@@ -167,7 +177,7 @@ public class T93_ReplayCompatTests
 
         Assert.False(result.CanReplay);
         Assert.Contains("录像来自更新的版本", result.Reason);
-        Assert.Contains("录像来自更新的版本", Assert.ThrowsAny<Exception>(() => Replay.Run(db, record)).Message);
+        AssertSameBattle(Make(db), Replay.Run(db, record));
         Assert.Contains("录像来自更新的版本", Assert.ThrowsAny<Exception>(() => Replay.RunBestEffort(db, record)).Message);
     }
 

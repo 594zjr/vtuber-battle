@@ -27,12 +27,12 @@ namespace StreamDuel.Cli
                 if (errors.Count > 0) throw new ArgumentException("回放原始队伍无效：" + string.Join("；", errors));
             }
             // 让 Core 恢复记录中的随机流，显示层只按日志回合翻页。
+            var compatibility = Replay.Check(db, record);
+            if (!compatibility.CanReplay) throw new InvalidOperationException(compatibility.Reason);
             Battle battle;
             bool approximateReplay = false;
             if (options.ReplayBestEffort)
             {
-                var compatibility = Replay.Check(db, record);
-                if (!compatibility.CanReplay) throw new InvalidOperationException(compatibility.Reason);
                 if (!string.IsNullOrEmpty(compatibility.Reason))
                 {
                     approximateReplay = true;
