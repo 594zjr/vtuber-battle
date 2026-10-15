@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.LanList) return ListLanRooms();
                 if (!options.ListPacks) ValidateReportPath(options);
                 if (options.ReplayFile != null && !options.ListPacks) return PlayReplay(options);
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
@@ -160,6 +161,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team。");
+            Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
+            Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");

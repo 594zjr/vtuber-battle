@@ -20,6 +20,8 @@ namespace StreamDuel.Cli
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
+        public string LanHostName;
+        public bool LanList;
         public bool Auto;
         public bool Ban;
         public bool Lead;
@@ -36,6 +38,12 @@ namespace StreamDuel.Cli
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
+                if (option == "--lan-list")
+                {
+                    if (options.LanList) throw new ArgumentException("--lan-list 不能重复指定。");
+                    options.LanList = true;
+                    continue;
+                }
                 if (option == "--auto")
                 {
                     options.Auto = true;
@@ -69,7 +77,7 @@ namespace StreamDuel.Cli
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--pack-dir"
-                    && option != "--host" && option != "--join")
+                    && option != "--host" && option != "--join" && option != "--lan-host")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -77,6 +85,12 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--lan-host":
+                        if (options.LanHostName != null) throw new ArgumentException("--lan-host 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
+                            throw new ArgumentException("--lan-host 需要非空房名，不能含换行或控制字符。");
+                        options.LanHostName = value;
+                        break;
                     case "--report":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--report 需要非空的战报文件路径。");
@@ -132,6 +146,11 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            if (options.LanList && !options.Help && args.Any(value => value != "--lan-list"))
+                throw new ArgumentException("--lan-list 是独立的 5 秒搜索操作，不能与其他对战或内容包参数同时使用。");
+            if (options.LanHostName != null && options.JoinHost != null)
+                throw new ArgumentException("--lan-host 与 --join 不能同时使用，请选择开房或加入房间。");
+            if (options.LanHostName != null && !options.HostPort.HasValue) options.HostPort = 0;
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
             if (options.Network && !options.Help)
