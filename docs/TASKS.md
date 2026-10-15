@@ -52,7 +52,7 @@
 - **代码**：新命令行工程 `Tools/Sim/Sim.csproj`（net8.0，引用 Engine），`dotnet run --project Tools/Sim -- --pack original --games 5000` 输出每位主播的出场胜率、平均回合数、各技能使用率，按胜率排序，CSV 打到标准输出。
 - **验收**：能跑；同一参数两次输出一致（固定种子）；README 加一行用法。不需要单元测试。
 
-### ⬜ T-05 给界面用的预览：伤害范围和先手预测
+### ✅ T-05 给界面用的预览：伤害范围和先手预测
 
 - 新文件 `Core/Preview.cs`：`PreviewDamage(side, skillIndex)` 返回 Min/Max/Eff/Notes，`PreviewOrder(a0, a1)` 返回 First/Reason。**不得消耗随机数。**
 - **验收**：移入 `Pending/T05_PreviewTests.cs`，通过。
