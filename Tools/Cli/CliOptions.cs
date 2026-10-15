@@ -20,6 +20,8 @@ namespace StreamDuel.Cli
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
+        public double? TurnSeconds;
+        public double? BankSeconds;
         public bool Auto;
         public bool Ban;
         public bool Lead;
@@ -69,7 +71,7 @@ namespace StreamDuel.Cli
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--pack-dir"
-                    && option != "--host" && option != "--join")
+                    && option != "--host" && option != "--join" && option != "--timer")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -77,6 +79,19 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--timer":
+                        if (options.TurnSeconds.HasValue) throw new ArgumentException("--timer 不能重复指定。");
+                        var timer = value.Split(',');
+                        double turnSeconds, bankSeconds;
+                        if (timer.Length != 2 || value.Any(char.IsWhiteSpace)
+                            || !double.TryParse(timer[0], NumberStyles.Float, CultureInfo.InvariantCulture, out turnSeconds)
+                            || !double.TryParse(timer[1], NumberStyles.Float, CultureInfo.InvariantCulture, out bankSeconds)
+                            || double.IsNaN(turnSeconds) || double.IsInfinity(turnSeconds) || turnSeconds < 0
+                            || double.IsNaN(bankSeconds) || double.IsInfinity(bankSeconds) || bankSeconds < 0)
+                            throw new ArgumentException("--timer 必须是逗号分隔的两个有限非负秒数，例如 10,30；不允许空项或空格。");
+                        options.TurnSeconds = turnSeconds;
+                        options.BankSeconds = bankSeconds;
+                        break;
                     case "--report":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--report 需要非空的战报文件路径。");
@@ -148,6 +163,8 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.Hash && !options.Help)
                 throw new ArgumentException("--replay 不支持 --hash；回看按保存的日志播放，不提供历史逐回合状态哈希。");
+            if (options.ReplayFile != null && options.TurnSeconds.HasValue && !options.Help)
+                throw new ArgumentException("--replay 不支持 --timer；回放使用已保存的选择，不重新计时。");
             return options;
         }
 

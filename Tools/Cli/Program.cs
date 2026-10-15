@@ -48,6 +48,9 @@ namespace StreamDuel.Cli
                 PrintTeams(battle);
                 int logIndex = 0;
                 PrintNewLog(battle, ref logIndex);
+                var clock = options.TurnSeconds.HasValue
+                    ? new TurnClock(options.TurnSeconds.Value, options.BankSeconds.Value) : null;
+                var input = new ConsoleInput();
 
                 while (battle.Phase != Phase.Over)
                 {
@@ -101,6 +104,12 @@ namespace StreamDuel.Cli
                     PrintFighter(battle, 0);
                     if (battle.Phase == Phase.Replace)
                     {
+                        if (clock != null)
+                        {
+                            if (!ReadTimedReplacements(battle, options, clock, input)) return Quit();
+                            PrintNewLog(battle, ref logIndex);
+                            continue;
+                        }
                         for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
                         {
                             if (!battle.Need[side]) continue;
@@ -119,14 +128,23 @@ namespace StreamDuel.Cli
                     }
 
                     BattleAction action;
-                    if (options.Auto) action = Ai.Choose(battle, 0, options.Level);
+                    BattleAction foeAction;
+                    if (clock != null)
+                    {
+                        if (!ReadTimedActions(battle, options, clock, input, out action, out foeAction)) return Quit();
+                    }
+                    else if (options.Auto)
+                    {
+                        action = Ai.Choose(battle, 0, options.Level);
+                        foeAction = Ai.Choose(battle, 1, options.Level);
+                    }
                     else
                     {
                         var choice = ReadAction(battle);
                         if (!choice.HasValue) return Quit();
                         action = choice.Value;
+                        foeAction = Ai.Choose(battle, 1, options.Level);
                     }
-                    var foeAction = Ai.Choose(battle, 1, options.Level);
                     int resolvedTurn = battle.Turn;
                     battle.ResolveTurn(action, foeAction);
                     PrintNewLog(battle, ref logIndex);
@@ -155,6 +173,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定时自动建议，电脑先选剩余再补齐。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
+            Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
@@ -166,8 +186,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
-            Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
-            Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
+            Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
+            Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash、--timer 同用，其他对战/存档参数不改变记录，也不写存档。");
             Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
         }
 
