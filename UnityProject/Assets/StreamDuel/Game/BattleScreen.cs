@@ -255,13 +255,15 @@ namespace StreamDuel.Game
                 if (GUI.Button(new Rect(px, 62, size.x + 8, 30), on ? C(label, Accent) : C(label, Muted), sChip) && !on) { var id = kv.Key; Do(() => LoadPack(id)); }
                 px += size.x + 16;
             }
-            GUI.Label(new Rect(px + 6, 66, 1100 - px, 30), "选 6 位，先后顺序就是 1 到 6 号位；没选的 6 位归电脑。", sSmall);
+            GUI.Label(new Rect(px + 6, 66, 1100 - px, 30), "选 6 位，先后顺序就是 1 到 6 号位；电脑优先用你没选的主播。", sSmall);
             if (GUI.Button(new Rect(1150, 18, 120, 40), "随机挑选", sBtn)) Do(RandomPick);
             if (GUI.Button(new Rect(1280, 18, 90, 40), "清空", sBtn)) Do(() => { pick.Clear(); SavePick(); });
             GUI.enabled = pick.Count == 6;
             if (GUI.Button(new Rect(1380, 18, 196, 40), C("开播！（" + pick.Count + "/6）", pick.Count == 6 ? Accent : Muted), sBtn))
             {
-                var foe = db.Streamers.Select(s => s.Id).Where(id => !pick.Contains(id)).OrderBy(_ => Random.value).ToList();
+                // 名单不足 12 位时，电脑先用你没选的，不够再从你选的里补（同一位主播可以双方都有）
+                var foe = db.Streamers.Select(s => s.Id).Where(id => !pick.Contains(id)).OrderBy(_ => Random.value)
+                    .Concat(pick.OrderBy(_ => Random.value)).Take(6).ToList();
                 var mine = pick.ToList();
                 Do(() => StartBattle(new[] { mine, foe }));
             }

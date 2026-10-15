@@ -66,6 +66,29 @@ public class BattleTests
     }
 
     [Fact]
+    public void AsoulVrPackLoadsAndAllowsMirrorTeams()
+    {
+        var fan = Load("fan_asoul_vr");
+        Assert.Equal(7, fan.Streamers.Count);
+        Assert.Contains("非官方同人作品", fan.PackNotice);
+        var ids = fan.Streamers.Select(s => s.Id).ToArray();
+        var rnd = new Random(5);
+        for (int i = 0; i < 200; i++)
+        {
+            var t0 = ids.OrderBy(_ => rnd.Next()).Take(6).ToList();
+            var t1 = ids.OrderBy(_ => rnd.Next()).Take(6).ToList();
+            var b = new Battle(fan, new System.Collections.Generic.IList<string>[] { t0, t1 }, new[] { "A", "B" }, (uint)i);
+            int guard = 0;
+            while (b.Phase != Phase.Over && guard++ < 500)
+            {
+                if (b.Phase == Phase.Choose) b.ResolveTurn(Ai.Choose(b, 0), Ai.Choose(b, 1));
+                else for (int s = 0; s < 2; s++) if (b.Need[s]) b.Replace(s, Ai.ChooseReplacement(b, s));
+            }
+            Assert.Equal(Phase.Over, b.Phase);
+        }
+    }
+
+    [Fact]
     public void ThousandAiBattlesFinishWithoutErrors()
     {
         var w = RunMany(Db, 1000);

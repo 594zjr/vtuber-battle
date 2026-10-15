@@ -14,7 +14,7 @@
    - 如果 `D:\vtuber-battle` 不存在：`git clone https://github.com/594zjr/vtuber-battle D:\vtuber-battle`。
    - 如果它已存在但不是 git 仓库（之前从压缩包解压的），或者 `git remote get-url origin` 不是上面这个地址：把它改名为 `D:\vtuber-battle.zip-old`（不要删除），然后执行上面的 clone。
    - 如果它已经是这个仓库：`git checkout main` 然后 `git pull origin main`。
-4. 在 `D:\vtuber-battle` 里运行 `dotnet test Engine.Tests`，应该显示 13 项全部通过。不通过就停下来，把输出原样告诉我，不要改代码去迁就。
+4. 在 `D:\vtuber-battle` 里运行 `dotnet test Engine.Tests`，应该显示全部通过（Failed: 0）。不通过就停下来，把输出原样告诉我，不要改代码去迁就。
 5. 检查这台电脑是否装了 Unity（看 Unity Hub 和 `C:\Program Files\Unity\Hub\Editor\` 下的版本文件夹），把结果和版本号告诉我。**不要自己安装 Unity。**
 6. 读仓库根目录的 `AGENTS.md`、`docs/design.md`、`docs/TASKS.md`。之后所有工作都按 AGENTS.md 的规则来。
 

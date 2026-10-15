@@ -202,7 +202,7 @@ namespace StreamDuel.Core
                     if (e.Field != null && !Fields.ContainsKey(e.Field)) throw new KeyError("技能 " + sk.Id + " 用到不存在的效果：" + e.Field);
                 }
             }
-            if (Streamers.Count < 12) throw new KeyError("内容包至少需要 12 位主播（双方各 6 位），现在只有 " + Streamers.Count + " 位");
+            if (Streamers.Count < 6) throw new KeyError("内容包至少需要 6 位主播（一队 6 位），现在只有 " + Streamers.Count + " 位");
             foreach (var s in Streamers)
             {
                 if (!Types.ContainsKey(s.Type)) throw new KeyError("主播 " + s.Id + " 的赛道不存在");
