@@ -168,6 +168,33 @@
 
 对双赛道主播造成技能伤害时，克制倍率为该技能对两个防守赛道的倍率之积；例如两次克制为 ×4，两次被克为 ×0.25，一次克制和一次被克为 ×1。同赛道加成在技能赛道等于攻击方任一赛道时生效，仍为 ×1.5，且只计算一次。技能本身仍只有一个赛道；固定伤害不受赛道倍率影响。伤害预览和电脑对手的对位判断遵循同一规则。
 
+### 4.1 赛道的无障碍展示
+
+`types.<id>` 增加可选的 `symbol` 和 `colorAlt`，分别映射到 `TypeDef.Symbol` 与 `ColorAlt`。符号为简单字符，配色为 `#RRGGBB`；内置八赛道各有不同符号，界面应同时显示名称和符号，不只靠颜色区分。旧数据缺省、null、空白或非字符串值时，符号回退为 `●`、备用颜色回退为原 `Color`；手工创建 `TypeDef` 时也有相同回退。旧内容仅能保证可显示，不自动获得内置配色的色差保证。
+
+| 赛道 id | 名称 | symbol | colorAlt |
+|---|---|---|---|
+| song | 歌回 | ♪ | `#ffb0ff` |
+| game | 游戏 | ▲ | `#d09000` |
+| talk | 杂谈 | ● | `#90f0b0` |
+| art | 绘画 | ◆ | `#fff030` |
+| meme | 整活 | ★ | `#c070ff` |
+| asmr | 助眠 | ≈ | `#30a0a0` |
+| horror | 恐怖 | × | `#90a080` |
+| tech | 硬核 | ■ | `#f0ffff` |
+
+配色回归先将 sRGB 用 0.04045 分段转成线性 RGB，再应用 Machado 的红色弱、绿色弱、蓝色弱 severity=1.0 矩阵，逐通道夹到 [0,1]，转为 D65 CIELAB，计算 CIEDE2000（kL=kC=kH=1）。矩阵固定为[作者 2010 学位论文附录 A、表 A.1](https://www.inf.ufrgs.br/~oliveira/students_dissertations/Masters/Gustavo_Machado_Masters_thesis_UFRGS_2010.pdf)的三位小数值，代码在 `T109_ColorblindPaletteTests.cs`；普通视力使用单位矩阵。色差实现用 [Sharma 等作者的 34 对参考值](https://hajim.rochester.edu/ece/sites/gsharma/ciede2000/dataNprograms/ciede2000testdata.txt)校准，正反向误差均不超过 0.00005。
+
+选色前固定的项目门槛为每种模拟下全部 28 对赛道 **ΔE00 > 10**；普通视力也检查相同门槛。当前最小值分别为普通 18.675343、红色弱 17.006853、绿色弱 16.691924、蓝色弱 16.137005。测试辅助另用 [WCAG 相对亮度对比度公式](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)检查备用色相对主题背景 `#0c1124`、面板 `#151c38`、抬高面板 `#1c2549`：普通和三种模拟后均 **≥4.5:1**，全局最低为 4.509045。模拟时前景、背景都变换；颜色若作色块背景，应配深色文字（如 `#0c1124`），不能直接套用主题的浅色文字。
+
+ΔE00 门槛是项目的工程回归约束，不是所有玩家、屏幕或字号都能辨识的保证，也不构成整个界面符合 WCAG 的结论。尤其蓝色弱矩阵采用光谱偏移近似，原模型不声称准确覆盖完全蓝色盲；名称与独特符号始终是必要的冗余标记。实际画面仍须检查符号字体覆盖、大小、间距和真实显示效果。
+
+`GameSettings.ColorblindMode` 默认 false；true 时选用备用配色，false 时仍用完全不变的原配色。`BattleViewModel.From(battle, viewerSide, settings)` 在生成快照时读取一次模式；两参入口及 null 设置均按默认模式。`FighterView.TrackViews` 按主、副赛道顺序提供独立 `TrackView`（`Id`、`Name`、`Symbol`、当前 `Color`），单赛道只有一项；`SkillView.TrackSymbol`、`TrackColor` 提供相同语义。原有 `FighterView.Tracks` 与 `SkillView.Track` 中文文字保持不变。改设置后需重新生成快照，已经返回的快照不会随设置或内容对象改变。
+
+同屏 `HotseatSession.ViewFor`、联网 `NetSession.ViewFor` 和回看 `ReplayCursor.View` 均提供 `(viewerSide, settings)` 重载，原单参数入口保留默认配色。此任务提供数据和视图接口；Unity 画面任务接入设置开关和这些字段后才能显示色弱模式，不把已有画面称为已完成无障碍验收。
+
+`symbol`、`colorAlt` 和本地开关只影响展示，不参与伤害、先手、随机流、日志、状态哈希或录像格式。为兼容已有录像，新增两项展示元数据不进入 `ContentHash()`，原 `Color`、名称等既有指纹字段保持原编码。混合内容包复制这两项，并单独比较来源规则基线和当前定义中的值；不一致时按共用规则冲突拒绝合并，不能静默挑一个来源的符号或配色。
+
 ## 5. 状态与直播间效果
 
 ### 5.1 状态
@@ -442,7 +469,7 @@ CLI 用 `--packs original,fan_asoul_vr` 选择至少两个原始包 id，与 `--
 
 迁移期间保留 `BattleScreen.cs` 的 Unity 即时 GUI（IMGUI）对战，内容区域以 1600×900 等比缩放。打开工程按 Play 即可，`GameBoot` 自动创建画面。
 
-T-59 起由 `GameBoot` 创建一个 `UIDocument` 与 `ScreenRouter`，默认仍显示可玩的 IMGUI；顶部菜单进入 UI Toolkit 占位界面，返回时继续同一局。新界面分别位于 `Game/Screens/` 的独立子目录，实现 `IScreen` 的 Build/Tick/Dispose，通过 `Show(screenId, args)` 的参数对象传数据。切换时解绑回调并释放旧页面；菜单显示期间停用旧界面的输入和计时。新面板以 1920×1080 为参考，宽高各占一半缩放权重；两套画面均使用随工程提供的 Noto Sans SC Regular/Bold，不再依赖系统字体。主题基本颜色与三档字号在 `UI/Theme.uss`，赛道颜色直接读取 `TypeDef.Color`。
+T-59 起由 `GameBoot` 创建一个 `UIDocument` 与 `ScreenRouter`，默认仍显示可玩的 IMGUI；顶部菜单进入 UI Toolkit 占位界面，返回时继续同一局。新界面分别位于 `Game/Screens/` 的独立子目录，实现 `IScreen` 的 Build/Tick/Dispose，通过 `Show(screenId, args)` 的参数对象传数据。切换时解绑回调并释放旧页面；菜单显示期间停用旧界面的输入和计时。新面板以 1920×1080 为参考，宽高各占一半缩放权重；两套画面均使用随工程提供的 Noto Sans SC Regular/Bold，不再依赖系统字体。主题基本颜色与三档字号在 `UI/Theme.uss`；旧画面赛道颜色直接读取 `TypeDef.Color`，接入色弱模式时改用 4.1 的模式视图字段。
 
 `BattleStage` 仅提供具名显示节点：双方 `fighter-0` / `fighter-1`，各含 `portrait`、`hp-bar`、`status-row`；覆盖层 `fx-layer` / `float-layer` 与 `field-banner`。动画、技能特效、状态图标、头像分别通过 `IBattleAnimator`、`IFxPlayer`、`IStatusIconProvider`、`IPortraitProvider` 替换；当前默认实现为空动画、空特效、文字图标及按赛道颜色生成的纯色头像，不推导战斗规则。Input System 使用编辑器推荐的 1.20.1，迁移期间以 Both 保留旧 IMGUI 的运行时输入，T-67 移除旧画面后再切为 New。
 
@@ -473,6 +500,8 @@ T-59 起由 `GameBoot` 创建一个 `UIDocument` 与 `ScreenRouter`，默认仍�
 ### 8.2 本地设置与存档
 
 `FileSaveStore` 在调用方指定的本机根目录保存设置、档案和回放，不上传数据。设置缺失或 JSON 损坏时使用默认值，旧版本补齐字段并升级为当前版本。命令行沿用 `--save-dir`，Unity 使用 `Application.persistentDataPath`，首次缺少设置文件时迁移原 PlayerPrefs；冒烟验收只使用内存设置，不读写玩家设置存档。正常设置读写失败时保留本次内存选择并显示提示；读取失败后不自动写回默认值覆盖原文件。
+
+设置的可选布尔字段 `colorblindMode` 对应色弱配色开关。缺省、null 或错误类型均为 false；true 序列化为 `"colorblindMode":true`，false 省略此可选字段，保持旧默认设置 JSON 和版本 1 兼容。显式 false 也可读取，开关可通过 `FileSaveStore` 保存和恢复。
 
 回放名称只允许 ASCII 字母、数字、下划线和连字符，并拒绝系统设备名。管理范围包括旧自动命名回放、可解析的自定义名称对战记录，以及通过 `SaveReplay` 保存并由隐藏索引登记内容摘要的其它载荷；未登记且不是对战记录的外来 JSON 不参与清理。所有管理的回放按修改时间倒序排列，合计最多保留 50 份；覆盖保存成为最新一份。索引损坏或内容摘要不匹配不能作为删除外来文件的依据。暂时不可读且无法确认的文件不列出或删除，已有摘要登记保留，解锁后的下次保存重新纳入清理。
 
@@ -621,6 +650,8 @@ T-53 引入风格配置时保留了未配置风格者的原有选择和随机数
 `ContentDb.ContentHash()` 对加载、合并和改名后的内容计算 FNV-1a 64 位指纹，返回 16 位小写十六进制。范围包括包 id/名称/声明、属性与类别名称、赛道与克制表、状态、直播间效果、人设、技能（含硬撑）、主播、赛季限制，以及这些定义的全部显示文字和数值。字典按 ordinal 键顺序、主播按 ordinal id 顺序写入；技能槽、效果和赛季列表保留原顺序。字符串采用 UTF-8 长度前缀，null 与空串区分；整数和 IEEE-754 双精度值固定小端序，布尔使用单字节，各集合包含数量。每次调用重新读取当前内容，不缓存可变定义。指纹用于内容一致性检查，不用于安全认证；`Tools/PackCheck` 在检查和列出内容包时显示它。
 
 内容指纹编码以字符串 `StreamDuel.Content.v1` 为前缀，FNV 初值和质数与下述状态哈希相同。整数及长度为 4 字节，双精度值为 8 字节；null 字符串或集合长度为 -1，每个定义对象先写入存在标记。JSON 空白、对象键排列和等价的省略默认值不影响指纹；技能槽及效果顺序影响指纹。
+
+T-109 新增的赛道 `symbol`、`colorAlt` 是上述显示字段范围的明确例外，采用 4.1 的展示兼容约定；不改变已经纳入指纹的原赛道颜色、名称或其它字段，也不放宽录像的内容一致性检查。
 
 行动编码为 `S0`～`S4`（技能）、`W0`～`W5`（换人）、`P`（跳过）或 `Q`（投降），区分大小写且不允许空白或额外字符。硬撑和受控跳过仍由 `Normalize` 派生，不作为发送的行动编码。`Q` 仅用于已启用终止功能的公开输入接口，网络会话将它转为 10.4 的控制请求，不接受把 `Q` 塞入旧承诺/公开消息。
 

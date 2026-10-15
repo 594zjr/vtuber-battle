@@ -5,14 +5,14 @@
   "categories": { "interact": "互动", "talent": "才艺", "status": "状态" },
 
   "types": {
-    "song":   { "name": "歌回", "color": "#ff7fb6" },
-    "game":   { "name": "游戏", "color": "#ff8a3d" },
-    "talk":   { "name": "杂谈", "color": "#5fd08a" },
-    "art":    { "name": "绘画", "color": "#ffd166" },
-    "meme":   { "name": "整活", "color": "#c7a6ff" },
-    "asmr":   { "name": "助眠", "color": "#5cc6ff" },
-    "horror": { "name": "恐怖", "color": "#9b7dff" },
-    "tech":   { "name": "硬核", "color": "#9db4c9" }
+    "song":   { "name": "歌回", "color": "#ff7fb6", "symbol": "♪", "colorAlt": "#ffb0ff" },
+    "game":   { "name": "游戏", "color": "#ff8a3d", "symbol": "▲", "colorAlt": "#d09000" },
+    "talk":   { "name": "杂谈", "color": "#5fd08a", "symbol": "●", "colorAlt": "#90f0b0" },
+    "art":    { "name": "绘画", "color": "#ffd166", "symbol": "◆", "colorAlt": "#fff030" },
+    "meme":   { "name": "整活", "color": "#c7a6ff", "symbol": "★", "colorAlt": "#c070ff" },
+    "asmr":   { "name": "助眠", "color": "#5cc6ff", "symbol": "≈", "colorAlt": "#30a0a0" },
+    "horror": { "name": "恐怖", "color": "#9b7dff", "symbol": "×", "colorAlt": "#90a080" },
+    "tech":   { "name": "硬核", "color": "#9db4c9", "symbol": "■", "colorAlt": "#f0ffff" }
   },
 
   "chart": {

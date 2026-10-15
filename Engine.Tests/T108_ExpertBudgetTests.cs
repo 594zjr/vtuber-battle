@@ -296,6 +296,27 @@ public class T108_ExpertBudgetTests
         Assert.Equal(before, Snapshot(battle));
     }
 
+    [Theory]
+    [InlineData(9)]
+    [InlineData(10)]
+    [InlineData(11)]
+    public void IncompleteSecondLayerCannotCompeteWithTheOnlyCompletedExpansion(int limit)
+    {
+        var battle = QuietBattle(usable: 2);
+        string before = Snapshot(battle);
+        ulong hash = battle.StateHash();
+        var expectedRng = battle.Clone();
+        var decision = Ai.ChooseExpert(battle, 0, new ExpertBudget(limit));
+        // 首层并列时，只有第一个候选已完成全部扩展，不能拿第二个的浅层分数参与抽签。
+        Assert.Equal(ActionType.Skill, decision.Action.Type);
+        Assert.Equal(0, decision.Action.Index);
+        Assert.Equal(limit, decision.SimulatedNodes);
+        Assert.True(decision.BudgetExhausted);
+        Assert.Equal(before, Snapshot(battle));
+        Assert.Equal(hash, battle.StateHash());
+        Assert.Equal(expectedRng.Random(), battle.Random());
+    }
+
     [Fact]
     public void UnlimitedEquivalentChoicesKeepOriginalCandidateOrderAndOneTieBreakingRandomDraw()
     {

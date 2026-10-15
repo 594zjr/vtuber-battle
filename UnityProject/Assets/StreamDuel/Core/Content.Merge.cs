@@ -72,7 +72,10 @@ namespace StreamDuel.Core
 
             foreach (var source in ordered)
             {
-                if (source.mergeRules.ContentHash() != baselineHash || source.RulesForMerge().ContentHash() != currentRulesHash)
+                var sourceRules = source.RulesForMerge();
+                if (source.mergeRules.ContentHash() != baselineHash || sourceRules.ContentHash() != currentRulesHash
+                    || !SameTrackDisplay(ordered[0].mergeRules, source.mergeRules)
+                    || !SameTrackDisplay(result, sourceRules))
                     throw new KeyError("合并内容包的共用规则不一致：" + source.PackId);
                 CollectAliases(skillAliases, source.mergeSkillAliases, "技能");
                 CollectAliases(fieldAliases, source.mergeFieldAliases, "直播间效果");
@@ -127,6 +130,14 @@ namespace StreamDuel.Core
                 && left.DisabledStreamers.SequenceEqual(right.DisabledStreamers)
                 && left.Reasons.Count == right.Reasons.Count
                 && left.Reasons.All(p => right.Reasons.TryGetValue(p.Key, out string value) && p.Value == value);
+        }
+
+        static bool SameTrackDisplay(ContentDb left, ContentDb right)
+        {
+            // 无障碍标记不改变旧录像指纹，但混合包不能静默采用某一来源的不同标记。
+            return left.Types.Count == right.Types.Count && left.Types.All(p =>
+                right.Types.TryGetValue(p.Key, out var type)
+                && p.Value.Symbol == type.Symbol && p.Value.ColorAlt == type.ColorAlt);
         }
 
         static void CollectAliases(Dictionary<string, string> destination, Dictionary<string, string> source, string category)
@@ -205,7 +216,7 @@ namespace StreamDuel.Core
             {
                 PackId = PackId, PackName = PackName, PackNotice = PackNotice, Policy = Policy,
                 StatNames = new Dictionary<string, string>(StatNames), CatNames = new Dictionary<string, string>(CatNames),
-                Types = Types.ToDictionary(p => p.Key, p => new TypeDef { Id = p.Value.Id, Name = p.Value.Name, Color = p.Value.Color }),
+                Types = Types.ToDictionary(p => p.Key, p => p.Value.Copy()),
                 Chart = Chart.ToDictionary(p => p.Key, p => new Dictionary<string, double>(p.Value)),
                 Statuses = Statuses.ToDictionary(p => p.Key, p => CopyStatus(p.Value)),
                 Fields = Fields.ToDictionary(p => p.Key, p => CopyField(p.Value)),
