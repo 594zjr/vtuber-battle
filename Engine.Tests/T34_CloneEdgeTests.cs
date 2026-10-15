@@ -176,6 +176,26 @@ public class T34_CloneEdgeTests
     }
 
     [Theory]
+    [InlineData(1, null)]
+    [InlineData(2, "saved-content-fingerprint")]
+    public void ClonePreservesRecordVersionAndSavedFingerprintWithoutRecomputingThem(int version, string fingerprint)
+    {
+        var battle = Make();
+        battle.Record.Version = version;
+        battle.Record.ContentHash = fingerprint;
+
+        var clone = battle.Clone();
+
+        EqualBattle(battle, clone);
+        Assert.Equal(version, clone.Record.Version);
+        Assert.Equal(fingerprint, clone.Record.ContentHash);
+        clone.Record.Version = 99;
+        clone.Record.ContentHash = "changed";
+        Assert.Equal(version, battle.Record.Version);
+        Assert.Equal(fingerprint, battle.Record.ContentHash);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void PartiallyConfirmedBanCanFinishIndependentlyWithOrWithoutLeadSelection(bool lead)

@@ -5,7 +5,8 @@
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
-// BattleRecord：Seed、PackId、LeadPick、BanOne、Names、Teams、Events；事件：Type、A0、A1、Side、To、RngState。
+// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Names、Teams、Events；
+// 事件：Type、A0、A1、Side、To、RngState。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
 using System;
 using System.Collections.Generic;
@@ -125,6 +126,8 @@ namespace StreamDuel.Core
         {
             var copy = new BattleRecord
             {
+                Version = source.Version,
+                ContentHash = source.ContentHash,
                 Seed = source.Seed,
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
