@@ -169,6 +169,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
             Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
             Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
+            Console.WriteLine("联网终局校验通过后更新默认赛制的本机排位分和段位；双方分数为自报，无防作弊。离线对局、回看和中途退出不计排位。");
         }
 
         private static string LevelName(AiLevel level)

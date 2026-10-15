@@ -13,6 +13,7 @@ namespace StreamDuel.Cli
     {
         static int PlayNetwork(ContentDb db, IList<string> team, CliOptions options)
         {
+            var rating = ProfileStore.LoadRating(options.SaveDir);
             TcpTransport connection;
             bool host = options.HostPort.HasValue;
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
@@ -36,7 +37,7 @@ namespace StreamDuel.Cli
 
             using (connection)
             {
-                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null);
+                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null, rating);
                 Console.WriteLine("等待对手握手……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
@@ -49,6 +50,8 @@ namespace StreamDuel.Cli
                 CheckNetwork(session);
                 var battle = session.Battle;
                 Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
+                Console.WriteLine("本方自报排位分：" + rating.Rating + "；对手自报排位分：" + session.OpponentRating.Rating
+                    + "（仅用于本机显示，无防作弊）");
                 PrintTeams(battle);
                 int logIndex = 0;
                 int hashEventCount = -1;
@@ -97,7 +100,7 @@ namespace StreamDuel.Cli
                 }
                 FinishNetwork(session, connection);
                 Console.WriteLine("最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-                return SaveCompletedBattle(battle, options, session.MySide);
+                return SaveCompletedBattle(battle, options, session.MySide, session.OpponentRating);
             }
         }
 
@@ -152,7 +155,7 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null)
         {
             Console.WriteLine();
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
@@ -181,9 +184,15 @@ namespace StreamDuel.Cli
                 replayWarning = "回放保存失败：" + ex.Message;
             }
             if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
-            var profile = ProfileStore.Record(battle, options.SaveDir, mySide);
+            var profile = ProfileStore.Record(battle, options.SaveDir, mySide, opponentRating);
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
+            if (opponentRating != null)
+            {
+                var rating = profile.Ratings[Profile.DefaultRatingFormat];
+                Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
+                    + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+            }
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
             return replayWarning == null && !reportFailed ? 0 : 1;
         }

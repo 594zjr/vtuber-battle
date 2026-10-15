@@ -37,12 +37,18 @@ namespace StreamDuel.Core
         }
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed)
+            : this(db, t, host, myTeam, myName, seed, null)
+        {
+        }
+
+        public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed, PlayerRating rating)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             MySide = host ? 0 : 1;
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
+            string ratingMetadata = WriteRatingHello(rating);
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
             var errors = TeamCheck.Validate(db, null, this.myTeam);
@@ -57,7 +63,7 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + ratingMetadata + "}");
         }
 
         public void Poll()
@@ -181,7 +187,9 @@ namespace StreamDuel.Core
             teams[1 - MySide] = team;
             names[MySide] = myName;
             names[1 - MySide] = name;
+            var peerRating = ReadRatingHello(obj);
             Battle = new Battle(db, teams, names, sharedSeed);
+            opponentRating = peerRating;
             rngCheckpoint = Battle.NetRngState;
             BeginPhase();
         }
