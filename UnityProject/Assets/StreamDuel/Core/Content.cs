@@ -54,7 +54,7 @@ namespace StreamDuel.Core
 
     public sealed class StreamerDef
     {
-        public string Id, Name, Type, Type2, Persona, Fifth, Blurb, Org;
+        public string Id, Name, Type, Type2, Persona, Fifth, Blurb, Org, AiStyle;
         public Dictionary<string, int> Stats = new Dictionary<string, int>();
         public List<string> Skills = new List<string>();
     }
@@ -139,10 +139,13 @@ namespace StreamDuel.Core
             foreach (var item in (List<object>)pack["streamers"])
             {
                 var o = (Dictionary<string, object>)item;
-                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Type2 = Str(o, "type2"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org") };
+                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Type2 = Str(o, "type2"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org"), AiStyle = Str(o, "aiStyle") };
                 object secondType;
                 if (o.TryGetValue("type2", out secondType) && secondType != null && !(secondType is string))
                     throw new KeyError("主播 " + s.Id + " 的第二赛道 type2 必须是赛道 id 或 null");
+                object aiStyle;
+                if (o.TryGetValue("aiStyle", out aiStyle) && aiStyle != null && !(aiStyle is string))
+                    throw new KeyError("主播 " + s.Id + " 的电脑风格 aiStyle 必须是字符串或 null");
                 foreach (var st in Obj(o, "stats"))
                 {
                     if (!(st.Value is double value) || double.IsNaN(value) || double.IsInfinity(value)
@@ -307,6 +310,8 @@ namespace StreamDuel.Core
                     if (!Types.ContainsKey(s.Type2)) throw new KeyError("主播 " + s.Id + " 的第二赛道不存在：" + s.Type2);
                     if (s.Type2 == s.Type) throw new KeyError("主播 " + s.Id + " 的第二赛道不能与主赛道相同：" + s.Type2);
                 }
+                if (s.AiStyle != null && AiStyles.Get(s.AiStyle) == null)
+                    throw new KeyError("主播 " + s.Id + " 的电脑风格 aiStyle 不存在：" + s.AiStyle);
                 if (!Personas.ContainsKey(s.Persona)) throw new KeyError("主播 " + s.Id + " 的人设不存在：" + s.Persona);
                 if (s.Skills.Count != 4) throw new KeyError("主播 " + s.Id + " 需要正好 4 个普通技能");
                 foreach (var k in s.Skills) if (!Skills.ContainsKey(k)) throw new KeyError("主播 " + s.Id + " 的技能不存在：" + k);

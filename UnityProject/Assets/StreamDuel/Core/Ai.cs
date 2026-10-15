@@ -157,7 +157,7 @@ namespace StreamDuel.Core
 
         public static BattleAction Choose(Battle b, int s)
         {
-            return ChooseNormal(b, s, AiWeights.Default);
+            return ChooseNormal(b, s, StyleWeights(b, s) ?? AiWeights.Default);
         }
 
         static BattleAction ChooseNormal(Battle b, int s, AiWeights w)
@@ -171,61 +171,13 @@ namespace StreamDuel.Core
             }
             if (L.Struggle) return new BattleAction { Type = ActionType.Struggle };
             double threat = Threat(b, s);
-            bool foeLocked = b.ControlOf(f) != null || f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneControl);
-            bool foeWeakImmune = f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneWeak);
             double bestV = double.MinValue; BattleAction best = BattleAction.Pass();
             foreach (var o in L.Skills)
             {
                 if (!o.Usable) continue;
                 var sk = b.Db.Skills[o.Id];
                 bool goFirst = o.Prio.Value > 0 || (o.Prio.Value == 0 && b.StatVal(p, "spd") > b.StatVal(f, "spd"));
-                double v = 0;
-                if (sk.Power > 0)
-                {
-                    double est = Estimate(b, s, sk, goFirst) / Math.Max(1, f.Hp);
-                    v = est >= 1 ? w.KnockoutScore + (goFirst ? w.FirstKnockoutBonus : 0) : est;
-                    if (threat >= 1 && goFirst && est >= 1) v += w.ThreatenedFirstKnockoutBonus;
-                }
-                foreach (var e in sk.Effects)
-                {
-                    double ch = e.Chance / 100.0;
-                    switch (e.Code)
-                    {
-                        case "STATUS":
-                            if (e.Target != "foe") break;
-                            if (b.Db.Statuses[e.Status].IsControl) { if (!foeLocked) v += w.ControlStatusScore * ch; }
-                            else if (!foeWeakImmune && !f.HasStatus(e.Status)) v += w.WeakStatusScore * ch;
-                            break;
-                        case "STAGE":
-                            if (e.Target == "self")
-                            {
-                                int up = e.Changes.Count(kv => kv.Value > 0 && p.Stages[kv.Key] < w.StageBoostTarget);
-                                if (up > 0 && p.HpRatio > w.StageMinHpRatio && threat < w.StageMaxThreatRatio) v += w.StageScore * up;
-                            }
-                            else if (sk.Power == 0) v += w.FoeStageScore;
-                            break;
-                        case "HEAL": if (p.HpRatio < w.HealMaxHpRatio) v += (1 - p.HpRatio) * w.HealMissingHpScore; break;
-                        case "FIELD": v += FieldValue(b, s, e, threat, goFirst, w) * ch; break;
-                        case "DISPEL_TURNS":
-                            v += f.Fields.Where(x => b.Db.Fields[x.Id].Dispel)
-                                .Sum(x => b.Db.Fields[x.Id].PreventSwitch ? w.DispelTrapScore : w.DispelFieldScore);
-                            break;
-                        case "DISPEL_BOOST": v += w.DispelBoostScore * f.Stages.Values.Count(x => x > 0); break;
-                        case "STEAL_BOOST":
-                        {
-                            if (e.Target != "foe") break;
-                            string why;
-                            if (!b.CondMet(p, f, goFirst ? Node.First : Node.Second, e.Cond, out why)) break;
-                            foreach (var stage in f.Stages.Where(kv => kv.Value > 0))
-                            {
-                                int gain = Math.Min(stage.Value, b.StageLimit - p.Stages[stage.Key]);
-                                v += (w.StealBoostBaseScore + w.StealBoostPerStageScore * gain) * ch;
-                            }
-                            break;
-                        }
-                        case "CLEANSE": if (p.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) v += w.CleanseScore; break;
-                    }
-                }
+                double v = NormalSkillScore(b, s, sk, goFirst, threat, w);
                 v += b.Random() * w.RandomScoreRange;
                 if (v > bestV) { bestV = v; best = BattleAction.Skill(o.Index); }
             }
@@ -235,6 +187,70 @@ namespace StreamDuel.Core
                 if (Matchup(b, s, c, w) > Matchup(b, s, b.Sides[s].Active, w) + w.SwitchMinMatchupGain && b.Random() < w.SwitchProbability) return BattleAction.SwitchTo(c);
             }
             return best;
+        }
+
+        static double NormalSkillScore(Battle b, int s, SkillDef sk, bool goFirst, double threat, AiWeights w)
+        {
+            var p = b.Active(s); var f = b.Active(1 - s);
+            bool foeLocked = b.ControlOf(f) != null || f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneControl);
+            bool foeWeakImmune = f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneWeak);
+            double v = 0;
+            if (sk.Power > 0)
+            {
+                double est = Estimate(b, s, sk, goFirst) / Math.Max(1, f.Hp);
+                v = est >= 1 ? w.KnockoutScore + (goFirst ? w.FirstKnockoutBonus : 0) : est * w.DamageScoreMultiplier;
+                if (threat >= 1 && goFirst && est >= 1) v += w.ThreatenedFirstKnockoutBonus;
+            }
+            foreach (var e in sk.Effects)
+            {
+                double ch = e.Chance / 100.0;
+                switch (e.Code)
+                {
+                    case "STATUS":
+                        if (e.Target != "foe") break;
+                        if (b.Db.Statuses[e.Status].IsControl) { if (!foeLocked) v += w.ControlStatusScore * ch; }
+                        else if (!foeWeakImmune && !f.HasStatus(e.Status)) v += w.WeakStatusScore * ch;
+                        break;
+                    case "STAGE":
+                        if (e.Target == "self")
+                        {
+                            int up = e.Changes.Count(kv => kv.Value > 0 && p.Stages[kv.Key] < w.StageBoostTarget);
+                            if (up > 0 && p.HpRatio > w.StageMinHpRatio && threat < w.StageMaxThreatRatio) v += w.StageScore * up;
+                        }
+                        else if (sk.Power == 0) v += w.FoeStageScore;
+                        break;
+                    case "HEAL": if (p.HpRatio < w.HealMaxHpRatio) v += (1 - p.HpRatio) * w.HealMissingHpScore; break;
+                    case "FIELD": v += FieldValue(b, s, e, threat, goFirst, w) * ch; break;
+                    case "DISPEL_TURNS":
+                        v += f.Fields.Where(x => b.Db.Fields[x.Id].Dispel)
+                            .Sum(x => b.Db.Fields[x.Id].PreventSwitch ? w.DispelTrapScore : w.DispelFieldScore);
+                        break;
+                    case "DISPEL_BOOST": v += w.DispelBoostScore * f.Stages.Values.Count(x => x > 0); break;
+                    case "STEAL_BOOST":
+                    {
+                        if (e.Target != "foe") break;
+                        string why;
+                        if (!b.CondMet(p, f, goFirst ? Node.First : Node.Second, e.Cond, out why)) break;
+                        foreach (var stage in f.Stages.Where(kv => kv.Value > 0))
+                        {
+                            int gain = Math.Min(stage.Value, b.StageLimit - p.Stages[stage.Key]);
+                            v += (w.StealBoostBaseScore + w.StealBoostPerStageScore * gain) * ch;
+                        }
+                        break;
+                    }
+                    case "CLEANSE": if (p.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) v += w.CleanseScore; break;
+                    case "PP_REDUCE":
+                    {
+                        if (w.PpReduceScore == 0 || e.Target != "foe" || e.N <= 0 || f.LastSkillIndex < 0 || f.LastSkillIndex >= f.Skills.Count) break;
+                        string why;
+                        if (!b.CondMet(p, f, goFirst ? Node.First : Node.Second, e.Cond, out why) || b.LegalFor(1 - s).FreePp) break;
+                        var slot = f.Skills[f.LastSkillIndex];
+                        v += w.PpReduceScore * Math.Min(e.N, slot.Pp) / Math.Max(1, slot.Max) * ch * sk.Acc / 100.0;
+                        break;
+                    }
+                }
+            }
+            return v;
         }
 
         public static BattleAction Choose(Battle b, int s, AiLevel level)
@@ -252,7 +268,7 @@ namespace StreamDuel.Core
             if (b.Random() < 0.5)
                 return BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
 
-            var action = Choose(b, s);
+            var action = ChooseNormal(b, s, AiWeights.Default);
             return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
         }
 
@@ -260,7 +276,7 @@ namespace StreamDuel.Core
         {
             if (level != AiLevel.Normal) return Choose(b, s, level);
             if (w == null) throw new ArgumentNullException(nameof(w));
-            return ChooseNormal(b, s, w);
+            return ChooseNormal(b, s, StyleWeights(b, s) ?? w);
         }
 
         public static int ChooseReplacement(Battle b, int s)

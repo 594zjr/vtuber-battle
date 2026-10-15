@@ -92,12 +92,12 @@ public class T79_NetProtocolGoldenTests
         public readonly Transport A = new Transport(), B = new Transport();
         public readonly NetSession Host, Guest;
 
-        public Pair(bool handshake = true)
+        public Pair(bool handshake = true, double? turnSeconds = null, double? bankSeconds = null)
         {
             A.Peer = B;
             B.Peer = A;
             var db = FrozenContent();
-            Host = new NetSession(db, A, true, HostTeam, HostName, 79);
+            Host = new NetSession(db, A, true, HostTeam, HostName, 79, turnSeconds, bankSeconds);
             Guest = new NetSession(db, B, false, GuestTeam, GuestName, null);
             if (handshake)
             {
@@ -407,4 +407,219 @@ public class T79_NetProtocolGoldenTests
         Assert.Contains(receiver.Transport.Sent, sent => Text(sent, "type") == "error");
     }
 
+    static void AssertAdditionalGolden(string file, string message)
+    {
+        Assert.DoesNotContain("\n", message);
+        Assert.DoesNotContain("\r", message);
+        using var expectedJson = JsonDocument.Parse(Golden(file));
+        using var actualJson = JsonDocument.Parse(message);
+        EqualJson(expectedJson.RootElement, actualJson.RootElement, file);
+    }
+
+    static Receiver IsolatedReceiver(Pair pair, bool host)
+    {
+        // 隔离握手候选，避免另一个原始 hello 先把会话推进到已建战斗状态。
+        pair.A.Incoming.Clear();
+        pair.B.Incoming.Clear();
+        return host
+            ? new Receiver { Session = pair.Host, Transport = pair.A }
+            : new Receiver { Session = pair.Guest, Transport = pair.B };
+    }
+
+    static void AssertHelloRejected(Receiver receiver, string field)
+    {
+        Assert.Equal(NetState.Error, receiver.Session.State);
+        Assert.Null(receiver.Session.Battle);
+        Assert.Matches("[\u4e00-\u9fff]", receiver.Session.Error);
+        Assert.Contains(field, receiver.Session.Error);
+        Assert.Single(receiver.Transport.All("error"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ChatGoldenMatchesRealSendAndPreservesBothBattleStates(bool hostSends)
+    {
+        var pair = new Pair();
+        pair.Act(BattleAction.Skill(0));
+        Assert.NotEmpty(pair.Host.Battle.Record.Events);
+        var sessions = new[] { pair.Host, pair.Guest };
+        var hashes = sessions.Select(session => session.Battle.StateHash()).ToArray();
+        var records = sessions.Select(session => session.Battle.Record.ToJson()).ToArray();
+        var nextRandom = sessions.Select(session => session.Battle.Clone().Random()).ToArray();
+        var sender = hostSends ? pair.Host : pair.Guest;
+        var receiver = hostSends ? pair.Guest : pair.Host;
+        var transport = hostSends ? pair.A : pair.B;
+
+        Assert.True(sender.SendQuickChat(0, 0));
+        pair.Pump();
+
+        AssertAdditionalGolden("chat", transport.Single("chat"));
+        var chat = Assert.Single(receiver.ReceivedChats);
+        Assert.Equal(0, chat.Index);
+        Assert.Equal(sender.MySide, chat.Side);
+        Assert.Equal(2, chat.Turn);
+        Assert.Equal(receiver.Battle.Turn, chat.Turn);
+        Assert.Empty(sender.ReceivedChats);
+        for (int side = 0; side < sessions.Length; side++)
+        {
+            Assert.Equal(NetState.Choose, sessions[side].State);
+            Assert.Null(sessions[side].Error);
+            Assert.Equal(hashes[side], sessions[side].Battle.StateHash());
+            Assert.Equal(records[side], sessions[side].Battle.Record.ToJson());
+            Assert.Equal(nextRandom[side], sessions[side].Battle.Clone().Random());
+        }
+        Assert.Empty(pair.A.All("error"));
+        Assert.Empty(pair.B.All("error"));
+    }
+
+    [Fact]
+    public void TimedHostHelloGoldenMatchesEverySentFieldAndNegotiatesBothClocks()
+    {
+        var pair = new Pair(turnSeconds: 10, bankSeconds: 30);
+
+        AssertAdditionalGolden("hello-host-timer", pair.A.Single("hello"));
+        foreach (var session in new[] { pair.Host, pair.Guest })
+        {
+            Assert.Equal(NetState.Choose, session.State);
+            Assert.NotNull(session.Clock);
+            for (int side = 0; side < 2; side++)
+            {
+                Assert.Equal(10.0, session.Clock.TurnLeft(side));
+                Assert.Equal(30.0, session.Clock.BankLeft(side));
+            }
+        }
+        Assert.Equal(pair.Host.Battle.StateHash(), pair.Guest.Battle.StateHash());
+    }
+
+    [Theory]
+    [InlineData("extra")]
+    [InlineData("missingIndex")]
+    public void InvalidChatShapeIsDroppedWithoutErrorOrConsumingReceiveQuota(string change)
+    {
+        var pair = new Pair();
+        var receiver = new Receiver { Session = pair.Guest, Transport = pair.B };
+        var message = Object(Golden("chat"));
+        if (change == "extra") message["futureExtension"] = new { label = "额外字段" };
+        else Assert.True(message.Remove("index"));
+
+        Deliver(receiver, JsonSerializer.Serialize(message));
+
+        Assert.Equal(NetState.Choose, receiver.Session.State);
+        Assert.Null(receiver.Session.Error);
+        Assert.Empty(receiver.Session.ReceivedChats);
+        Assert.Empty(receiver.Transport.All("error"));
+        for (int index = 0; index < 6; index++) Deliver(receiver, Golden("chat"));
+        Assert.Equal(6, receiver.Session.ReceivedChats.Count);
+        Assert.All(receiver.Session.ReceivedChats, chat =>
+        {
+            Assert.Equal(0, chat.Index);
+            Assert.Equal(pair.Host.MySide, chat.Side);
+            Assert.Equal(pair.Host.Battle.Turn, chat.Turn);
+        });
+        Deliver(receiver, Golden("chat"));
+        Assert.Equal(6, receiver.Session.ReceivedChats.Count);
+        Assert.Equal(NetState.Choose, receiver.Session.State);
+        Assert.Null(receiver.Session.Error);
+        Assert.Empty(receiver.Transport.All("error"));
+    }
+
+    [Fact]
+    public void ChatWithoutTypeUsesTheNormalProtocolErrorPath()
+    {
+        var pair = new Pair();
+        var receiver = new Receiver { Session = pair.Guest, Transport = pair.B };
+        var message = Object(Golden("chat"));
+        Assert.True(message.Remove("type"));
+
+        Deliver(receiver, JsonSerializer.Serialize(message));
+
+        Assert.Equal(NetState.Error, receiver.Session.State);
+        Assert.Matches("[\u4e00-\u9fff]", receiver.Session.Error);
+        Assert.Contains("type", receiver.Session.Error);
+        Assert.Empty(receiver.Session.ReceivedChats);
+        Assert.Single(receiver.Transport.All("error"));
+    }
+
+    [Fact]
+    public void VersionThreeWithoutTimerCapabilityRemainsCompatibleWhenBothTimersAreDisabled()
+    {
+        var pair = new Pair(handshake: false);
+        IsolatedReceiver(pair, true);
+        var hostHello = Object(pair.A.Single("hello"));
+        var guestHello = Object(pair.B.Single("hello"));
+        foreach (var message in new[] { hostHello, guestHello })
+        {
+            Assert.Equal(3, ((JsonElement)message["version"]).GetInt32());
+            Assert.True(message.Remove("timerVersion"));
+            Assert.False(message.ContainsKey("timer"));
+        }
+        pair.A.Incoming.Enqueue(JsonSerializer.Serialize(guestHello));
+        pair.B.Incoming.Enqueue(JsonSerializer.Serialize(hostHello));
+
+        pair.Pump();
+
+        foreach (var session in new[] { pair.Host, pair.Guest })
+        {
+            Assert.Equal(NetState.Choose, session.State);
+            Assert.NotNull(session.Battle);
+            Assert.Null(session.Clock);
+            Assert.Null(session.Error);
+        }
+        Assert.Equal(pair.Host.Battle.StateHash(), pair.Guest.Battle.StateHash());
+        Assert.Empty(pair.A.All("error"));
+        Assert.Empty(pair.B.All("error"));
+    }
+
+    [Fact]
+    public void TimedHostRejectsGuestMissingTimerCapabilityBeforeCreatingBattle()
+    {
+        var pair = new Pair(handshake: false, turnSeconds: 10, bankSeconds: 30);
+        var receiver = IsolatedReceiver(pair, true);
+        var message = Object(pair.B.Single("hello"));
+        Assert.True(message.Remove("timerVersion"));
+
+        Deliver(receiver, JsonSerializer.Serialize(message));
+
+        AssertHelloRejected(receiver, "timerVersion");
+    }
+
+    [Theory]
+    [InlineData("timerVersion")]
+    [InlineData("turnSeconds")]
+    [InlineData("bankSeconds")]
+    public void GuestRejectsTimedHelloMissingCapabilityOrEitherBudgetBeforeCreatingBattle(string field)
+    {
+        var pair = new Pair(handshake: false, turnSeconds: 10, bankSeconds: 30);
+        var receiver = IsolatedReceiver(pair, false);
+        var message = Object(Golden("hello-host-timer"));
+        if (field == "timerVersion") Assert.True(message.Remove(field));
+        else
+        {
+            var timer = Object(((JsonElement)message["timer"]).GetRawText());
+            Assert.True(timer.Remove(field));
+            message["timer"] = timer;
+        }
+
+        Deliver(receiver, JsonSerializer.Serialize(message));
+
+        AssertHelloRejected(receiver, field);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void VersionTwoHelloIsRejectedByEitherSideBeforeCreatingBattle(bool hostReceives)
+    {
+        var pair = new Pair(handshake: false);
+        var receiver = IsolatedReceiver(pair, hostReceives);
+        var message = Object(hostReceives ? pair.B.Single("hello") : pair.A.Single("hello"));
+        message["version"] = 2;
+
+        Deliver(receiver, JsonSerializer.Serialize(message));
+
+        AssertHelloRejected(receiver, "协议版本");
+        Assert.Contains("2", receiver.Session.Error);
+        Assert.Contains("3", receiver.Session.Error);
+    }
 }
