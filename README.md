@@ -87,6 +87,8 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
 
+队伍分享：`dotnet run --project Tools/Cli -- --pack original --team bell,enka,shiori,lumi,hane,momo --export-team` 在开局前打印 `SDT1-` 队伍码并继续对战；输入 `q` 可退出。用 `dotnet run --project Tools/Cli -- --team-code "SDT1-…" --auto` 导入并开打，省略 `--pack` 时自动加载码内内容包；显式指定的 `--pack` 必须匹配，外部包还需 `--pack-dir`。`--team-code` 与 `--team` 互斥，坏码、包不匹配和非法成员会在开局前报错。`--export-team` 导出的是禁用及首发调整前的本方六人顺序；与导入同用时保留预设名称，可配合手动、自动和联网对战。这两个参数都不能与 `--replay`、`--replay-code` 或 `--list-packs` 同用。
+
 `--level` 支持 `easy`（简单）、`normal`（普通）、`hard`（困难）、`expert`（专家），默认普通；电脑行动和补位使用所选难度。专家对战示例：`dotnet run --project Tools/Cli -- --pack original --level expert --seed 1`；加 `--auto` 可观看双方专家电脑对战。
 
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
@@ -100,7 +102,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 ## 联网对战（命令行）
 
-仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 指定六人阵容，省略时按本端 `--seed` 自动组队。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
+仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 或 `--team-code` 指定六人阵容，省略时按本端 `--seed` 自动组队。导入的队伍在监听或连接前校验，`--export-team` 打印的是本端队伍。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
 
 在两个命令行窗口分别运行：
 

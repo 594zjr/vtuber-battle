@@ -10,10 +10,13 @@ namespace StreamDuel.Cli
     internal sealed class CliOptions
     {
         public string Pack = "original";
+        public bool PackSpecified;
         public string PackDirectory;
         public AiLevel Level = AiLevel.Normal;
         public uint Seed = 1;
         public string[] Team = null;
+        public string TeamCode;
+        public bool ExportTeam;
         public string SaveDir = "saves";
         public string ReplayFile;
         public string ReplayCode;
@@ -42,6 +45,11 @@ namespace StreamDuel.Cli
                 if (option == "--auto")
                 {
                     options.Auto = true;
+                    continue;
+                }
+                if (option == "--export-team")
+                {
+                    options.ExportTeam = true;
                     continue;
                 }
                 if (option == "--list-packs")
@@ -74,7 +82,7 @@ namespace StreamDuel.Cli
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
+                if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join")
@@ -116,6 +124,7 @@ namespace StreamDuel.Cli
                     case "--pack":
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack 需要非空内容包 id。");
                         options.Pack = value;
+                        options.PackSpecified = true;
                         break;
                     case "--pack-dir":
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack-dir 需要非空文件夹路径。");
@@ -143,10 +152,27 @@ namespace StreamDuel.Cli
                         }
                         options.Team = team;
                         break;
+                    case "--team-code":
+                        if (options.TeamCode != null) throw new ArgumentException("--team-code 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--team-code 需要非空队伍码。");
+                        options.TeamCode = value;
+                        break;
                 }
             }
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
+            if (!options.Help)
+            {
+                if (options.TeamCode != null && options.Team != null)
+                    throw new ArgumentException("--team-code 与 --team 不能同时使用，请只指定一种本方队伍来源。");
+                if (options.TeamCode != null || options.ExportTeam)
+                {
+                    if (options.ReplayMode)
+                        throw new ArgumentException("--replay 或 --replay-code 不能与 --team-code 或 --export-team 同用；队伍导入导出仅用于新对局。");
+                    if (options.ListPacks)
+                        throw new ArgumentException("--list-packs 不能与 --team-code 或 --export-team 同用；列出内容包时不选择队伍。");
+                }
+            }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
             if (options.Network && !options.Help)
