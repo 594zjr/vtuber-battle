@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace StreamDuel.Game
 {
-    public sealed class BattleScreen : MonoBehaviour
+    public sealed partial class BattleScreen : MonoBehaviour
     {
         const float RefW = 1600f, RefH = 900f;
         enum View { Team, Battle }
@@ -53,10 +53,27 @@ namespace StreamDuel.Game
         List<ContentDb> packs = new List<ContentDb>();
         List<string> packErrors = new List<string>();
 
+        void OnEnable()
+        {
+            // Play 中脚本重载不会重跑 Awake，纯 C# 对战数据也不能由 Unity 序列化恢复。
+            if (db != null) return;
+            packs = new List<ContentDb>();
+            packErrors = new List<string>();
+            b = null;
+            view = View.Team;
+            playing = false;
+            shown = 0;
+            stylesReady = false;
+            pending = null;
+            Awake();
+        }
+
         void Awake()
         {
             string rulesJson = Resources.Load<TextAsset>("StreamDuelRules").text;
-            foreach (var ta in Resources.LoadAll<TextAsset>("Packs").OrderBy(t => t.name == "original" ? 1 : 0).ThenBy(t => t.name))
+            // Unity 也会把包目录的许可说明导入为 TextAsset，它不是内容包 JSON。
+            foreach (var ta in Resources.LoadAll<TextAsset>("Packs").Where(t => t.name != "LICENSE")
+                .OrderBy(t => t.name == "original" ? 1 : 0).ThenBy(t => t.name))
             {
                 var probe = ContentDb.FromJson(rulesJson, ta.text);
                 packs.Add(probe);
@@ -273,7 +290,9 @@ namespace StreamDuel.Game
         // ---------- 组队页 ----------
         void DrawTeam()
         {
-            GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1 · 全部原创角色", Muted), sBig);
+            GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1", Muted), sBig);
+            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))
+                GUI.Label(new Rect(650, 24, 480, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
             float errorHeight = packErrors.Count > 0 ? 34 : 0;
             if (packErrors.Count > 0)
             {
@@ -301,8 +320,8 @@ namespace StreamDuel.Game
             if (GUI.Button(new Rect(1380, 18, 196, 40), C("开播！（" + pick.Count + "/6）", pick.Count == 6 ? Accent : Muted), sBtn))
             {
                 // 名单不足 12 位时，电脑先用你没选的，不够再从你选的里补（同一位主播可以双方都有）
-                var foe = db.Streamers.Select(s => s.Id).Where(id => !pick.Contains(id)).OrderBy(_ => Random.value)
-                    .Concat(pick.OrderBy(_ => Random.value)).Take(6).ToList();
+                var foe = db.Streamers.Select(s => s.Id).Where(id => !pick.Contains(id))
+                    .Concat(pick).Take(6).ToList();
                 var mine = pick.ToList();
                 Do(() => StartBattle(new[] { mine, foe }));
             }
@@ -326,11 +345,11 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(24, 162 + errorHeight, 1552, 44), C(db.PackNotice ?? "", Muted), sSmall);
             var area = new Rect(24, 210 + errorHeight, 1110, 672 - errorHeight);
             int rows = Mathf.CeilToInt(db.Streamers.Count / 3f);
-            rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rows * 232));
+            rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rows * 256));
             for (int i = 0; i < db.Streamers.Count; i++)
             {
                 var d = db.Streamers[i];
-                var r = new Rect((i % 3) * 365, (i / 3) * 232, 350, 220);
+                var r = new Rect((i % 3) * 365, (i / 3) * 256, 350, 244);
                 DrawRosterCard(r, d);
             }
             GUI.EndScrollView();
@@ -348,10 +367,15 @@ namespace StreamDuel.Game
             Portrait(new Rect(r.x + 14, r.y + 14, 64, 64), d, false);
             GUI.Label(new Rect(r.x + 90, r.y + 12, 160, 30), d.Name, sTitle);
             GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted), sSmall);
-            string stats = string.Join("  ", new[] { "hp", "atk", "def", "spa", "sdef", "spd" }.Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k]));
-            GUI.Label(new Rect(r.x + 14, r.y + 92, 330, 26), stats, sSmall);
+            var statKeys = new[] { "hp", "atk", "def", "spa", "sdef", "spd" };
+            for (int row = 0; row < 2; row++)
+            {
+                string stats = string.Join("  ", statKeys.Skip(row * 3).Take(3)
+                    .Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k]));
+                GUI.Label(new Rect(r.x + 14, r.y + 92 + row * 24, 330, 26), stats, sSmall);
+            }
             var p = db.Personas[d.Persona];
-            GUI.Label(new Rect(r.x + 14, r.y + 118, 330, 96), C("人设·" + p.Name, Accent) + " " + C("（" + p.Node + "，不可消除）", Muted) + "\n" + p.Desc, sSmall);
+            GUI.Label(new Rect(r.x + 14, r.y + 144, 330, 96), C("人设·" + p.Name, Accent) + " " + C("（" + p.Node + "，不可消除）", Muted) + "\n" + p.Desc, sSmall);
             if (GUI.Button(new Rect(r.xMax - 100, r.y + 14, 86, 36), n >= 0 ? C((n + 1) + " 号位", Accent) : "选入", sBtn))
                 Do(() =>
                 {
