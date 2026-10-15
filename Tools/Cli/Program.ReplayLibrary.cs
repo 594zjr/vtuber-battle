@@ -20,11 +20,11 @@ namespace StreamDuel.Cli
                 || value.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static BattleRecord LoadReplay(CliOptions options)
+        private static BattleRecord LoadReplay(CliOptions options, PackPolicy policy = null)
         {
             if (IsReplayFile(options.ReplayFile))
                 return BattleRecord.FromJson(File.ReadAllText(options.ReplayFile));
-            return new ReplayLibrary(ReplayLibraryDirectory(options)).Load(options.ReplayFile);
+            return new ReplayLibrary(ReplayLibraryDirectory(options), policy: policy).Load(options.ReplayFile);
         }
 
         private static int ListReplays(CliOptions options)
@@ -40,6 +40,8 @@ namespace StreamDuel.Cli
                     Console.WriteLine("  已损坏：" + OneLine(entry.Error));
                     continue;
                 }
+                if (entry.IsUnavailable)
+                    Console.WriteLine("  不可重放：" + OneLine(entry.UnavailableReason));
                 Console.WriteLine("  时间：" + entry.Date.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'"));
                 Console.WriteLine("  内容包：" + OneLine(entry.PackId));
                 var names = entry.DisplayNames;

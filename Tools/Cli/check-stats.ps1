@@ -37,10 +37,10 @@ function Read-Log([string]$Path) {
     finally { $reader.Dispose() }
 }
 
-function Start-Cli([string]$Name, [string[]]$Parameters) {
+function Start-Cli([string]$Name, [string[]]$Parameters, [string]$Executable = $cliDll) {
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = 'dotnet'
-    $start.ArgumentList.Add($cliDll)
+    $start.ArgumentList.Add($Executable)
     foreach ($parameter in $Parameters) { $start.ArgumentList.Add($parameter) }
     $start.WorkingDirectory = $runDirectory
     $start.UseShellExecute = $false
@@ -115,14 +115,30 @@ function Only-LibraryFile([string]$SaveDirectory) {
 function Read-Json([string]$Path) { return [IO.File]::ReadAllText($Path, $utf8) | ConvertFrom-Json -AsHashtable }
 function Write-Json([string]$Path, $Value) { [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 100), $utf8) }
 
-function Query-ReadOnly([string]$Name, [string]$Directory, [string[]]$Extra = @()) {
+function Query-ReadOnly([string]$Name, [string]$Directory, [string[]]$Extra = @(), [string]$Executable = $cliDll) {
     $before = Save-Fingerprint $Directory
-    $result = Wait-Cli (Start-Cli $Name (@('--stats', '--save-dir', $Directory) + $Extra))
+    $result = Wait-Cli (Start-Cli $Name (@('--stats', '--save-dir', $Directory) + $Extra) $Executable)
     Assert-Check ((Save-Fingerprint $Directory) -ceq $before) "$Name 改动了存档文件内容、时间或名单。"
     foreach ($heading in @('本机对战统计（只读）', '主播选用：', '常用阵容（前 10）：', '对电脑战绩：', '最近对局（前 10）：', '保留录像中的连胜/连败：')) {
         Assert-Check ($result.Out.Contains($heading)) "$Name 缺少统计分区：$heading"
     }
     return $result
+}
+
+function Copy-Deployment([string]$Source, [string]$Destination) {
+    $sourcePath = [IO.Path]::GetFullPath($Source)
+    $destinationPath = [IO.Path]::GetFullPath($Destination)
+    Assert-Check ($sourcePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and
+        $destinationPath.StartsWith($runDirectory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) '部署副本路径必须在本工作树验收目录内。'
+    $item = Get-Item -LiteralPath $sourcePath -Force
+    Assert-Check (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) '部署复制不允许跟随重解析点。'
+    if ($item.PSIsContainer) {
+        [void][IO.Directory]::CreateDirectory($destinationPath)
+        foreach ($child in Get-ChildItem -LiteralPath $sourcePath -Force) {
+            Copy-Deployment $child.FullName (Join-Path $destinationPath $child.Name)
+        }
+    }
+    else { [IO.File]::Copy($sourcePath, $destinationPath, $false) }
 }
 
 try {
@@ -229,6 +245,42 @@ try {
     $expectedOutcome = if ($guestJson.library.winner -lt 0) { '平' } elseif ($guestJson.library.winner -eq 1) { '胜' } else { '负' }
     Assert-Check ($guestStats.Out.Contains("本方结果：$expectedOutcome") -and $guestStats.Out.Contains('暂无已知电脑难度数据。')) '客机胜负方向或对电脑分组不正确。'
     $checks.Add('PASS_network_auto_side_one_and_no_invented_ai')
+
+    # 只替换独立部署副本中的政策，真实 Resources 和当前 bin 始终保留原字节。
+    $sourcePolicy = Join-Path $binaryDirectory 'Content/PackPolicy.json'
+    $sourcePolicyHash = (Get-FileHash -LiteralPath $sourcePolicy -Algorithm SHA256).Hash
+    $policyDeploy = Join-Path $runDirectory 'policy-deployment'
+    Copy-Deployment $binaryDirectory $policyDeploy
+    $policyDll = Join-Path $policyDeploy 'Cli.dll'
+    $policyPath = Join-Path $policyDeploy 'Content/PackPolicy.json'
+    Assert-Check (@($metadata.fighters | Where-Object streamerId -eq 'bell').Count -eq 1) '政策验收所需 bell 应在历史实际名单内。'
+    Write-Json $policyPath @{ disabledPacks = @(); disabledStreamers = @('bell'); reason = @{ bell = '验收下架' } }
+    $disabledMember = Query-ReadOnly 'policy-disabled-member' $historicalSave @('--pack', 'original') $policyDll
+    Assert-Check ($disabledMember.Out.Contains('original / 已下架：选用 7 次；胜率 42.86%') -and
+        -not $disabledMember.Out.Contains('雷音铃铛')) '下架成员未隐去旧名，或历史选用计数丢失。'
+    Assert-Check ($disabledMember.Out.Contains('含已下架内容的录像：1 局') -and
+        $disabledMember.Out.Contains('含本方详细数据：1 局') -and
+        [regex]::Matches($disabledMember.Out, '伤害/击倒样本 1 局').Count -eq 5) '下架录像被误作损坏或丢失摘要样本。'
+    $checks.Add('PASS_disabled_member_keeps_history_hides_name')
+
+    Write-Json $policyPath @{ disabledPacks = @('original'); disabledStreamers = @(); reason = @{ original = '验收整包下架' } }
+    $disabledPack = Query-ReadOnly 'policy-disabled-pack' $historicalSave @('--pack', 'original') $policyDll
+    Assert-Check ([regex]::Matches($disabledPack.Out, 'original / 已下架：选用 7 次；胜率 42\.86%').Count -eq 5) '整包下架后内部 id 筛选失败、名字未隐去或历史计数减少。'
+    foreach ($streamer in $pack.streamers) {
+        Assert-Check (-not $disabledPack.Out.Contains($streamer.name)) '整包下架后统计仍显示旧主播名。'
+    }
+    Assert-Check ($disabledPack.Out.Contains('含已下架内容的录像：1 局') -and
+        [regex]::Matches($disabledPack.Out, '伤害/击倒样本 1 局').Count -eq 5 -and
+        $disabledPack.Out.Contains('普通：0 胜 / 1 负 / 0 平')) '整包下架导致样本或电脑战绩丢失。'
+    $checks.Add('PASS_disabled_pack_filter_keeps_history_hides_all_names')
+
+    [IO.File]::WriteAllText($policyPath, '{bad', $utf8)
+    $beforeBrokenPolicy = Save-Fingerprint $historicalSave
+    $brokenPolicy = Wait-Cli (Start-Cli 'policy-corrupt' @('--stats', '--save-dir', $historicalSave) $policyDll) 1
+    Assert-Check ($brokenPolicy.Out.Length -eq 0 -and $brokenPolicy.Err.Contains('错误：')) '损坏政策未在统计显示前明确拒绝。'
+    Assert-Check ((Save-Fingerprint $historicalSave) -ceq $beforeBrokenPolicy) '损坏政策查询改动了存档。'
+    Assert-Check ((Get-FileHash -LiteralPath $sourcePolicy -Algorithm SHA256).Hash -ceq $sourcePolicyHash) '政策验收修改了原始发布输出。'
+    $checks.Add('PASS_corrupt_policy_rejected_without_write')
 }
 catch { $failure = $_.ToString() }
 finally {

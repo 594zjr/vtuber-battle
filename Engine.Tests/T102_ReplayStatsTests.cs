@@ -244,6 +244,53 @@ public class T102_ReplayStatsTests
         Assert.Empty(Directory.GetFileSystemEntries(directory.Root));
     }
 
+    [Theory]
+    [InlineData("pack")]
+    [InlineData("mine")]
+    [InlineData("foe")]
+    public void DisabledReplayKeepsValidatedStatsWithoutWeakeningReplayPolicy(string target)
+    {
+        using var directory = new TestDirectory();
+        var battle = Play();
+        var summary = BattleSummary.From(battle);
+        var initial = new ReplayLibrary(directory.Root, clock: () => Epoch, policy: PackPolicy.Empty);
+        string id = initial.Save(battle.Record, summary, playerSide: 1, aiLevel: AiLevel.Hard);
+        var policy = PackPolicy.FromJson(JsonSerializer.Serialize(new
+        {
+            disabledPacks = target == "pack" ? new[] { battle.Db.PackId } : Array.Empty<string>(),
+            disabledStreamers = target == "pack" ? Array.Empty<string>() : new[] { target == "mine" ? "p6" : "p0" }
+        }));
+        var restricted = new ReplayLibrary(directory.Root, policy: policy);
+        var before = Directory.GetFiles(directory.Root).ToDictionary(Path.GetFileName, File.ReadAllBytes);
+
+        var entries = restricted.ReadStatsSnapshot();
+        var entry = Assert.Single(entries);
+        Assert.True(entry.IsUnavailable);
+        Assert.False(entry.IsCorrupt);
+        Assert.Null(entry.Error);
+        Assert.Equal(policy.CheckTeam(battle.Db.PackId, battle.Record.Teams.SelectMany(team => team)), entry.UnavailableReason);
+        AssertStats(summary, 1, entry.Stats, AiLevel.Hard);
+
+        // 下架限制播放和修改，不能把已保存的历史数值摘要当成坏录像丢弃。
+        var stats = new ProfileStats(null, entries);
+        Assert.Equal(6, stats.ByStreamer().Count);
+        Assert.All(stats.ByStreamer(), row => Assert.Equal(1L, row.SampleGames));
+        Assert.Equal(1L, Assert.Single(stats.TopTeams(1)).Wins);
+        Assert.Equal(1L, Assert.Single(stats.VsAi()).Wins);
+        Assert.Equal(ProfileBattleOutcome.Win, Assert.Single(stats.Recent(1)).Outcome);
+        Assert.Throws<InvalidOperationException>(() => restricted.Load(id));
+        Assert.Throws<InvalidOperationException>(() => restricted.SetNote(id, "不绕过下架限制"));
+        Assert.Throws<InvalidOperationException>(() => restricted.Save(battle.Record, summary, playerSide: 1));
+        Assert.Equal(before.Keys.OrderBy(name => name, StringComparer.Ordinal),
+            Directory.GetFiles(directory.Root).Select(Path.GetFileName).OrderBy(name => name, StringComparer.Ordinal));
+        foreach (var pair in before) Assert.Equal(pair.Value, File.ReadAllBytes(Path.Combine(directory.Root, pair.Key)));
+
+        var restored = Assert.Single(new ReplayLibrary(directory.Root, policy: PackPolicy.Empty).ReadStatsSnapshot());
+        Assert.False(restored.IsUnavailable);
+        Assert.Null(restored.UnavailableReason);
+        AssertStats(summary, 1, restored.Stats, AiLevel.Hard);
+    }
+
     [Fact]
     public void StatsReadUsesReplayFilesAndDoesNotRewriteOrRecreateIndex()
     {

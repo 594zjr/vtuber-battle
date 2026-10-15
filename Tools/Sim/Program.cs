@@ -273,8 +273,9 @@ namespace StreamDuel.Sim
 
         private static ContentDb LoadPack(string content, Options options)
         {
+            var policy = PackPolicy.Load(Path.Combine(content, "PackPolicy.json"));
             string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"));
-            var builtIn = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"));
+            var builtIn = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"), policy);
             var packs = new List<PackLoadResult>();
             foreach (var result in builtIn)
             {
@@ -284,7 +285,7 @@ namespace StreamDuel.Sim
             var builtInIds = new HashSet<string>(packs.Select(result => result.Db.PackId), StringComparer.Ordinal);
             if (options.PackDirectory != null)
             {
-                foreach (var result in PackLoader.LoadDirectory(rules, options.PackDirectory))
+                foreach (var result in PackLoader.LoadDirectory(rules, options.PackDirectory, policy))
                 {
                     if (result.Db == null)
                         Console.Error.WriteLine("[错误] 外部内容包 " + result.FileName + "：" + result.Error);
@@ -300,12 +301,43 @@ namespace StreamDuel.Sim
                 return null;
             }
 
+            string disabledReason = policy.PackReason(options.Pack);
+            if (disabledReason != null) throw new ArgumentException(disabledReason);
             var selected = packs.FirstOrDefault(result => result.Db.PackId == options.Pack);
             if (selected == null)
                 selected = builtIn.FirstOrDefault(result => result.Db != null &&
                     string.Equals(Path.GetFileNameWithoutExtension(result.FileName), options.Pack, StringComparison.OrdinalIgnoreCase));
-            if (selected == null) throw new ArgumentException("找不到内容包「" + options.Pack + "」；使用 --list-packs 查看可用内容包。");
+            if (selected == null)
+            {
+                disabledReason = FindDisabledReason(rules, Path.Combine(content, "Packs"), options.Pack, policy, true)
+                    ?? FindDisabledReason(rules, options.PackDirectory, options.Pack, policy, false);
+                throw new ArgumentException(disabledReason ?? "找不到内容包「" + options.Pack + "」；使用 --list-packs 查看可用内容包。");
+            }
             return selected.Db;
+        }
+
+        private static string FindDisabledReason(string rules, string directory, string id, PackPolicy policy, bool allowAlias)
+        {
+            if (directory == null || !Directory.Exists(directory)) return null;
+            try
+            {
+                foreach (string path in Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                    .Where(path => string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal))
+                {
+                    PackLoadResult result;
+                    try { result = PackLoader.LoadJson(rules, File.ReadAllText(path), Path.GetFileName(path), policy); }
+                    catch (IOException) { continue; }
+                    catch (UnauthorizedAccessException) { continue; }
+                    if (result.IsDisabled && (result.PackId == id || (allowAlias &&
+                        string.Equals(Path.GetFileNameWithoutExtension(path), id, StringComparison.OrdinalIgnoreCase))))
+                        return result.Error;
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            // 目录加载时已报告坏包；选择失败时只补充下架原因，不改变原来的错误路径。
+            return null;
         }
 
         private static IList<string>[] DrawTeams(string[] roster, Random random)

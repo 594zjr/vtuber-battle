@@ -9,18 +9,21 @@ namespace StreamDuel.Cli
     {
         private static int PlayReplay(CliOptions options)
         {
+            var policy = PackPolicy.LoadDefault();
             BattleRecord record;
             try
             {
                 record = options.ReplayCode != null ? ShareCode.Decode(options.ReplayCode)
-                    : LoadReplay(options);
+                    : LoadReplay(options, policy);
             }
             catch (IndexOutOfRangeException ex)
             {
                 throw new FormatException("回放 JSON 不完整。", ex);
             }
+            string disabled = policy.CheckTeam(record.PackId, record.Teams?.Where(team => team != null).SelectMany(team => team));
+            if (disabled != null) throw new InvalidOperationException(disabled);
             var db = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"),
-                new CliOptions { Pack = record.PackId, PackDirectory = options.PackDirectory });
+                new CliOptions { Pack = record.PackId, PackDirectory = options.PackDirectory }, policy);
             foreach (var team in record.Teams)
             {
                 var errors = TeamCheck.Validate(db, null, team);

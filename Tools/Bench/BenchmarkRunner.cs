@@ -96,12 +96,23 @@ namespace StreamDuel.Bench
         {
             string contentDirectory = Path.Combine(AppContext.BaseDirectory, "Content");
             string rules = File.ReadAllText(Path.Combine(contentDirectory, "StreamDuelRules.json"));
+            var policy = PackPolicy.LoadDefault();
             var sources = Directory.GetFiles(Path.Combine(contentDirectory, "Packs"), "*.json")
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .Select(path => File.ReadAllText(path)).ToList();
-            var databases = sources.Select(json => ContentDb.FromJson(rules, json)).ToList();
+            var databases = new List<ContentDb>();
+            var availableSources = new List<string>();
+            foreach (string source in sources)
+            {
+                var loaded = PackLoader.LoadJson(rules, source, "基准内容包", policy);
+                if (loaded.IsDisabled) continue;
+                if (loaded.Db == null) throw new InvalidOperationException(loaded.Error);
+                databases.Add(loaded.Db);
+                availableSources.Add(source);
+            }
+            sources = availableSources;
             var db = databases.SingleOrDefault(pack => pack.PackId == "original")
-                ?? throw new InvalidOperationException("性能基准缺少 original 内容包。");
+                ?? throw new InvalidOperationException(policy.PackReason("original") ?? "性能基准缺少可用的 original 内容包。");
             foreach (var team in Teams)
             {
                 var errors = TeamCheck.Validate(db, null, team);
@@ -159,7 +170,7 @@ namespace StreamDuel.Bench
                 string json = sources[packIndex];
                 string packId = databases[packIndex].PackId;
                 metrics.Add(Measure("content.load." + packId, "加载 " + packId + "（内存 JSON）", 3, quick ? 24 : 240,
-                    index => json, packJson => ContentDb.FromJson(rules, packJson)));
+                    index => json, packJson => ContentDb.FromJson(rules, packJson, policy)));
             }
 
             AddStatsMetrics(db, quick, metrics);

@@ -133,18 +133,31 @@ namespace StreamDuel.Core
         readonly StreakStats streaks;
 
         /// <summary>复制已读取的本机数据后一次聚合，不读取文件、不重放战斗；缺省输入视为空数据。</summary>
-        public ProfileStats(Profile profile, IEnumerable<ReplayEntry> entries, IEnumerable<ContentDb> contents = null)
+        public ProfileStats(Profile profile, IEnumerable<ReplayEntry> entries, IEnumerable<ContentDb> contents = null,
+            PackPolicy policy = null)
         {
+            var disabledPacks = new HashSet<string>(StringComparer.Ordinal);
+            var disabledStreamers = new HashSet<string>(StringComparer.Ordinal);
+            void IncludePolicy(PackPolicy source)
+            {
+                if (source == null) return;
+                disabledPacks.UnionWith(source.DisabledPacks);
+                disabledStreamers.UnionWith(source.DisabledStreamers);
+            }
+            // 整包下架后不会载入定义，仍须从调用方的政策标记历史名字；空参数不能触发磁盘读取。
+            IncludePolicy(policy);
             var names = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
             foreach (var db in contents ?? Array.Empty<ContentDb>())
             {
                 if (db == null) continue;
+                IncludePolicy(db.Policy);
                 var packNames = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var fighter in db.Streamers) packNames[fighter.Id] = fighter.Name;
                 names[db.PackId] = packNames;
             }
             string Name(string pack, string id)
             {
+                if (disabledPacks.Contains(pack) || disabledStreamers.Contains(id)) return "已下架";
                 if (!names.TryGetValue(pack, out var packNames)) return id + "（未知）";
                 return packNames.TryGetValue(id, out var value) ? value : "已下架";
             }

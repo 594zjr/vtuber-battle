@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using StreamDuel.Core;
@@ -205,6 +206,79 @@ public class T102_ProfileStatsTests
         Assert.DoesNotContain("已下架", unknown.Name);
         Assert.Equal("已下架", Assert.Single(rows, row => row.StreamerId == "removed").Name);
         Assert.Equal(2, stats.TopTeams(10).Count);
+    }
+
+    [Fact]
+    public void DisabledWholePackKeepsAllHistoricalStatisticsWithoutLoadingItsContent()
+    {
+        var fixture = TwentyGames();
+        foreach (var entry in fixture.Entries)
+        {
+            entry.IsUnavailable = true;
+            entry.UnavailableReason = "该内容包已下架";
+        }
+        var policy = PackPolicy.FromJson("{\"disabledPacks\":[\"original\"]}");
+        string profile = fixture.Profile.ToJson(), entries = Json(fixture.Entries);
+        var stats = new ProfileStats(fixture.Profile, fixture.Entries, policy: policy);
+
+        Assert.Equal(11, stats.ByStreamer().Count);
+        Assert.All(stats.ByStreamer(), row => Assert.Equal("已下架", row.Name));
+        var bell = Assert.Single(stats.ByStreamer(), row => row.StreamerId == "bell");
+        Assert.Equal(20L, bell.Games);
+        Assert.Equal(12L, bell.Wins);
+        Assert.Equal(20L, bell.SampleGames);
+        Assert.Equal(105.0, bell.AverageDamage);
+        Assert.Equal(21L, bell.Kos);
+        Assert.Equal(2, stats.TopTeams(10).Count);
+        Assert.All(stats.TopTeams(10), team => Assert.All(team.Names, name => Assert.Equal("已下架", name)));
+        Assert.Equal(20L, stats.VsAi().Sum(row => row.Games));
+        Assert.Equal(20, stats.Recent(30).Count);
+        Assert.Equal(5L, stats.Streaks().CurrentWins);
+        Assert.Equal(5L, stats.Streaks().LongestWins);
+        Assert.Equal(profile, fixture.Profile.ToJson());
+        Assert.Equal(entries, Json(fixture.Entries));
+    }
+
+    [Fact]
+    public void ExplicitAndContentPoliciesCombineWithoutLosingOtherPacksOrReopeningDisabledNames()
+    {
+        var contentPolicy = PackPolicy.FromJson("{\"disabledPacks\":[\"retired\"],\"disabledStreamers\":[\"bell\"]}");
+        string directory = Path.Combine(AppContext.BaseDirectory, "Content");
+        var db = ContentDb.FromJson(File.ReadAllText(Path.Combine(directory, "StreamDuelRules.json")),
+            File.ReadAllText(Path.Combine(directory, "Packs", "original.json")), contentPolicy);
+        var explicitPolicy = PackPolicy.FromJson("{\"disabledStreamers\":[\"enka\"]}");
+        var entries = new[]
+        {
+            Entry("loaded", 1, "original", new[] { "bell", "enka" }, ProfileBattleOutcome.Win),
+            Entry("unknown", 2, "unloaded", new[] { "bell", "enka", "other" }, ProfileBattleOutcome.Loss),
+            Entry("retired", 3, "retired", new[] { "other" }, ProfileBattleOutcome.Draw)
+        };
+        foreach (var entry in entries) entry.IsUnavailable = true;
+        string beforeEntries = Json(entries), beforeContent = db.ContentHash();
+        var stats = new ProfileStats(null, entries, new[] { db }, explicitPolicy);
+        var rows = stats.ByStreamer();
+        Assert.Equal(6, rows.Count);
+        Assert.All(rows.Where(row => row.StreamerId == "bell" || row.StreamerId == "enka"),
+            row => Assert.Equal("已下架", row.Name));
+        Assert.Equal("已下架", Assert.Single(rows, row => row.PackId == "retired").Name);
+        Assert.Equal("other（未知）", Assert.Single(rows, row => row.PackId == "unloaded" && row.StreamerId == "other").Name);
+        Assert.Equal(3, stats.TopTeams(10).Count);
+        Assert.Equal(3, stats.Recent(10).Count);
+        Assert.Equal(beforeEntries, Json(entries));
+        Assert.Equal(beforeContent, db.ContentHash());
+
+        foreach (var suppliedPolicy in new[] { PackPolicy.Empty, null })
+        {
+            var inherited = new ProfileStats(null, entries, new[] { db }, suppliedPolicy).ByStreamer();
+            Assert.All(inherited.Where(row => row.StreamerId == "bell" || row.PackId == "retired"),
+                row => Assert.Equal("已下架", row.Name));
+            Assert.Equal(db.Streamer("enka").Name,
+                Assert.Single(inherited, row => row.PackId == "original" && row.StreamerId == "enka").Name);
+        }
+        string snapshot = Dump(stats);
+        db.Streamers.Clear();
+        entries[0].Stats.Fighters.Clear();
+        Assert.Equal(snapshot, Dump(stats));
     }
 
     [Fact]

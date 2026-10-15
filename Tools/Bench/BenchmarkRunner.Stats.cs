@@ -12,7 +12,7 @@ namespace StreamDuel.Bench
             string directory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "obj",
                 "stats-bench", Guid.NewGuid().ToString("N")));
             var moment = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-            var library = new ReplayLibrary(directory, 200, () => moment);
+            var library = new ReplayLibrary(directory, 200, () => moment, db.Policy);
             var profile = new Profile();
             for (int i = 0; i < 200; i++)
             {
@@ -26,7 +26,7 @@ namespace StreamDuel.Bench
 
             Action<List<ReplayEntry>> validate = entries =>
             {
-                if (entries.Count != 200 || entries.Exists(entry => entry.IsCorrupt || entry.Stats == null))
+                if (entries.Count != 200 || entries.Exists(entry => entry.IsCorrupt || entry.IsUnavailable || entry.Stats == null))
                     throw new InvalidOperationException("统计基准必须加载200局完整且含本方摘要的真实录像。");
             };
             metrics.Add(Measure("stats.library.first_read_200", "200局录像首次只读扫描（未清系统缓存）", 0, 1,
@@ -37,7 +37,7 @@ namespace StreamDuel.Bench
             metrics.Add(Measure("stats.compute_200", "200局统计重建及全部五项查询（目标<50ms）", 3, quick ? 30 : 200,
                 index => snapshot, entries =>
                 {
-                    var stats = new ProfileStats(profile, entries, new[] { db });
+                    var stats = new ProfileStats(profile, entries, new[] { db }, db.Policy);
                     return new object[] { stats.ByStreamer(), stats.TopTeams(10), stats.VsAi(), stats.Recent(10), stats.Streaks() };
                 }));
         }

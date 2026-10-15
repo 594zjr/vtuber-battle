@@ -11,22 +11,28 @@ namespace StreamDuel.Cli
     {
         static int PrintStats(CliOptions options)
         {
+            var policy = PackPolicy.LoadDefault();
             var profile = StatsDirectoryExists(options.SaveDir)
                 ? new FileSaveStore(options.SaveDir).LoadProfile() : new Profile();
             string libraryPath = ReplayLibraryDirectory(options);
             var entries = StatsDirectoryExists(libraryPath)
-                ? new ReplayLibrary(libraryPath).ReadStatsSnapshot() : new List<ReplayEntry>();
-            var contents = LoadStatsContents(options);
+                ? new ReplayLibrary(libraryPath, policy: policy).ReadStatsSnapshot() : new List<ReplayEntry>();
+            var contents = LoadStatsContents(options, policy);
             string packId = null;
             if (options.PackSpecified)
             {
-                packId = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"), options).PackId;
+                // 历史查询可用已下架包的内部编号，不能借游戏加载入口绕过政策取回旧定义。
+                bool knownId = policy.IsPackDisabled(options.Pack) || profile.Packs.ContainsKey(options.Pack)
+                    || entries.Any(entry => !entry.IsCorrupt && entry.PackId == options.Pack)
+                    || contents.Any(db => db.PackId == options.Pack);
+                packId = knownId ? options.Pack
+                    : LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"), options, policy).PackId;
                 var selectedProfile = new Profile();
                 if (profile.Packs.TryGetValue(packId, out var pack)) selectedProfile.Packs.Add(packId, pack);
                 profile = selectedProfile;
                 entries = entries.Where(entry => entry.IsCorrupt || entry.PackId == packId).ToList();
             }
-            var stats = new ProfileStats(profile, entries, contents);
+            var stats = new ProfileStats(profile, entries, contents, policy);
             Console.WriteLine("本机对战统计（只读）");
             Console.WriteLine("内容包范围：" + (packId == null ? "全部" : OneLine(packId)));
             Console.WriteLine("选用次数和胜率优先使用累计档案；伤害、击倒、阵容、电脑战绩和连胜只统计保留录像样本。");
@@ -34,6 +40,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("保留录像：" + entries.Count(entry => !entry.IsCorrupt) + " 局；含本方详细数据："
                 + entries.Count(entry => !entry.IsCorrupt && entry.Stats != null) + " 局；损坏：" + entries.Count(entry => entry.IsCorrupt) + " 份。");
             Console.WriteLine("旧录像未保存视角或难度时显示未知，不推测本方或电脑等级；未知结果与平局均中断连胜/连败。");
+            Console.WriteLine("含已下架内容的录像：" + entries.Count(entry => !entry.IsCorrupt && entry.IsUnavailable)
+                + " 局；历史计数保留，相关主播显示为「已下架」，这些录像不可重放。");
 
             Console.WriteLine("\n主播选用：");
             var streamers = stats.ByStreamer();
@@ -83,7 +91,7 @@ namespace StreamDuel.Cli
             return value.Value == ProfileBattleOutcome.Loss ? "负" : "平";
         }
 
-        static List<ContentDb> LoadStatsContents(CliOptions options)
+        static List<ContentDb> LoadStatsContents(CliOptions options, PackPolicy policy)
         {
             string directory = Path.Combine(AppContext.BaseDirectory, "Content");
             string rules = File.ReadAllText(Path.Combine(directory, "StreamDuelRules.json"));
@@ -92,7 +100,7 @@ namespace StreamDuel.Cli
             var folders = new List<string> { Path.Combine(directory, "Packs") };
             if (options.PackDirectory != null) folders.Add(options.PackDirectory);
             foreach (string folder in folders)
-                foreach (var loaded in PackLoader.LoadDirectory(rules, folder))
+                foreach (var loaded in PackLoader.LoadDirectory(rules, folder, policy))
                 {
                     if (loaded.Db == null) Console.Error.WriteLine("[提醒] 统计显示名未载入内容包 " + OneLine(loaded.FileName) + "：" + OneLine(loaded.Error));
                     else if (ids.Add(loaded.Db.PackId)) result.Add(loaded.Db);
