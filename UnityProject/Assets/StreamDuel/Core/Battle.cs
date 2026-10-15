@@ -110,6 +110,7 @@ namespace StreamDuel.Core
         public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
         {
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            modifiers = BattleModifiers.Normalize(opt.Modifiers);
             Db = db;
             Seed = opt.Seed ?? (uint)Environment.TickCount;
             rng = new Rng(Seed);
@@ -121,6 +122,7 @@ namespace StreamDuel.Core
                 PackId = db.PackId,
                 LeadPick = opt.LeadPick,
                 BanOne = opt.BanOne,
+                Modifiers = new List<string>(modifiers),
                 Names = names.ToArray(),
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
@@ -140,6 +142,7 @@ namespace StreamDuel.Core
             var f = new Fighter { Def = d, Slot = slot, Side = side, MaxHp = d.Stats["hp"], Hp = d.Stats["hp"] };
             foreach (var sid in d.Skills) f.Skills.Add(new SkillSlot { Id = sid, Pp = Db.Skills[sid].Pp, Max = Db.Skills[sid].Pp });
             f.Skills.Add(new SkillSlot { Id = d.Fifth, Pp = Db.Skills[d.Fifth].Pp, Max = Db.Skills[d.Fifth].Pp, Fifth = true });
+            InitializeModifiers(f);
             return f;
         }
 
@@ -215,7 +218,7 @@ namespace StreamDuel.Core
             foreach (var kv in changes)
             {
                 int before = p.Stages[kv.Key];
-                p.Stages[kv.Key] = Math.Max(-6, Math.Min(6, before + kv.Value));
+                p.Stages[kv.Key] = ClampStage((long)before + kv.Value);
                 int d = p.Stages[kv.Key] - before;
                 parts.Add(d == 0 ? Db.StatName(kv.Key) + "已到极限" : Db.StatName(kv.Key) + (d > 0 ? "+" : "") + d);
             }
@@ -565,6 +568,7 @@ namespace StreamDuel.Core
                 if (fl.Turns >= 0 && --fl.Turns <= 0) { p.Fields.Remove(fl); Add(Node.TurnEnd, p.Name + " 的「" + fd.Name + "」结束", "field", s); }
             }
             PersonaTurnEnd(s, p);
+            TurnEndModifiers(p);
         }
 
         // ================= 主流程 =================
