@@ -44,6 +44,7 @@ namespace StreamDuel.Cli
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
+                ValidateRandomNetworkTeams(db, battle, options);
                 Console.WriteLine("连接成功；本方：" + session.DisplayNames[session.MySide] + "；房主种子：" + battle.Seed);
                 var nameInputs = session.NameInputs;
                 for (int side = 0; side < nameInputs.Count; side++)
@@ -55,6 +56,7 @@ namespace StreamDuel.Cli
                 else if (!host && options.TurnSeconds.HasValue)
                     Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
                 PrintTeams(TextInput.ForDisplay(battle));
+                PrintMixedNotices(db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
                 PrintTerminationCommands(network: true);
                 var input = new ConsoleInput();
                 var pump = new NetworkPump(session);

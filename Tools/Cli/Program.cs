@@ -36,14 +36,14 @@ namespace StreamDuel.Cli
                 if (options.ListPacks) return 0;
                 if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
+                PrepareRandomTeams(db, options);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
                 if (options.Hotseat) return PlayHotseat(db, preset, options);
                 if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
                 if (options.Network) return PlayNetwork(db, player, options);
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
-                var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
-                    .Concat(player).Take(6).ToArray();
+                var opponent = PrepareOpponent(db, player, options);
                 var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" },
                     new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead });
 
@@ -53,6 +53,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
                 PrintTeams(battle);
+                PrintMixedNotices(db, player.Concat(opponent));
                 if (!options.Auto) PrintTerminationCommands();
                 // 只读取原始公开六人阵容，必须早于任何禁用/首发确认，也不借用实战随机流。
                 if (options.Advice) PrintTeamAdvice(db, player, opponent);
@@ -181,6 +182,10 @@ namespace StreamDuel.Cli
         {
             Console.WriteLine("用法：dotnet run --project Tools/Cli -- [参数]");
             Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认 original，导入队伍码时默认使用码内内容包。");
+            Console.WriteLine("  --packs 编号列表  逗号分隔至少两个内容包 id，混合选人；与 --pack 互斥，可加载 --pack-dir 外部包。");
+            Console.WriteLine("                    特殊 id 可用 --pack mix: 后接按原始 id 排序、分别 URI 转义再逗号连接的编号；回放自动重建。");
+            Console.WriteLine("  --random-teams    按种子随机分配双方各六位，十二位不重复；与手动队伍、队伍码互斥。");
+            Console.WriteLine("                    联网双方均须 --random-teams、相同 --packs 和显式相同 --seed，房主取首队、客机取次队。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine(Loc.Current.T("glossary.cli.help"));
@@ -190,9 +195,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
             Console.WriteLine("  --hotseat         同屏双人轮流手动操作；交接时清屏并按回车确认，私密选择输入不回显。");
-            Console.WriteLine("  --team-b 六个编号 同屏 B 方队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
+            Console.WriteLine("  --team-b 六个编号 同屏 B 方或混合包本地电脑队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
             Console.WriteLine("  --name-a 名称 / --name-b 名称  同屏双方显示名，默认玩家 A / 玩家 B；仅与 --hotseat 同用。");
-            Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
+            Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack/--packs 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮、录入姓名与队伍码、记录胜负。");
@@ -222,7 +227,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("/surrender 可在选招、补位、禁用和首发时投降并保存结果；/draw 提议和局，每 5 回合最多一次，电脑会自动回应。");
             Console.WriteLine("联网收到求和后输入 /draw accept 同意或 /draw reject 拒绝，等待对手时也可输入指令；同屏模式暂不支持求和。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
-            Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack、--pack-dir 和 --help。");
+            Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack/--packs、--pack-dir 和 --help。");
             Console.WriteLine("同屏支持 --seed、--ban、--lead、队伍导入导出、--share、--report 和 --save-dir；禁用自动/难度/计时/哈希/联网/回看/录像列表/列包/分析/图鉴参数。完整对局按 A 方累计一次档案，提前退出不存档。");
             Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code、--replays 或 --list-packs 同用。");
             Console.WriteLine("回放均支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用。--save-dir 决定录像库位置，其他对战参数不改变记录；回看不新增战绩或录像。");
@@ -270,6 +275,7 @@ namespace StreamDuel.Cli
                 return null;
             }
 
+            if (options.MixedPack) return LoadMixedPack(packs, options);
             var selected = packs.FirstOrDefault(result => result.Db.PackId == options.Pack);
             if (selected == null)
                 selected = builtIn.FirstOrDefault(result => result.Db != null &&

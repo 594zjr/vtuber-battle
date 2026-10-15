@@ -308,7 +308,7 @@ namespace StreamDuel.Game
         void DrawTeam()
         {
             GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1", Muted), sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)))
                 GUI.Label(new Rect(650, 24, 480, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
             float errorHeight = packErrors.Count > 0 ? 34 : 0;
             if (packErrors.Count > 0)
@@ -455,6 +455,7 @@ namespace StreamDuel.Game
             GUILayout.BeginArea(new Rect(r.x + 14, r.y + 12, r.width - 28, r.height - 24));
             teamDetailScroll = GUILayout.BeginScrollView(teamDetailScroll);
             GUILayout.Label(d.Name + "  " + TypeTag(d), sTitle);
+            DrawMixedNotice(d.Id);
             var p = db.Personas[d.Persona];
             GUILayout.Label(C("人设·" + p.Name, Accent) + C("  时机：" + p.Node + " · 不可消除", Muted) + "\n" + p.Desc, sSmall);
             GUILayout.Space(6);
@@ -494,7 +495,7 @@ namespace StreamDuel.Game
         void DrawLead()
         {
             GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
             if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(() => { view = View.Team; b = null; });
             GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
 
@@ -543,7 +544,7 @@ namespace StreamDuel.Game
             var battleView = BattleViewModel.From(b, 0);
             int turnShown = shown > 0 ? b.Log[Mathf.Min(shown, b.Log.Count) - 1].Turn : 1;
             GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
             if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
             bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
@@ -771,6 +772,7 @@ namespace StreamDuel.Game
                     var p = b.Sides[detailSide].Team[detailIdx];
                     var pd = db.Personas[p.Def.Persona];
                     GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
+                    DrawMixedNotice(p.Def.Id);
                     GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + Describe.PersonaDescription(db, pd, b), sSmall);
                     foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp, sl.Max, b);
                     break;
@@ -784,6 +786,14 @@ namespace StreamDuel.Game
         }
 
         static readonly string[] Steps = { Node.Switch, Node.TurnStart, Node.First, Node.Second, Node.TurnEnd, Node.Replace };
+
+        void DrawMixedNotice(string streamerId)
+        {
+            if (!db.IsMixed) return;
+            string notice = db.NoticeFor(streamerId);
+            if (!string.IsNullOrEmpty(notice))
+                GUILayout.Label(notice, new GUIStyle(sSmall) { richText = false, wordWrap = true });
+        }
 
         void DrawLog(Rect r)
         {
