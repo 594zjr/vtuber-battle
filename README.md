@@ -31,7 +31,7 @@
 3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
 
-顶部「主菜单」可进入新的 UI Toolkit 框架，组队、对战、结算、回看、设置、联网目前为独立占位页；「旧版对战」返回原有可玩界面，打开菜单期间原对战暂停。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。当前 Input System 1.20.1 使用 Both 兼容旧 IMGUI，待 T-67 替换旧画面后切为 New。
+顶部「主菜单」可进入新的 UI Toolkit 框架，组队、对战、结算、回看、设置、联网目前为独立占位页；「旧版对战」返回原有可玩界面，打开菜单期间原对战暂停。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。当前 Input System 1.20.1 使用 Both 兼容旧 IMGUI，待 T-67 替换旧画面后切为 New。Unity 6000.6.5f1 启动时仍会提示旧输入系统弃用；用户于 2026-10-15 批准仅此提示暂留至 T-67，其他错误和警告仍须修复。
 
 编辑器 Play 中重编译脚本时，纯 C# 对战状态不能跨域重载恢复，画面会重新接线并回到旧版组队页；普通菜单切换或组件停用再启用仍保留当前页面参数。
 
@@ -59,7 +59,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 `--ui-smoke-test <绝对输出目录>` 单独验证新界面路由、返回、生命周期与 1280×720 / 1920×1080 布局，保存实际渲染截图和报告；使用程序触发的导航事件，不等同于人工鼠标验收。两种验收模式均只加载内置包，使用内存设置，不读写玩家档案或 PlayerPrefs 阵容。
 
-编辑器验收可用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`，整局对战则将参数改为 `--smoke-test <绝对输出目录>`（不加 `-batchmode` / `-quit`）；它打开主场景并进入 Play，完成后记录 `UnityProject/Logs/T59/editor-console.json` 并退出。Console 红黄计数任一非零都返回失败；截图仍须复核。
+编辑器验收可用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`，整局对战则将参数改为 `--smoke-test <绝对输出目录>`，可另加 `--smoke-size 1920x1080`（默认 `1280x720`，不加 `-batchmode` / `-quit`）；它先在 Edit 模式初始化 Unity 搜索索引，再打开主场景进入 Play。完成后和停止 Play 清理后均采集 Console，写入 `UnityProject/Logs/T59/editor-console.json` 并退出。Console 红黄计数任一非零或清理等待超时都返回失败，不清除或过滤日志；更早的启动提示另查完整 Editor 日志，截图仍须复核。
 
 ## 结构
 

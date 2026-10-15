@@ -13,8 +13,11 @@ public static class UiSmokeEditor
     static EditorWindow gameView;
     static int width, height;
     static bool stopping;
+    static bool startPending;
     static int exitCode;
     static double started;
+    static double stoppedAt = -1;
+    static int stoppedUpdates;
     static string ExitMarker => Path.Combine(Application.dataPath, "../Library/t59-editor-exit.txt");
 
     [Serializable]
@@ -22,6 +25,8 @@ public static class UiSmokeEditor
     {
         public string unityVersion;
         public int errors, warnings, logs;
+        public int exitErrors, exitWarnings, exitLogs;
+        public bool exitSampled, exitWaitTimedOut;
         public bool completed;
     }
 
@@ -47,9 +52,23 @@ public static class UiSmokeEditor
         var args = Environment.GetCommandLineArgs();
         if (!args.Contains("--ui-smoke-test") && !args.Contains("--smoke-test"))
             throw new InvalidOperationException("编辑器验收必须提供隔离的冒烟输出目录。");
+        int sizeIndex = Array.IndexOf(args, "--smoke-size");
+        int initialWidth = 1280, initialHeight = 720;
+        if (sizeIndex >= 0)
+        {
+            string size = sizeIndex + 1 < args.Length ? args[sizeIndex + 1] : string.Empty;
+            if (size == "1920x1080") { initialWidth = 1920; initialHeight = 1080; }
+            else if (size != "1280x720") throw new ArgumentException("--smoke-size 必须为 1280x720 或 1920x1080。");
+        }
         EditorSceneManager.OpenScene("Assets/Scenes/Main.unity");
-        SetSize(1280, 720);
-        EditorApplication.isPlaying = true;
+        SetSize(initialWidth, initialHeight);
+        // 新工作树的搜索索引由启动回调创建，过早进入 Play 会使 Unity 跳过创建后访问空索引。
+        // 命令行打开的隐藏编辑器可能尚未执行该回调，先在 Edit 模式完成同一初始化。
+        var searchDatabase = Type.GetType("UnityEditor.Search.SearchDatabase, UnityEditor.QuickSearchModule", true);
+        var getDefaultIndex = searchDatabase.GetMethod("GetDefaultSearchDatabase", BindingFlags.Static | BindingFlags.Public);
+        if (getDefaultIndex == null) throw new MissingMethodException("当前 Unity 不支持验收所需的搜索索引初始化。");
+        getDefaultIndex.Invoke(null, null);
+        startPending = true;
     }
 
     static void SetSize(int newWidth, int newHeight)
@@ -82,19 +101,45 @@ public static class UiSmokeEditor
         {
             if (!EditorApplication.isPlayingOrWillChangePlaymode && File.Exists(ExitMarker))
             {
+                if (stoppedAt < 0) stoppedAt = EditorApplication.timeSinceStartup;
+                stoppedUpdates++;
+                double elapsed = EditorApplication.timeSinceStartup - stoppedAt;
+                bool settled = elapsed >= 2 && stoppedUpdates >= 4
+                    && !EditorApplication.isCompiling && !EditorApplication.isUpdating;
+                if (!settled && elapsed < 10) return;
                 int code = int.Parse(File.ReadAllText(ExitMarker));
+                // 停止 Play 后仍要观察清理阶段的 Console，不能只凭停止前的零计数退出。
+                string consolePath = Path.Combine(Application.dataPath, "../Logs/T59/editor-console.json");
+                var result = JsonUtility.FromJson<ConsoleResult>(File.ReadAllText(consolePath));
+                var type = typeof(Editor).Assembly.GetType("UnityEditor.LogEntries", true);
+                object[] counts = { 0, 0, 0 };
+                type.GetMethod("GetCountsByType", BindingFlags.Static | BindingFlags.Public).Invoke(null, counts);
+                result.exitErrors = (int)counts[0];
+                result.exitWarnings = (int)counts[1];
+                result.exitLogs = (int)counts[2];
+                result.exitSampled = true;
+                result.exitWaitTimedOut = !settled;
+                File.WriteAllText(consolePath, JsonUtility.ToJson(result, true));
+                if (!settled || result.exitErrors != 0 || result.exitWarnings != 0) code = 1;
                 File.Delete(ExitMarker);
                 EditorApplication.Exit(code);
                 return;
             }
             if (stopping)
             {
-                if (!EditorApplication.isPlayingOrWillChangePlaymode) EditorApplication.Exit(exitCode);
                 return;
             }
             if (EditorApplication.timeSinceStartup - started > 360)
             {
                 Finish(false, 1);
+                return;
+            }
+            if (startPending)
+            {
+                if (EditorApplication.isCompiling || EditorApplication.isUpdating
+                    || !File.Exists(Path.Combine(Application.dataPath, "../UserSettings/Search.index"))) return;
+                startPending = false;
+                EditorApplication.isPlaying = true;
                 return;
             }
             if (!EditorApplication.isPlaying) return;
