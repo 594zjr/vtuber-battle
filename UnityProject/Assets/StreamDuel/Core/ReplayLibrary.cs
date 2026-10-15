@@ -21,6 +21,7 @@ namespace StreamDuel.Core
         public string Error;
         public bool IsUnavailable;
         public string UnavailableReason;
+        internal TournamentArchiveTag TournamentArchive;
 
         // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
         public TextInputResult[] NameInputs
@@ -56,17 +57,23 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class ReplayLibrary
+    public sealed partial class ReplayLibrary
     {
         readonly string directory;
         readonly string prefix;
         readonly int maxCount;
         readonly Func<DateTimeOffset> clock;
         readonly PackPolicy policy;
+        readonly bool readOnly;
         readonly StringComparison pathComparison;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
 
         public ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null, PackPolicy policy = null)
+            : this(directory, maxCount, clock, policy, false)
+        {
+        }
+
+        ReplayLibrary(string directory, int maxCount, Func<DateTimeOffset> clock, PackPolicy policy, bool readOnly)
         {
             if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("录像目录不能为空。", nameof(directory));
             if (maxCount < 1) throw new ArgumentOutOfRangeException(nameof(maxCount), "录像上限必须至少为 1。");
@@ -76,12 +83,20 @@ namespace StreamDuel.Core
             // 时钟仅用于本地录像命名与筛选，不参与战斗或随机流。
             this.clock = clock ?? (() => DateTimeOffset.UtcNow);
             this.policy = policy ?? PackPolicy.LoadDefault();
+            this.readOnly = readOnly;
             pathComparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            EnsureDirectory();
+            if (readOnly) CheckAncestors();
+            else EnsureDirectory();
         }
 
         public string Save(BattleRecord r, BattleSummary s, string note = null)
         {
+            return SaveCore(r, s, note, null, null);
+        }
+
+        string SaveCore(BattleRecord r, BattleSummary s, string note, TournamentArchiveTag archive, Tournament tournament)
+        {
+            RequireWritable();
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (s == null) throw new ArgumentNullException(nameof(s));
             RejectUnavailable(Replay.PolicyError(policy, r));
@@ -96,11 +111,17 @@ namespace StreamDuel.Core
                 throw new ArgumentException("录像统计的胜方或回合数无效。", nameof(s));
             using (OpenLock())
             {
+                if (archive != null)
+                {
+                    string existing = ExistingTournamentReplay(tournament, archive.PairingId, recordJson, s);
+                    if (existing != null) return existing;
+                }
                 DateTimeOffset date = clock().ToUniversalTime();
                 string stem = date.ToString("yyyyMMdd_HHmmss_fffffff", CultureInfo.InvariantCulture)
                     + "_" + record.Seed.ToString(CultureInfo.InvariantCulture);
                 string id = NextId(stem);
                 var entry = Entry(record, id, date, s.Winner, s.Turns, NormalizeNote(note));
+                entry.TournamentArchive = archive;
                 WriteAtomic(id + ".json", WithMetadata(recordJson, entry));
                 try { RefreshAndPrune(); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -113,6 +134,7 @@ namespace StreamDuel.Core
 
         public List<ReplayEntry> List(ReplayFilter f = null)
         {
+            RequireWritable();
             if (f != null && (f.Winner < -1 || f.Winner > 1 || f.From > f.To))
                 throw new ArgumentException("录像筛选的胜方或日期范围无效。", nameof(f));
             using (OpenLock())
@@ -127,6 +149,7 @@ namespace StreamDuel.Core
         public BattleRecord Load(string id)
         {
             ValidateId(id);
+            if (readOnly) return LoadReadOnly(id);
             using (OpenLock())
             {
                 var entry = ReadEntry(id, out var record);
@@ -137,6 +160,7 @@ namespace StreamDuel.Core
 
         public void Delete(string id)
         {
+            RequireWritable();
             ValidateId(id);
             using (OpenLock())
             {
@@ -147,6 +171,7 @@ namespace StreamDuel.Core
 
         public void SetNote(string id, string note)
         {
+            RequireWritable();
             ValidateId(id);
             using (OpenLock())
             {
@@ -237,6 +262,11 @@ namespace StreamDuel.Core
             string json;
             try { json = File.ReadAllText(CheckedPath(id + ".json"), Utf8); }
             catch (DecoderFallbackException ex) { throw new FormatException("录像不是有效的 UTF-8 文本：" + id, ex); }
+            return ParseEntry(id, json, out record);
+        }
+
+        ReplayEntry ParseEntry(string id, string json, out BattleRecord record)
+        {
             var root = MiniJson.Parse(json) as Dictionary<string, object>;
             if (root == null || !root.TryGetValue("library", out var value) || !(value is Dictionary<string, object> metadata))
                 throw new FormatException("录像缺少本地录像库元数据：" + id);
@@ -253,7 +283,9 @@ namespace StreamDuel.Core
                 throw new FormatException(Replay.Check(null, record).Reason);
             if (turns != record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn))
                 throw new FormatException("录像回合数与记录不一致：" + id);
-            return Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            var entry = Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            entry.TournamentArchive = ReadTournamentTag(metadata);
+            return entry;
         }
 
         ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
@@ -287,7 +319,8 @@ namespace StreamDuel.Core
             return "{\"version\":1,\"id\":" + Quote(entry.Id) + ",\"date\":"
                 + Quote(entry.Date.ToString("O", CultureInfo.InvariantCulture)) + ",\"winner\":"
                 + entry.Winner.ToString(CultureInfo.InvariantCulture) + ",\"turns\":"
-                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note) + "}";
+                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note)
+                + TournamentMetadata(entry.TournamentArchive) + "}";
         }
 
         static string WithMetadata(string recordJson, ReplayEntry entry)
