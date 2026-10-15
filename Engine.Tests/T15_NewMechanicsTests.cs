@@ -307,7 +307,7 @@ public class T15_NewMechanicsTests
     [InlineData("fixed_pre")]
     [InlineData("fixed_post")]
     [InlineData("recoil")]
-    public void OrdinarySelfDamageDoesNotCancelLaterEffectsWhenTeammatesRemain(string mode)
+    public void OrdinarySelfDamageCancelsLaterEffectsWhenTeammatesRemain(string mode)
     {
         var battle = Make();
         battle.Active(0).Hp = 1;
@@ -333,12 +333,13 @@ public class T15_NewMechanicsTests
         Assert.True(battle.Active(0).Fainted);
         Assert.Equal(Phase.Replace, battle.Phase);
         Assert.True(battle.Need[0]);
-        Assert.True(battle.Active(1).HasStatus("disconnect"));
+        Assert.False(battle.Active(1).HasStatus("disconnect"));
         var actionLog = battle.Log.Skip(from).ToList();
         int faintIndex = actionLog.FindIndex(entry => entry.Kind == "faint" && entry.Side == 0);
-        int statusIndex = actionLog.FindIndex(entry => entry.Kind == "status" && entry.Side == 1 && entry.Text.Contains(battle.Db.Statuses["disconnect"].Name));
-        Assert.True(faintIndex >= 0 && statusIndex > faintIndex);
-        Assert.Equal(Node.First, actionLog[statusIndex].Node);
+        Assert.DoesNotContain(actionLog, entry => entry.Kind == "status" && entry.Side == 1 && entry.Text.Contains(battle.Db.Statuses["disconnect"].Name));
+        var interruption = Assert.Single(actionLog, entry => entry.Side == 0 && entry.Text.Contains("技能中断"));
+        Assert.True(faintIndex >= 0 && actionLog.IndexOf(interruption) > faintIndex);
+        Assert.Equal(Node.First, interruption.Node);
     }
 
     [Fact]
