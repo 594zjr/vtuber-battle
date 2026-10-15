@@ -1,6 +1,6 @@
 // 为避免模拟局修改真实对战，新增下列类型的字段时必须同步本文件的复制逻辑：
 // Battle：Db（共享）、Seed、Sides、Log、Turn、Phase、Winner、Need、ActedFirst、rng、
-// leadChoices、banChoices、leadPickAfterBan、modifiers、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
+// leadChoices、banChoices、leadPickAfterBan、modifiers、Record、fighterStats、EndReason、totalDamageDealt、battleEvents；eventsView 按本对象列表重新建立。
 // SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
@@ -31,6 +31,7 @@ namespace StreamDuel.Core
             Turn = source.Turn;
             Phase = source.Phase;
             Winner = source.Winner;
+            CopyTurnCapState(source);
             rng = new Rng(source.rng.State);
             leadPickAfterBan = source.leadPickAfterBan;
             modifiers = new List<string>(source.modifiers).AsReadOnly();

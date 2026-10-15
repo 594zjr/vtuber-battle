@@ -75,6 +75,17 @@ namespace StreamDuel.Core
                 hash.Int(modifiers.Count);
                 foreach (string id in modifiers) hash.Text(id);
             }
+            if (HasModifier("turn_cap_60"))
+            {
+                hash.Text("StreamDuel.TurnCap.v1");
+                hash.Int(EffectiveTurnCap);
+                foreach (long damage in totalDamageDealt)
+                {
+                    hash.UInt(unchecked((uint)damage));
+                    hash.UInt(unchecked((uint)(damage >> 32)));
+                }
+                hash.Text(EndReason);
+            }
             return hash.Value;
         }
 
