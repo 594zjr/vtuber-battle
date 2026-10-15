@@ -13,8 +13,10 @@ namespace StreamDuel.Cli
         public uint Seed = 1;
         public string[] Team = null;
         public string SaveDir = "saves";
+        public string ReplayFile;
         public bool Auto;
         public bool Ban;
+        public bool Lead;
         public bool Hash;
         public bool Help;
         public bool ListPacks;
@@ -42,6 +44,11 @@ namespace StreamDuel.Cli
                     options.Ban = true;
                     continue;
                 }
+                if (option == "--lead")
+                {
+                    options.Lead = true;
+                    continue;
+                }
                 if (option == "--hash")
                 {
                     options.Hash = true;
@@ -52,7 +59,8 @@ namespace StreamDuel.Cli
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--pack-dir" && option != "--level" && option != "--seed" && option != "--team" && option != "--save-dir")
+                if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
+                    && option != "--save-dir" && option != "--replay" && option != "--pack-dir")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -60,6 +68,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--replay":
+                        if (string.IsNullOrWhiteSpace(value))
+                            throw new ArgumentException("--replay 需要非空的回放文件路径。");
+                        options.ReplayFile = value;
+                        break;
                     case "--save-dir":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--save-dir 需要非空的存档目录。");
@@ -95,7 +108,10 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            if (options.ReplayFile != null && options.Hash && !options.Help)
+                throw new ArgumentException("--replay 不支持 --hash；回看按保存的日志播放，不提供历史逐回合状态哈希。");
             return options;
         }
+
     }
 }

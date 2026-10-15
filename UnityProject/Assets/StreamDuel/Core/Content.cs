@@ -72,7 +72,7 @@ namespace StreamDuel.Core
         public List<LimitedPoolDef> Limited = new List<LimitedPoolDef>();
     }
 
-    public sealed class ContentDb
+    public sealed partial class ContentDb
     {
         public static readonly string[] StatKeys = { "atk", "def", "spa", "sdef", "spd" };
         public Dictionary<string, string> StatNames = new Dictionary<string, string>();
