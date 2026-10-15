@@ -76,11 +76,11 @@ namespace StreamDuel.Cli
                 || child.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar, comparison);
         }
 
-        private static void SaveReport(Battle battle, CliOptions options)
+        private static void SaveReport(Battle battle, CliOptions options, int viewerSide = 0)
         {
             string path = ValidateReportPath(options);
             if (path == null) return;
-            string markdown = BattleReport.Markdown(battle);
+            string markdown = BattleReport.Markdown(battle, viewerSide);
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
