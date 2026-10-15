@@ -223,6 +223,7 @@
 ```json
 {
   "id": "fan_holo_niji", "name": "同人包：…", "notice": "非官方同人作品…",
+  "skills": {}, "personas": {}, "fields": {}, "statuses": {},
   "skillNames":  { "<skillId>": "新显示名" },
   "fieldNames":  { "<fieldId>": "新显示名" },
   "statusNames": { "<statusId>": "新显示名" },
@@ -239,6 +240,45 @@
 - 改名只改显示，不改机制。`personaName/personaDesc/personaStatus` 会复制出一份只属于这位主播的人设。
 - 每包至少 6 位主播（不足 12 位时，电脑队伍先用玩家没选的，再从玩家选的里补，允许双方出现同一位主播）；每位正好 4 个普通技能 + 1 个第五技能。
 - 读取时 `ContentDb.Validate()` 检查所有引用，错误信息要指出是哪一条。
+
+内容包可选的 `skills`、`personas`、`fields`、`statuses` 对象用于新增本包定义；省略或写成 `{}` 时不增加定义。每个对象都以 id 为键，值的格式、默认值和含义与 `StreamDuelRules.json` 中的同名对象完全一致：技能见 6.1，人设见 6.2，状态和直播间效果见第 5 节。例如以下四个对象可放在内容包顶层：
+
+```json
+{
+  "skills": {
+    "pk_signature": {
+      "name": "聚光开场", "type": "song", "cat": "talent", "power": 80, "pp": 5,
+      "effects": [
+        { "at": "post", "code": "FIELD", "target": "self", "field": "pk_glow", "turns": 2 },
+        { "at": "post", "code": "STATUS", "target": "foe", "status": "pk_pause", "chance": 20 }
+      ]
+    }
+  },
+  "personas": {
+    "pk_opening": {
+      "name": "登场光环", "code": "T_ENTER_FIELD", "node": "登场时",
+      "field": "pk_glow", "params": { "turns": 2 }, "desc": "登场时获得 2 回合聚光保护。"
+    }
+  },
+  "fields": {
+    "pk_glow": {
+      "name": "聚光保护", "kind": "turn", "when": "受到伤害时", "dispel": true,
+      "dmgTakenMul": 0.9, "desc": "受到的伤害乘以 0.9；可被消回合，下场清除。"
+    }
+  },
+  "statuses": {
+    "pk_pause": {
+      "name": "短暂静音", "cat": "control", "skip": 1, "cleanse": false,
+      "desc": "跳过下 1 次行动；不能净化。"
+    }
+  }
+}
+```
+
+- 每次读取都先建立独立的 `ContentDb`，载入共用规则，再合并本包四类定义。同类别的 id 与共用规则已有 id 重复时抛出 `KeyError`，错误写明类别和重复 id；不会覆盖共用定义，也不会影响其他包的 `ContentDb`。
+- 四类定义全部合并后，才处理 `skillNames/fieldNames/statusNames` 改名、主播的技能和人设绑定，以及 `personaName/personaDesc/personaStatus` 人设复制。因此包内技能和人设可以引用同包新增的状态或直播间效果，改名表也可以引用本包新增 id。
+- 完成合并、改名和绑定后统一调用公开的 `ContentDb.Validate()`；所有技能引用的赛道、状态、直播间效果及人设引用的状态、直播间效果必须存在，每个技能效果必须有 `at: "pre"` 或 `at: "post"`。新增定义仍须使用引擎已支持的效果码和人设码。
+- `Tools/PackCheck` 对合并后的全部技能检查未使用提醒；生成名单时，在本包定义的技能和人设名称旁标注 `〔本包独有〕`。复制本包人设保留该标记，仅改名或复制共用定义不添加标记。
 
 内容包还可以提供可选的赛季规则；未提供时 `ContentDb.Seasons` 为空：
 
