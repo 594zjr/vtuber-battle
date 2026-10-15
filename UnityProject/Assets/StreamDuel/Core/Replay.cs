@@ -26,6 +26,7 @@ namespace StreamDuel.Core
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
         public bool BanOne { get; set; }
+        public List<string> Modifiers { get; set; }
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
         public List<BattleRecordEvent> Events { get; } = new List<BattleRecordEvent>();
@@ -43,6 +44,16 @@ namespace StreamDuel.Core
             }
             if (LeadPick) sb.Append(",\"leadPick\":true");
             if (BanOne) sb.Append(",\"banOne\":true");
+            if (Modifiers != null && Modifiers.Count > 0)
+            {
+                sb.Append(",\"modifiers\":[");
+                for (int i = 0; i < Modifiers.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    WriteString(sb, Modifiers[i]);
+                }
+                sb.Append(']');
+            }
             if (Names != null)
             {
                 if (Names.Length != 2) throw new FormatException("对战记录必须包含两个名称");
@@ -117,6 +128,13 @@ namespace StreamDuel.Core
             {
                 if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
                 record.BanOne = enabled;
+            }
+            if (root.TryGetValue("modifiers", out var modifiersValue))
+            {
+                var modifiers = ReadArray(modifiersValue, "modifiers");
+                record.Modifiers = new List<string>();
+                for (int i = 0; i < modifiers.Count; i++)
+                    record.Modifiers.Add(ReadString(modifiers[i], "modifiers[" + i + "]"));
             }
             if (root.TryGetValue("names", out var namesValue))
             {
@@ -226,7 +244,7 @@ namespace StreamDuel.Core
             }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
-                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne });
+                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
             foreach (var e in r.Events)
             {
                 if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);

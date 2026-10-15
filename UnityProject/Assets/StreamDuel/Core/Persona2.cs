@@ -67,6 +67,7 @@ namespace StreamDuel.Core
                     slot.Pp += restored;
                     Add(node, "【人设·" + persona.Name + "】" + teammate.Name + " 的「" + Db.Skills[slot.Id].Name +
                         "」PP +" + restored + "（" + slot.Pp + "/" + slot.Max + "）", "trait", teammate.Side);
+                    Emit(BattleEventKind.PpChange, teammate, slot.Id, restored);
                 }
             }
         }

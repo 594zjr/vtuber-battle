@@ -1,12 +1,13 @@
 // 为避免模拟局修改真实对战，新增下列类型的字段时必须同步本文件的复制逻辑：
 // Battle：Db（共享）、Seed、Sides、Log、Turn、Phase、Winner、Need、ActedFirst、rng、
-// leadChoices、banChoices、leadPickAfterBan、Record、fighterStats。
+// leadChoices、banChoices、leadPickAfterBan、modifiers、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
 // SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
-// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Names、Teams、Events；
-// 事件：Type、A0、A1、Side、To、RngState。
+// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
+// BattleRecordEvent：Type、A0、A1、Side、To、RngState。
+// BattleEvent：LogIndex、Turn、Side、Slot、Amount、Node、Id、Kind。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
 using System;
 using System.Collections.Generic;
@@ -32,6 +33,7 @@ namespace StreamDuel.Core
             Winner = source.Winner;
             rng = new Rng(source.rng.State);
             leadPickAfterBan = source.leadPickAfterBan;
+            modifiers = new List<string>(source.modifiers).AsReadOnly();
             Array.Copy(source.Need, Need, Need.Length);
             Array.Copy(source.ActedFirst, ActedFirst, ActedFirst.Length);
             Array.Copy(source.leadChoices, leadChoices, leadChoices.Length);
@@ -89,6 +91,7 @@ namespace StreamDuel.Core
                     SnapHp = entry.SnapHp.Select(hp => (int[])hp.Clone()).ToArray()
                 });
             }
+            CopyEventsFrom(source);
             Record = record;
         }
 
@@ -132,6 +135,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };

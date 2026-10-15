@@ -45,6 +45,11 @@ public class T49_RegressionTests
         Assert.DoesNotContain(battle.Log.Skip(from), entry => entry.Kind == "heal");
         Assert.Single(battle.Log.Skip(from), entry => entry.Node == Node.Over);
         Assert.Equal(Node.Over, battle.Log.Last().Node);
+        var end = Assert.Single(battle.Events, entry => entry.Kind == BattleEventKind.End);
+        Assert.Same(end, battle.Events.Last());
+        Assert.Equal(battle.Log.Count - 1, end.LogIndex);
+        Assert.Equal(1, end.Side);
+        Assert.DoesNotContain(battle.Events, entry => entry.LogIndex >= from && entry.Kind == BattleEventKind.Heal);
     }
 
     [Fact]
@@ -70,6 +75,11 @@ public class T49_RegressionTests
         Assert.Equal(Node.TurnEnd, heal.Node);
         Assert.Contains("引流", heal.Text);
         Assert.DoesNotContain(battle.Log.Skip(from), entry => entry.Node == Node.Over);
+        var healed = Assert.Single(battle.Events, entry => entry.LogIndex >= from && entry.Kind == BattleEventKind.Heal);
+        Assert.Equal(expectedHeal, healed.Amount);
+        Assert.Equal(1, healed.Side);
+        Assert.Same(heal, battle.Log[healed.LogIndex]);
+        Assert.DoesNotContain(battle.Events, entry => entry.Kind == BattleEventKind.End);
     }
 
     [Fact]
@@ -103,5 +113,8 @@ public class T49_RegressionTests
         Assert.Equal(2, healing.Turns);
         Assert.DoesNotContain(battle.Log.Skip(from), entry => entry.Node == Node.TurnEnd && entry.Side == 1);
         Assert.Equal(Node.Over, battle.Log.Last().Node);
+        Assert.Equal(BattleEventKind.End, battle.Events.Last().Kind);
+        Assert.Single(battle.Events, entry => entry.Kind == BattleEventKind.End);
+        Assert.DoesNotContain(battle.Events, entry => entry.LogIndex >= from && entry.Node == Node.TurnEnd && entry.Side == 1);
     }
 }

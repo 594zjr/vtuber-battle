@@ -59,6 +59,21 @@ public class FuzzTests
         return shuffled.Take(6).ToList();
     }
 
+    static List<string> RandomModifiers(Battle source, IList<string> ids)
+    {
+        // 先抽数量再无放回选取，让空规则和多规则组合都有充分的样本。
+        int count = Pick(source, ids.Count + 1);
+        var remaining = ids.ToList();
+        var selected = new List<string>();
+        for (int index = 0; index < count; index++)
+        {
+            int choice = Pick(source, remaining.Count);
+            selected.Add(remaining[choice]);
+            remaining.RemoveAt(choice);
+        }
+        return selected;
+    }
+
     static BattleAction AnyAction(Battle b, int side, Coverage coverage)
     {
         var active = b.Active(side);
@@ -118,6 +133,7 @@ public class FuzzTests
     {
         Assert.InRange(b.Turn, 1, Battle.TurnCap);
         Assert.True(Enum.IsDefined(typeof(Phase), b.Phase), "出现未定义的阶段");
+        bool cappedStages = b.Modifiers.Contains("stage_cap_3");
         for (int side = 0; side < b.Sides.Length; side++)
         {
             var state = b.Sides[side];
@@ -131,7 +147,11 @@ public class FuzzTests
                 Assert.InRange(fighter.Hp, 0, fighter.MaxHp);
                 Assert.Equal(fighter.Hp == 0, fighter.Fainted);
                 foreach (var skill in fighter.Skills) Assert.InRange(skill.Pp, 0, skill.Max);
-                foreach (int stage in fighter.Stages.Values) Assert.InRange(stage, -6, 6);
+                foreach (int stage in fighter.Stages.Values)
+                {
+                    Assert.InRange(stage, -6, 6);
+                    if (cappedStages) Assert.InRange(stage, -3, 3);
+                }
                 Assert.InRange(fighter.Statuses.Count(status => b.Db.Statuses[status.Id].IsControl), 0, 1);
             }
             if (b.Phase == Phase.Choose)
@@ -219,6 +239,9 @@ public class FuzzTests
         int games = GameCount();
         var coverage = new Coverage();
         var modes = new HashSet<string>();
+        var modifierIds = BattleModifiers.All.Select(modifier => modifier.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        var modifierEnabled = modifierIds.ToDictionary(id => id, id => 0, StringComparer.Ordinal);
+        int unmodifiedGames = 0, combinedModifierGames = 0;
         for (int game = 0; game < games; game++)
         {
             uint seed = (uint)game;
@@ -232,7 +255,11 @@ public class FuzzTests
                 var teams = new[] { ShuffleTeam(preparation, ids), ShuffleTeam(preparation, ids) };
                 foreach (var team in teams) Assert.Empty(TeamCheck.Validate(db, null, team));
                 var options = new BattleOptions { Seed = seed, BanOne = Pick(preparation, 2) == 1, LeadPick = Pick(preparation, 2) == 1 };
+                options.Modifiers = RandomModifiers(preparation, modifierIds);
                 modes.Add(options.BanOne + "/" + options.LeadPick);
+                foreach (string id in options.Modifiers) modifierEnabled[id]++;
+                if (options.Modifiers.Count == 0) unmodifiedGames++;
+                if (options.Modifiers.Count > 1) combinedModifierGames++;
                 b = new Battle(db, teams, new[] { "模糊甲", "模糊乙" }, options);
                 CheckState(b);
                 int steps = 0;
@@ -258,9 +285,21 @@ public class FuzzTests
         Assert.Equal(4, modes.Count);
         Assert.True(coverage.InvalidSkills > 0 && coverage.InvalidSwitches > 0 && coverage.UnknownTypes > 0,
             "随机输入未覆盖非法技能、非法换人和未知行动类型");
+        Assert.True(coverage.FaintedSwitches > 0, pack + " 未覆盖换到已下播者的行动");
+        Assert.True(coverage.ControlledSkills > 0, pack + " 未覆盖被控制时出招");
+        Assert.True(coverage.EmptyPp > 0, pack + " 未覆盖零 PP 出招");
+        Assert.True(unmodifiedGames > 0, pack + " 未覆盖无修饰器对局");
+        Assert.True(combinedModifierGames > 0, pack + " 未覆盖多修饰器组合");
+        foreach (string id in modifierIds)
+        {
+            Assert.True(modifierEnabled[id] > 0, pack + " 未覆盖启用修饰器 " + id);
+            Assert.True(modifierEnabled[id] < games, pack + " 未覆盖关闭修饰器 " + id);
+        }
         output.WriteLine("{0}: {1} 局 + {1} 次完整回放；非法技能 {2}，非法换人 {3}，换到下播者 {4}，受控出招 {5}，零 PP 出招 {6}，未知行动类型 {7}。",
             pack, games, coverage.InvalidSkills, coverage.InvalidSwitches, coverage.FaintedSwitches,
             coverage.ControlledSkills, coverage.EmptyPp, coverage.UnknownTypes);
+        output.WriteLine("无修饰器 {0} 局，多修饰器组合 {1} 局；{2}。", unmodifiedGames, combinedModifierGames,
+            string.Join("；", modifierIds.Select(id => id + " 开=" + modifierEnabled[id] + " / 关=" + (games - modifierEnabled[id]))));
     }
 
     sealed class Coverage

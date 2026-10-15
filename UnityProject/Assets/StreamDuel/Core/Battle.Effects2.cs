@@ -22,16 +22,23 @@ namespace StreamDuel.Core
                 return;
             }
             var parts = new List<string>();
+            var gains = new Dictionary<string, int>();
             foreach (var pair in positive)
             {
                 int before = ctx.P.Stages[pair.Key];
-                int after = Math.Min(6, before + pair.Value);
+                int after = ClampStage((long)before + pair.Value);
                 target.Stages[pair.Key] = 0;
                 ctx.P.Stages[pair.Key] = after;
+                gains[pair.Key] = after - before;
                 parts.Add(Db.StatName(pair.Key) + "：" + target.Name + " +" + pair.Value + " → 0，" +
                     ctx.P.Name + " " + before + " → " + after);
             }
-            Add(ctx.Node, "偷强化：" + string.Join("；", parts) + "（每项上限 +6，目标下降等级保留）", "stage", ctx.S);
+            Add(ctx.Node, "偷强化：" + string.Join("；", parts) + "（每项上限 +" + StageLimit + "，目标下降等级保留）", "stage", ctx.S);
+            foreach (var pair in positive)
+            {
+                Emit(BattleEventKind.StageChange, target, pair.Key, -pair.Value);
+                if (gains[pair.Key] != 0) Emit(BattleEventKind.StageChange, ctx.P, pair.Key, gains[pair.Key]);
+            }
         }
 
         bool BlockWeakStatus(Fighter target, StatusDef status, string node)
@@ -44,13 +51,15 @@ namespace StreamDuel.Core
 
         bool SwitchLocked(Fighter fighter)
         {
-            return fighter.Fields.Any(field => Db.Fields[field.Id].PreventSwitch);
+            return HasModifier("no_switch") || fighter.Fields.Any(field => Db.Fields[field.Id].PreventSwitch);
         }
 
-        int DamageWithReflection(Ctx ctx, Fighter target, int amount, string text)
+        int DamageWithReflection(Ctx ctx, Fighter target, int amount, string text,
+            bool critical = false, List<FieldInst> consumedFields = null)
         {
             var attacker = ctx.P;
-            int dealt = Damage(target, amount, ctx.Node, text, true, action: ctx, source: attacker);
+            int dealt = Damage(target, amount, ctx.Node, text, true, action: ctx, source: attacker,
+                critical: critical, consumedFields: consumedFields);
             if (dealt <= 0 || attacker == target || attacker.Fainted || Phase == Phase.Over) return dealt;
             if (target.Fainted) PersonaAfterKo(attacker, ctx.Node);
             foreach (var field in target.Fields)
