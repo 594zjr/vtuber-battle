@@ -27,7 +27,7 @@
 - **验收**：把 `Engine.Tests/Pending/T01_SeasonRulesTests.cs` 移到 `Engine.Tests/`，全部通过。
 - **不要做**：界面（在 T-11 做）。
 
-### ⬜ T-02 对战记录与回放
+### ✅ T-02 对战记录与回放
 
 - **目标**：每局可以存成一段文本，以后原样重放（查 bug、做回看都靠它）。
 - **代码**：
@@ -36,7 +36,7 @@
   - `Replay.Run(ContentDb db, BattleRecord r)`：PackId 不一致抛异常；否则新建同种子对战，按事件依次调用 `ResolveTurn` / `Replace`，返回对战。
 - **验收**：移入 `Pending/T02_ReplayTests.cs`，通过。
 
-### ⬜ T-03 新效果码 PP_REDUCE、FIXED_DAMAGE
+### ✅ T-03 新效果码 PP_REDUCE、FIXED_DAMAGE
 
 - **目标**：补上赛尔号式的“削 PP”和“固定伤害”。
 - **代码**：
@@ -46,18 +46,18 @@
   - `Describe.cs` 加说明文字；`docs/design.md` 6.1 的效果码表加两行。
 - **验收**：移入 `Pending/T03_NewEffectCodesTests.cs`，通过。
 
-### ⬜ T-04 平衡模拟工具
+### ✅ T-04 平衡模拟工具
 
 - **目标**：量化每位主播强弱，给调数值用。
 - **代码**：新命令行工程 `Tools/Sim/Sim.csproj`（net8.0，引用 Engine），`dotnet run --project Tools/Sim -- --pack original --games 5000` 输出每位主播的出场胜率、平均回合数、各技能使用率，按胜率排序，CSV 打到标准输出。
 - **验收**：能跑；同一参数两次输出一致（固定种子）；README 加一行用法。不需要单元测试。
 
-### ⬜ T-05 给界面用的预览：伤害范围和先手预测
+### ✅ T-05 给界面用的预览：伤害范围和先手预测
 
 - 新文件 `Core/Preview.cs`：`PreviewDamage(side, skillIndex)` 返回 Min/Max/Eff/Notes，`PreviewOrder(a0, a1)` 返回 First/Reason。**不得消耗随机数。**
 - **验收**：移入 `Pending/T05_PreviewTests.cs`，通过。
 
-### ⬜ T-06 电脑难度：简单 / 普通
+### ✅ T-06 电脑难度：简单 / 普通
 
 - `Ai.cs` 加 `AiLevel` 和 `Choose(b, s, level)`；普通 = 现有行为；简单 = 一半随机选技能、从不主动换人。
 - **验收**：移入 `Pending/T06_AiLevelTests.cs`，通过（普通对简单 300 局胜率 ≥ 60%）。
@@ -81,7 +81,7 @@
 | ⬜ T-13 | 内容包检查工具与名单文档 | 无 |
 | ⬜ T-14 | 平衡调整 | T-04 |
 | ⬜ T-15 | 新机制：偷强化、反弹、免疫弱化、禁止换人 | T-03 |
-| ⬜ T-16 | 开场看阵容选首发 | 无 |
+| ✅ T-16 | 开场看阵容选首发 | 无 |
 | ⬜ T-17 | 命令行对战 | T-06 |
 
 ## 内容（由 Claude 负责，不交给 Codex）

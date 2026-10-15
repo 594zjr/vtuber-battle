@@ -15,7 +15,7 @@ namespace StreamDuel.Core
             TurnEnd = "回合结束", Replace = "补位", Over = "结束", TurnHeader = "回合";
     }
 
-    public enum Phase { Choose, Replace, Over }
+    public enum Phase { Choose, Replace, Over, Lead }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
     public struct BattleAction
@@ -34,6 +34,7 @@ namespace StreamDuel.Core
     public sealed class Fighter
     {
         public StreamerDef Def; public int Slot, Side, Hp, MaxHp, EnteredTurn = 1; public bool Fainted;
+        public int LastSkillIndex = -1;
         public Dictionary<string, int> Stages = NewStages();
         public List<SkillSlot> Skills = new List<SkillSlot>();
         public List<StatusInst> Statuses = new List<StatusInst>();
@@ -69,6 +70,7 @@ namespace StreamDuel.Core
     public sealed class Rng
     {
         uint a;
+        internal uint State { get { return a; } set { a = value; } }
         public Rng(uint seed) { a = seed; }
         public double Next()
         {
@@ -97,18 +99,25 @@ namespace StreamDuel.Core
         public readonly bool[] ActedFirst = new bool[2];
         readonly Rng rng;
 
-        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null)
+        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null, bool leadPick = false)
         {
             Db = db;
             Seed = seed ?? (uint)Environment.TickCount;
             rng = new Rng(Seed);
+            Record = new BattleRecord
+            {
+                Seed = Seed,
+                PackId = db.PackId,
+                LeadPick = leadPick,
+                Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
+            };
             for (int s = 0; s < 2; s++)
             {
                 Sides[s] = new SideState { Name = names[s] };
                 for (int i = 0; i < teams[s].Count; i++) Sides[s].Team.Add(MakeFighter(teams[s][i], i + 1, s));
             }
-            Add(Node.Start, "对决开始", "turn");
-            foreach (int s in SpeedOrder()) Enter(s, Node.Start);
+            if (leadPick) Phase = Phase.Lead;
+            else StartBattle();
         }
 
         Fighter MakeFighter(string id, int slot, int side)
@@ -292,6 +301,21 @@ namespace StreamDuel.Core
                 case "HEAL": Heal(ctx.P, (int)(ctx.P.MaxHp * e.Frac), ctx.Node); break;
                 case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false); break;
                 case "DRAIN": if (ctx.Dealt > 0) Heal(ctx.P, (int)(ctx.Dealt * e.Frac), ctx.Node, "吸粉："); break;
+                case "PP_REDUCE":
+                {
+                    if (tgt.Fainted) break;
+                    if (tgt.LastSkillIndex < 0)
+                    {
+                        Add(ctx.Node, tgt.Name + " 还没有用过技能，PP 削减无效", "info", tgt.Side);
+                        break;
+                    }
+                    var slot = tgt.Skills[tgt.LastSkillIndex];
+                    int reduced = Math.Min(slot.Pp, Math.Max(0, e.N));
+                    slot.Pp -= reduced;
+                    Add(ctx.Node, tgt.Name + " 的「" + Db.Skills[slot.Id].Name + "」PP -" + reduced, "info", tgt.Side);
+                    break;
+                }
+                case "FIXED_DAMAGE": Damage(tgt, Math.Max(0, e.N), ctx.Node, tgt.Name + " 受到固定伤害，人气 -{n}", true); break;
                 case "FIELD": if (!tgt.Fainted) AddField(tgt, e.Field, e.Turns, ctx.Node); break;
                 case "ADD_MARK": if (!tgt.Fainted) AddMark(tgt, e.Field, e.N, ctx.Node); break;
                 case "CLEANSE":
@@ -341,8 +365,8 @@ namespace StreamDuel.Core
         // ================= 伤害 =================
         public sealed class DamageResult { public int Dmg; public double Eff = 1; public bool Crit; public List<string> Notes = new List<string>(); }
 
-        /// <summary>纯计算。estimate=true 时不掷骰、不暴击，给电脑估算用。</summary>
-        public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate)
+        /// <summary>纯计算。estimate=true 时不掷骰、不暴击，可指定随机系数供预览使用。</summary>
+        public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate, double estimateRandomFactor = 0.925)
         {
             var r = new DamageResult();
             var p = Active(s); var f = Active(1 - s);
@@ -364,7 +388,7 @@ namespace StreamDuel.Core
             double dm; string dn;
             if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
             if (!estimate && rng.Next() < 1.0 / 16) { r.Crit = true; mul *= 1.5; r.Notes.Add("暴击 ×1.5"); }
-            double rand = estimate ? 0.925 : 0.85 + rng.Next() * 0.15;
+            double rand = estimate ? estimateRandomFactor : 0.85 + rng.Next() * 0.15;
             r.Dmg = Math.Max(1, (int)Math.Floor((50 * power * A / D / 50 + 2) * mul * rand));
             return r;
         }
@@ -412,12 +436,14 @@ namespace StreamDuel.Core
         void SwitchTo(int s, int to, string node)
         {
             var old = Active(s);
+            old.LastSkillIndex = -1;
             if (!old.Fainted)
             {
                 old.Stages = Fighter.NewStages();
                 old.Fields.Clear();
-                Add(node, old.Name + " 下场（能力变化、直播间效果和印记清空，状态保留）", "info", s);
+                Add(node, old.Name + " 下场（能力变化、直播间效果、印记和最后使用技能记录清空，状态保留）", "info", s);
             }
+            else Add(node, old.Name + " 离场，最后使用技能记录清空", "info", s);
             Sides[s].Active = to;
             Enter(s, node);
         }
@@ -453,6 +479,7 @@ namespace StreamDuel.Core
                 skill = Db.Skills[slot.Id];
                 if (PersonaFreePp(p)) Add(node, "【人设·" + PersonaOf(p).Name + "】6 号位队友在播，本次不消耗 PP", "trait", s);
                 else slot.Pp = Math.Max(0, slot.Pp - 1);
+                p.LastSkillIndex = act.Index;
             }
             Add(node, p.Name + " 使用「" + skill.Name + "」", "act", s);
             if (f.Fainted) { Add(node, "没有目标", "info", s); return; }
@@ -505,6 +532,7 @@ namespace StreamDuel.Core
         public void ResolveTurn(BattleAction a0, BattleAction a1)
         {
             if (Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
+            Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Turn, A0 = a0, A1 = a1, RngState = rng.State });
             var acts = new[] { Normalize(0, a0), Normalize(1, a1) };
             ActedFirst[0] = ActedFirst[1] = false;
             Add(Node.TurnHeader, "第 " + Turn + " 回合", "turn");
@@ -570,6 +598,7 @@ namespace StreamDuel.Core
             if (Phase != Phase.Replace || !Need[s]) throw new InvalidOperationException("这一方现在不需要补位");
             var sd = Sides[s];
             if (to == sd.Active || to < 0 || to >= sd.Team.Count || sd.Team[to].Fainted) throw new InvalidOperationException("不能派出这位主播");
+            Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Replace, Side = s, To = to, RngState = rng.State });
             Need[s] = false;
             SwitchTo(s, to, Node.Replace);
             if (!Need[0] && !Need[1] && Phase != Phase.Over) Phase = Phase.Choose;

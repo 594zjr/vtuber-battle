@@ -1,9 +1,16 @@
 // 电脑对手：按估算伤害和局面给每个选项打分，挑最高的，带一点随机。
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace StreamDuel.Core
 {
+    public enum AiLevel
+    {
+        Easy,
+        Normal
+    }
+
     public static class Ai
     {
         static double Estimate(Battle b, int s, SkillDef sk, bool assumeFirst)
@@ -35,10 +42,37 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, int s, int idx)
         {
-            var cand = b.Sides[s].Team[idx]; var f = b.Active(1 - s);
+            return Matchup(b, b.Sides[s].Team[idx], b.Active(1 - s));
+        }
+
+        static double Matchup(Battle b, Fighter cand, Fighter f)
+        {
             double mine = cand.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, f.Type) * (k.Type == cand.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             double theirs = f.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, cand.Type) * (k.Type == f.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? 0.2 : 0);
+        }
+
+        public static int ChooseLead(Battle b, int s)
+        {
+            if (b == null) throw new ArgumentNullException(nameof(b));
+            if (s < 0 || s >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(s), "对战方必须是 0 或 1");
+            if (b.Phase != Phase.Lead) throw new InvalidOperationException("现在不是选择首发的阶段");
+            var team = b.Sides[s].Team;
+            var foes = b.Sides[1 - s].Team;
+            var best = new List<int>();
+            double bestScore = double.NegativeInfinity;
+            for (int i = 0; i < team.Count; i++)
+            {
+                double score = foes.Average(foe => Matchup(b, team[i], foe));
+                if (score > bestScore + 1e-9)
+                {
+                    bestScore = score;
+                    best.Clear();
+                    best.Add(i);
+                }
+                else if (Math.Abs(score - bestScore) <= 1e-9) best.Add(i);
+            }
+            return best.Count == 1 ? best[0] : best[(int)(b.Random() * best.Count)];
         }
 
         public static BattleAction Choose(Battle b, int s)
@@ -100,6 +134,23 @@ namespace StreamDuel.Core
                 if (Matchup(b, s, c) > Matchup(b, s, b.Sides[s].Active) + 0.5 && b.Random() < 0.6) return BattleAction.SwitchTo(c);
             }
             return best;
+        }
+
+        public static BattleAction Choose(Battle b, int s, AiLevel level)
+        {
+            if (level == AiLevel.Normal) return Choose(b, s);
+
+            var legal = b.LegalFor(s);
+            if (legal.Controlled != null) return BattleAction.Pass();
+            if (legal.Struggle) return new BattleAction { Type = ActionType.Struggle };
+
+            var skills = legal.Skills.Where(option => option.Usable).ToList();
+            if (skills.Count == 0) return BattleAction.Pass();
+            if (b.Random() < 0.5)
+                return BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
+
+            var action = Choose(b, s);
+            return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
         }
 
         public static int ChooseReplacement(Battle b, int s)

@@ -146,6 +146,7 @@ namespace StreamDuel.Game
         void Update()
         {
             if (view != View.Battle || b == null) return;
+            if (b.Phase == Phase.Lead) return;
             if (playing)
             {
                 if (Time.unscaledTime >= nextLineAt)
@@ -168,9 +169,18 @@ namespace StreamDuel.Game
         void StartBattle(List<string>[] teams)
         {
             lastTeams = teams;
-            b = new Battle(db, new IList<string>[] { teams[0], teams[1] }, new[] { "你", "对手" }, (uint)System.Environment.TickCount);
+            b = new Battle(db, new IList<string>[] { teams[0], teams[1] }, new[] { "你", "对手" }, (uint)System.Environment.TickCount, leadPick: true);
             view = View.Battle;
-            shown = 0; logCountDrawn = 0; detailKind = null;
+            shown = 0; logCountDrawn = 0; playing = false; timerLeft = 10f;
+            detailKind = "pet"; detailSide = 1; detailIdx = 0; detailScroll = Vector2.zero;
+            b.ChooseLead(1, Ai.ChooseLead(b, 1));
+        }
+
+        void SubmitLead(int index)
+        {
+            if (b == null || b.Phase != Phase.Lead || b.HasChosenLead(0)) return;
+            b.ChooseLead(0, index);
+            detailKind = null;
             Play();
         }
 
@@ -214,7 +224,9 @@ namespace StreamDuel.Game
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), white);
             GUI.color = Color.white;
             GUI.matrix = Matrix4x4.TRS(new Vector3(ox, oy, 0), Quaternion.identity, new Vector3(scale, scale, 1));
-            if (view == View.Team) DrawTeam(); else DrawBattle();
+            if (view == View.Team) DrawTeam();
+            else if (b.Phase == Phase.Lead) DrawLead();
+            else DrawBattle();
             GUI.matrix = Matrix4x4.identity;
             if (pending != null) { var a = pending; pending = null; a(); }
         }
@@ -361,6 +373,50 @@ namespace StreamDuel.Game
             string at = C("〔" + t.At + "〕", e.At == "pre" ? Hex("#7fd3ff") : Hex("#ffcf7a"));
             string disp = t.Dispel == null ? "" : " " + C("〔" + t.Dispel + "〕", t.Dispel.Contains("不") ? Foe : Ok);
             return at + " " + C(t.Text, Fg) + disp;
+        }
+
+        // ---------- 首发选择页 ----------
+        void DrawLead()
+        {
+            GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
+            if (db.PackId != "original") GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
+            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
+
+            DrawLeadTeam(1, 104, "对手阵容 · 点卡片查看技能和人设");
+            DrawLeadTeam(0, 388, "你的阵容 · 选择一位首发后开始对战");
+            DrawDetail(new Rect(24, 690, 1552, 192));
+        }
+
+        void DrawLeadTeam(int side, float y, string title)
+        {
+            GUI.Label(new Rect(24, y, 1500, 28), C(title, side == 0 ? Mine : Foe), sTitle);
+            float width = (1552f - 5 * 12) / 6;
+            for (int i = 0; i < b.Sides[side].Team.Count; i++)
+            {
+                var fighter = b.Sides[side].Team[i];
+                var def = fighter.Def;
+                var persona = db.Personas[def.Persona];
+                var r = new Rect(24 + i * (width + 12), y + 36, width, 230);
+                Box(r);
+                if (detailKind == "pet" && detailSide == side && detailIdx == i) Fill(new Rect(r.x, r.y, r.width, 3), Accent);
+                Portrait(new Rect(r.x + 12, r.y + 14, 52, 52), def, false);
+                GUI.Label(new Rect(r.x + 74, r.y + 14, width - 86, 30), def.Name, sTitle);
+                GUI.Label(new Rect(r.x + 74, r.y + 44, width - 86, 26), TypeTag(def.Type), sSmall);
+                GUI.Label(new Rect(r.x + 12, r.y + 80, width - 24, 28), "人设·" + persona.Name, sSmall);
+                string[] stats = { "hp", "atk", "def", "spa", "sdef", "spd" };
+                for (int row = 0; row < 2; row++)
+                    GUI.Label(new Rect(r.x + 12, r.y + 114 + row * 26, width - 24, 26),
+                        string.Join("  ", stats.Skip(row * 3).Take(3).Select(k => db.StatName(k) + " " + def.Stats[k])), sSmall);
+                int index = i;
+                if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side == 0 ? "选为首发" : "查看详情", sBtn))
+                {
+                    if (side == 0) Do(() => SubmitLead(index));
+                    else Do(() => { detailKind = "pet"; detailSide = side; detailIdx = index; detailScroll = Vector2.zero; });
+                }
+                if (GUI.Button(new Rect(r.x, r.y, width, 166), GUIContent.none, GUIStyle.none))
+                    Do(() => { detailKind = "pet"; detailSide = side; detailIdx = index; detailScroll = Vector2.zero; });
+            }
         }
 
         // ---------- 对战页 ----------
