@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
         public string SaveDir = "saves";
         public string ReplayFile;
         public string ReplayCode;
+        public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
         public int? HostPort;
@@ -125,6 +126,12 @@ namespace StreamDuel.Cli
                 if (option == "--replays")
                 {
                     options.ListReplays = true;
+                    continue;
+                }
+                if (option == "--replay-best-effort")
+                {
+                    if (options.ReplayBestEffort) throw new ArgumentException("--replay-best-effort 不能重复指定。");
+                    options.ReplayBestEffort = true;
                     continue;
                 }
                 if (option == "--ban")
@@ -351,6 +358,8 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.ReplayBestEffort && !options.Help && (!options.ReplayMode || options.ListPacks))
+                throw new ArgumentException("--replay-best-effort 只能与 --replay 或 --replay-code 同用，不能用于新对局或内容包列表。");
             if (options.ListReplays && !options.Help && (options.ReplayMode || options.ListPacks
                 || options.Network || options.ReportFile != null || options.Share
                 || options.TeamCode != null || options.ExportTeam || options.TurnSeconds.HasValue))
