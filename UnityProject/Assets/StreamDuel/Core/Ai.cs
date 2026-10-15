@@ -8,10 +8,11 @@ namespace StreamDuel.Core
     public enum AiLevel
     {
         Easy,
-        Normal
+        Normal,
+        Hard
     }
 
-    public static class Ai
+    public static partial class Ai
     {
         static double Estimate(Battle b, int s, SkillDef sk, bool assumeFirst)
         {
@@ -47,8 +48,8 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, Fighter cand, Fighter f)
         {
-            double mine = cand.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, f.Type) * (k.Type == cand.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
-            double theirs = f.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, cand.Type) * (k.Type == f.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
+            double mine = cand.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, f.Type, f.Type2) * (cand.HasType(k.Type) ? 1.5 : 1)).DefaultIfEmpty(0).Max();
+            double theirs = f.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, cand.Type, cand.Type2) * (f.HasType(k.Type) ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? 0.2 : 0);
         }
 
@@ -194,6 +195,7 @@ namespace StreamDuel.Core
         public static BattleAction Choose(Battle b, int s, AiLevel level)
         {
             if (level == AiLevel.Normal) return Choose(b, s);
+            if (level == AiLevel.Hard) return ChooseHard(b, s);
 
             var legal = b.LegalFor(s);
             if (legal.Controlled != null) return BattleAction.Pass();
@@ -212,6 +214,11 @@ namespace StreamDuel.Core
         {
             var sd = b.Sides[s];
             return Enumerable.Range(0, sd.Team.Count).Where(i => !sd.Team[i].Fainted && i != sd.Active).OrderByDescending(i => Matchup(b, s, i)).First();
+        }
+
+        public static int ChooseReplacement(Battle b, int s, AiLevel level)
+        {
+            return level == AiLevel.Hard ? ChooseHardReplacement(b, s) : ChooseReplacement(b, s);
         }
     }
 }
