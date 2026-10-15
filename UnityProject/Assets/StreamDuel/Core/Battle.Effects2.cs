@@ -55,11 +55,11 @@ namespace StreamDuel.Core
         }
 
         int DamageWithReflection(Ctx ctx, Fighter target, int amount, string text,
-            bool critical = false, List<FieldInst> consumedFields = null)
+            bool critical = false, List<FieldInst> consumedFields = null, DamageBuilder breakdown = null)
         {
             var attacker = ctx.P;
             int dealt = Damage(target, amount, ctx.Node, text, true, action: ctx, source: attacker,
-                critical: critical, consumedFields: consumedFields);
+                critical: critical, consumedFields: consumedFields, breakdown: breakdown);
             if (dealt <= 0 || attacker == target || attacker.Fainted || Phase == Phase.Over) return dealt;
             if (target.Fainted) PersonaAfterKo(attacker, ctx.Node);
             foreach (var field in target.Fields)
@@ -69,7 +69,9 @@ namespace StreamDuel.Core
                 int reflected = Math.Max(1, (int)Math.Floor(dealt * definition.ReflectDamage));
                 // 直接记反弹伤害，不再进入反弹入口，也不触发受反弹者的下播人设。
                 Damage(attacker, reflected, ctx.Node,
-                    "「" + definition.Name + "」反弹：" + attacker.Name + " 人气 -{n}", true, false, action: ctx, source: target);
+                    "「" + definition.Name + "」反弹：" + attacker.Name + " 人气 -{n}", true, false, action: ctx, source: target,
+                    breakdown: FractionBreakdown("反弹伤害", definition.Name, "本次实际直接伤害", dealt,
+                        "反弹比例", definition.ReflectDamage, true));
                 if (attacker.Fainted || Phase == Phase.Over) break;
             }
             return dealt;

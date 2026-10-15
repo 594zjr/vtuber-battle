@@ -31,6 +31,8 @@ namespace StreamDuel.Core
         /// <summary>技能、状态、直播间效果或能力的 id；Faint/Enter/Switch 为主播 id，无对应内容时为 null。</summary>
         public string Id;
         public BattleEventKind Kind;
+        /// <summary>Damage 的不可变计算快照；关闭采集时为 null，不写入录像。</summary>
+        public DamageBreakdown DamageBreakdown { get; internal set; }
     }
 
     public sealed partial class Battle
@@ -48,7 +50,8 @@ namespace StreamDuel.Core
             battleEvents.Clear();
         }
 
-        void Emit(BattleEventKind kind, Fighter fighter = null, string id = null, int amount = 0, int side = -1)
+        void Emit(BattleEventKind kind, Fighter fighter = null, string id = null, int amount = 0, int side = -1,
+            DamageBreakdown damageBreakdown = null)
         {
             if (Log.Count == 0) throw new InvalidOperationException("结构化事件必须对应已有日志");
             int logIndex = Log.Count - 1;
@@ -62,7 +65,8 @@ namespace StreamDuel.Core
                 Amount = amount,
                 Node = entry.Node,
                 Id = id,
-                Kind = kind
+                Kind = kind,
+                DamageBreakdown = damageBreakdown
             });
         }
 
@@ -79,7 +83,8 @@ namespace StreamDuel.Core
                     Amount = entry.Amount,
                     Node = entry.Node,
                     Id = entry.Id,
-                    Kind = entry.Kind
+                    Kind = entry.Kind,
+                    DamageBreakdown = entry.DamageBreakdown
                 });
             }
         }

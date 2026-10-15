@@ -66,7 +66,7 @@ namespace StreamDuel.Cli
                 // 只读取原始公开六人阵容，必须早于任何禁用/首发确认，也不借用实战随机流。
                 if (options.Advice) PrintTeamAdvice(db, player, opponent);
                 int logIndex = 0;
-                PrintNewLog(battle, ref logIndex);
+                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                 var clock = options.TurnSeconds.HasValue
                     ? new TurnClock(options.TurnSeconds.Value, options.BankSeconds.Value) : null;
                 var input = new ConsoleInput();
@@ -91,7 +91,7 @@ namespace StreamDuel.Cli
                                 }
                                 else to = Ai.ChooseBan(battle, side);
                                 battle.ChooseBan(side, to);
-                                PrintNewLog(battle, ref logIndex);
+                                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                             }
                             PrintTeams(battle);
                             continue;
@@ -113,7 +113,7 @@ namespace StreamDuel.Cli
                                 }
                                 else to = Ai.ChooseLead(battle, side);
                                 battle.ChooseLead(side, to);
-                                PrintNewLog(battle, ref logIndex);
+                                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                             }
                             PrintTeams(battle);
                             continue;
@@ -128,7 +128,7 @@ namespace StreamDuel.Cli
                             if (clock != null)
                             {
                                 if (!ReadTimedReplacements(battle, options, clock, input)) return Quit();
-                                PrintNewLog(battle, ref logIndex);
+                                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                                 continue;
                             }
                             for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
@@ -143,7 +143,7 @@ namespace StreamDuel.Cli
                                 }
                                 else to = Ai.ChooseReplacement(battle, side, options.Level);
                                 battle.Replace(side, to);
-                                PrintNewLog(battle, ref logIndex);
+                                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                             }
                             continue;
                         }
@@ -168,13 +168,13 @@ namespace StreamDuel.Cli
                         }
                         int resolvedTurn = battle.Turn;
                         battle.ResolveTurn(action, foeAction);
-                        PrintNewLog(battle, ref logIndex);
+                        PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                         if (options.Hash)
                             Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                     }
                 }
                 catch (BattleFinishedException) { }
-                PrintNewLog(battle, ref logIndex);
+                PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                 return SaveCompletedBattle(battle, options, 0);
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException
@@ -221,6 +221,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
             Console.WriteLine(Loc.Current.T("advice.cli.help"));
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
+            Console.WriteLine("  --explain-damage  在每条伤害日志后显示 Core 记录的中文计算拆解，含倍率、取整和实际扣除量；默认关闭。");
+            Console.WriteLine("                    支持本地、同屏、联网和文件/分享码回看；不改变对战、录像或战报，不用于列表、搜索、图鉴、分析及赛事入口。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
@@ -492,7 +494,7 @@ namespace StreamDuel.Cli
             return 0;
         }
 
-        private static void PrintNewLog(Battle battle, ref int index)
+        private static void PrintNewLog(Battle battle, ref int index, bool explainDamage = false)
         {
             if (index >= battle.Log.Count) return;
             battle = TextInput.ForDisplay(battle);
@@ -508,6 +510,7 @@ namespace StreamDuel.Cli
                     turn = entry.Turn;
                 }
                 Console.WriteLine("  " + entry.Text);
+                PrintDamageExplanation(battle, index - 1, explainDamage);
             }
         }
     }

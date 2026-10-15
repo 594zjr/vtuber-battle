@@ -42,6 +42,7 @@ namespace StreamDuel.Cli
         public bool Lead;
         public bool Advice;
         public bool Hash;
+        public bool ExplainDamage;
         public bool Help;
         public bool ListPacks;
         public bool ListReplays;
@@ -67,6 +68,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--explain-damage")
+                {
+                    if (options.ExplainDamage) throw new ArgumentException("--explain-damage 不能重复指定。");
+                    options.ExplainDamage = true;
+                    continue;
+                }
                 if (option == "--json")
                 {
                     if (options.Json) throw new ArgumentException("--json 不能重复指定。");
@@ -324,7 +331,7 @@ namespace StreamDuel.Cli
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
                     "--advice", "--ban", "--lead", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
-                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
+                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report", "--explain-damage"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
@@ -350,7 +357,7 @@ namespace StreamDuel.Cli
                 {
                     var allowed = new HashSet<string>(new[] { "--hotseat", "--packs", "--random-teams", "--pack", "--pack-dir", "--seed", "--team",
                         "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
-                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                        "--report", "--share", "--export-team", "--explain-damage", "--help", "-h" }, StringComparer.Ordinal);
                     var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
                     if (unsupported.Length > 0)
                         throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)
@@ -423,6 +430,9 @@ namespace StreamDuel.Cli
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
                     + " 不支持 --timer；回放使用已保存的选择，不重新计时。");
             ValidateMixedOptions(options, provided);
+            if (options.ExplainDamage && !options.Help && (options.ListPacks || options.ListReplays || options.LanList
+                || options.Glossary || options.AnalysisMode || options.TournamentFile != null || options.TournamentReportFile != null))
+                throw new ArgumentException("--explain-damage 仅用于新对局或回看中的逐条伤害日志，不能与列表、搜索、图鉴、分析或赛事入口同用。");
             return options;
         }
 

@@ -15,6 +15,29 @@ namespace StreamDuel.Core
         public List<int> SwitchTargets = new List<int>();
         public List<NodeView> NodeStrip = new List<NodeView>();
 
+        /// <summary>读取结算时保存的拆解，不从当前状态重新推算历史伤害。</summary>
+        public static string DamageExplanation(BattleEvent entry)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            return entry.Kind == BattleEventKind.Damage && entry.DamageBreakdown != null
+                ? entry.DamageBreakdown.ToText() : string.Empty;
+        }
+
+        public static IReadOnlyList<string> DamageExplanationForLog(Battle battle, int logIndex)
+        {
+            if (battle == null) throw new ArgumentNullException(nameof(battle));
+            if (logIndex < 0 || logIndex >= battle.Log.Count)
+                throw new ArgumentOutOfRangeException(nameof(logIndex), "日志下标不在已结算记录中。");
+            var lines = new List<string>();
+            foreach (var entry in battle.Events)
+            {
+                if (entry.LogIndex != logIndex) continue;
+                string text = DamageExplanation(entry);
+                if (text.Length > 0) lines.Add(text);
+            }
+            return lines.AsReadOnly();
+        }
+
         public static BattleViewModel From(Battle b, int viewerSide)
         {
             return From(b, viewerSide, null);

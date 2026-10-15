@@ -245,18 +245,20 @@ namespace StreamDuel.Core
         }
 
         int Damage(Fighter p, int amt, string node, string text, bool fromHit, bool triggerFaintPersona = true, Ctx action = null, Fighter source = null,
-            bool critical = false, List<FieldInst> consumedFields = null)
+            bool critical = false, List<FieldInst> consumedFields = null, DamageBuilder breakdown = null)
         {
             if (p.Fainted) return 0;
             int real = Math.Min(amt, p.Hp);
             bool endured = triggerFaintPersona && PersonaEndure(p, ref real);
+            var explanation = real > 0 && breakdown != null
+                ? breakdown.Finish(p.Hp, endured, endured ? PersonaOf(p).Name : null) : null;
             p.Hp -= real;
             RecordDamage(p, source, real);
             Add(node, text.Replace("{n}", real.ToString()), "dmg", p.Side);
             if (consumedFields != null)
                 foreach (var field in consumedFields) Emit(BattleEventKind.FieldRemove, source, field.Id);
             if (critical) Emit(BattleEventKind.Crit, source, action == null ? null : action.Skill.Id);
-            if (real > 0) Emit(BattleEventKind.Damage, p, action == null ? null : action.Skill.Id, real);
+            if (real > 0) Emit(BattleEventKind.Damage, p, action == null ? null : action.Skill.Id, real, damageBreakdown: explanation);
             if (endured) Add(node, "【人设·" + PersonaOf(p).Name + "】" + p.Name + " 保留 1 点人气（本场对战唯一一次保命已用完）", "trait", p.Side);
             var afk = p.Statuses.FirstOrDefault(x => Db.Statuses[x.Id].WakeOnHit);
             if (afk != null && real > 0 && fromHit) { p.Statuses.Remove(afk); Add(node, p.Name + " 被打得回过神来了", "status", p.Side); Emit(BattleEventKind.StatusRemove, p, afk.Id); }
@@ -293,7 +295,7 @@ namespace StreamDuel.Core
         }
 
         // ================= 技能效果 =================
-        sealed class Ctx { public int S; public Fighter P, F; public SkillDef Skill; public string Node; public double PowerMul = 1; public int Dealt; public bool Interrupted; }
+        sealed class Ctx { public int S; public Fighter P, F; public SkillDef Skill; public string Node; public double PowerMul = 1; public int Dealt; public bool Interrupted; public List<DamagePowerChange> PowerChanges; }
 
         public bool CondMet(Fighter p, Fighter f, string node, CondDef c, out string why)
         {
@@ -345,7 +347,10 @@ namespace StreamDuel.Core
                 case "STATUS": ApplyStatus(tgt, e.Status, ctx.Node); break;
                 case "STAGE": ChangeStages(tgt, e.Changes, ctx.Node); break;
                 case "HEAL": Heal(ctx.P, (int)(ctx.P.MaxHp * e.Frac), ctx.Node); break;
-                case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false, action: ctx); break;
+                case "RECOIL":
+                    if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false, action: ctx,
+                        breakdown: FractionBreakdown("反噬伤害", ctx.Skill.Name, "本次实际直接伤害", ctx.Dealt, "反噬比例", e.Frac, false));
+                    break;
                 case "DRAIN": if (ctx.Dealt > 0) Heal(ctx.P, (int)(ctx.Dealt * e.Frac), ctx.Node, "吸粉："); break;
                 case "PP_REDUCE":
                 {
@@ -362,7 +367,8 @@ namespace StreamDuel.Core
                     if (reduced > 0) Emit(BattleEventKind.PpChange, tgt, slot.Id, -reduced);
                     break;
                 }
-                case "FIXED_DAMAGE": DamageWithReflection(ctx, tgt, Math.Max(0, e.N), tgt.Name + " 受到固定伤害，人气 -{n}"); break;
+                case "FIXED_DAMAGE": DamageWithReflection(ctx, tgt, Math.Max(0, e.N), tgt.Name + " 受到固定伤害，人气 -{n}",
+                    breakdown: FixedBreakdown(ctx.Skill.Name, e.N)); break;
                 case "STEAL_BOOST": StealBoost(ctx, tgt); break;
                 case "FIELD": if (!tgt.Fainted) AddField(tgt, e.Field, e.Turns, ctx.Node); break;
                 case "ADD_MARK": if (!tgt.Fainted) AddMark(tgt, e.Field, e.N, ctx.Node); break;
@@ -376,13 +382,25 @@ namespace StreamDuel.Core
                 }
                 case "DISPEL_TURNS": DispelTurns(ctx); break;
                 case "DISPEL_BOOST": DispelBoost(ctx); break;
-                case "POWER_MUL": ctx.PowerMul *= e.Mul; Add(ctx.Node, "威力 ×" + e.Mul, "info", ctx.S); break;
+                case "POWER_MUL":
+                    ctx.PowerMul *= e.Mul;
+                    if (CaptureDamageBreakdowns)
+                    {
+                        if (ctx.PowerChanges == null) ctx.PowerChanges = new List<DamagePowerChange>();
+                        ctx.PowerChanges.Add(new DamagePowerChange { Factor = e.Mul });
+                    }
+                    Add(ctx.Node, "威力 ×" + e.Mul, "info", ctx.S); break;
                 case "POWER_PER_MARK":
                 {
                     var m = ctx.P.FieldOf(e.Field);
                     int st = m == null ? 0 : m.Stacks;
                     double mul = 1 + e.Per * st;
                     ctx.PowerMul *= mul;
+                    if (CaptureDamageBreakdowns)
+                    {
+                        if (ctx.PowerChanges == null) ctx.PowerChanges = new List<DamagePowerChange>();
+                        ctx.PowerChanges.Add(new DamagePowerChange { FromMark = true, Name = Db.Fields[e.Field].Name, Per = e.Per, Stacks = st });
+                    }
                     Add(ctx.Node, "〔命中前判定〕" + Db.Fields[e.Field].Name + " " + st + " 层 → 威力 ×" + mul.ToString("0.##"), "check", ctx.S);
                     if (e.Consume && m != null) { ctx.P.Fields.Remove(m); Add(ctx.Node, ctx.P.Name + " 的「" + Db.Fields[e.Field].Name + "」全部消耗", "field", ctx.S); Emit(BattleEventKind.FieldRemove, ctx.P, e.Field); }
                     break;
@@ -417,33 +435,54 @@ namespace StreamDuel.Core
         }
 
         // ================= 伤害 =================
-        public sealed class DamageResult { public int Dmg; public double Eff = 1; public bool Crit; public List<string> Notes = new List<string>(); }
+        public sealed class DamageResult { public int Dmg; public double Eff = 1; public bool Crit; public List<string> Notes = new List<string>(); internal DamageBuilder Breakdown; }
 
         /// <summary>纯计算。estimate=true 时不掷骰、不暴击，可指定随机系数供预览使用。</summary>
         public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate, double estimateRandomFactor = 0.925)
         {
+            return CalcDamageCore(s, skill, powerMul, estimate, estimateRandomFactor, null);
+        }
+
+        DamageResult CalcDamageCore(int s, SkillDef skill, double powerMul, bool estimate,
+            double estimateRandomFactor, List<DamagePowerChange> powerChanges)
+        {
             var r = new DamageResult();
             var p = Active(s); var f = Active(1 - s);
             if (skill.Power <= 0) return r;
+            var breakdown = !estimate && CaptureDamageBreakdowns ? NormalBreakdown(p, f, skill, powerMul, powerChanges) : null;
             bool inter = skill.Cat == "interact";
             double A = StatVal(p, inter ? "atk" : "spa"), D = StatVal(f, inter ? "def" : "sdef");
             double power = skill.Power * powerMul, mul = 1;
             if (p.HasType(skill.Type)) mul *= 1.5;
+            breakdown?.Factor("本赛道加成", p.HasType(skill.Type) ? 1.5 : 1);
             r.Eff = Db.TypeMul(skill.Type, f.Type, f.Type2); mul *= r.Eff;
+            breakdown?.Factor("赛道克制倍率", r.Eff);
             foreach (var st in p.Statuses)
             {
                 var sd = Db.Statuses[st.Id];
-                if (inter && sd.InteractMul != 1) { mul *= sd.InteractMul; r.Notes.Add(sd.Name + " ×" + sd.InteractMul); }
+                if (inter && sd.InteractMul != 1) { mul *= sd.InteractMul; breakdown?.Factor("状态·" + sd.Name, sd.InteractMul); r.Notes.Add(sd.Name + " ×" + sd.InteractMul); }
             }
             double am; string an;
-            if (PersonaAtkMul(p, f, skill, out am, out an)) { mul *= am; r.Notes.Add("人设·" + PersonaOf(p).Name + "（" + an + "）×" + am); }
-            if (!inter) foreach (var fl in p.Fields) { var fd = Db.Fields[fl.Id]; if (fd.TalentMul != 1) { mul *= fd.TalentMul; r.Notes.Add(fd.Name + " ×" + fd.TalentMul); } }
-            foreach (var fl in f.Fields) { var fd = Db.Fields[fl.Id]; if (fd.DmgTakenMul != 1) { mul *= fd.DmgTakenMul; r.Notes.Add(fd.Name + " ×" + fd.DmgTakenMul); } }
+            if (PersonaAtkMul(p, f, skill, out am, out an)) { mul *= am; breakdown?.Factor("攻击人设·" + PersonaOf(p).Name, am); r.Notes.Add("人设·" + PersonaOf(p).Name + "（" + an + "）×" + am); }
+            if (!inter) foreach (var fl in p.Fields) { var fd = Db.Fields[fl.Id]; if (fd.TalentMul != 1) { mul *= fd.TalentMul; breakdown?.Factor("攻击直播间效果·" + fd.Name, fd.TalentMul); r.Notes.Add(fd.Name + " ×" + fd.TalentMul); } }
+            foreach (var fl in f.Fields) { var fd = Db.Fields[fl.Id]; if (fd.DmgTakenMul != 1) { mul *= fd.DmgTakenMul; breakdown?.Factor("受伤直播间效果·" + fd.Name, fd.DmgTakenMul); r.Notes.Add(fd.Name + " ×" + fd.DmgTakenMul); } }
             double dm; string dn;
-            if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
+            if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; breakdown?.Factor("防守人设·" + PersonaOf(f).Name, dm); r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
             if (!estimate && rng.Next() < 1.0 / 16) { r.Crit = true; mul *= 1.5; r.Notes.Add("暴击 ×1.5"); }
             double rand = estimate ? estimateRandomFactor : 0.85 + rng.Next() * 0.15;
             r.Dmg = Math.Max(1, (int)Math.Floor((50 * power * A / D / 50 + 2) * mul * rand));
+            if (breakdown != null)
+            {
+                int crit = breakdown.Constant("暴击标记", r.Crit ? 1 : 0);
+                int bonus = breakdown.Apply("暴击倍率加成", DamageOperation.Multiply, crit, breakdown.Constant("暴击加成比例", 0.5));
+                int factor = breakdown.Apply("暴击倍率", DamageOperation.Add, breakdown.Constant("暴击基础倍率", 1), bonus);
+                breakdown.Multiplier = breakdown.Apply("累计伤害倍率", DamageOperation.Multiply, breakdown.Multiplier, factor);
+                int multiplied = breakdown.Apply("基础乘总倍率", DamageOperation.Multiply, breakdown.Result, breakdown.Multiplier);
+                int randomized = breakdown.Apply("随机修正伤害", DamageOperation.Multiply, multiplied, breakdown.Constant("随机系数", rand));
+                int rounded = breakdown.Apply("普通伤害向下取整", DamageOperation.FloorToInt, randomized);
+                breakdown.Result = breakdown.Apply("至少一点伤害", DamageOperation.Maximum, rounded, breakdown.Constant("伤害下限", 1));
+                r.Breakdown = breakdown;
+            }
             return r;
         }
 
@@ -562,11 +601,11 @@ namespace StreamDuel.Core
             if (Phase == Phase.Over || ctx.Interrupted) return;
             if (skill.Power > 0 && !f.Fainted)
             {
-                var r = CalcDamage(s, skill, ctx.PowerMul, false);
+                var r = CalcDamageCore(s, skill, ctx.PowerMul, false, 0.925, ctx.PowerChanges);
                 var consumedFields = skill.Cat == "talent" ? p.Fields.Where(x => Db.Fields[x.Id].Consume && Db.Fields[x.Id].TalentMul != 1).ToList() : null;
                 if (skill.Cat == "talent") p.Fields.RemoveAll(x => Db.Fields[x.Id].Consume && Db.Fields[x.Id].TalentMul != 1);
                 string effTxt = r.Eff > 1 ? "，赛道克制" : r.Eff < 1 ? "，赛道被克" : "";
-                ctx.Dealt = DamageWithReflection(ctx, f, r.Dmg, f.Name + " 人气 -{n}" + effTxt + (r.Notes.Count > 0 ? "（" + string.Join("，", r.Notes) + "）" : ""), r.Crit, consumedFields);
+                ctx.Dealt = DamageWithReflection(ctx, f, r.Dmg, f.Name + " 人气 -{n}" + effTxt + (r.Notes.Count > 0 ? "（" + string.Join("，", r.Notes) + "）" : ""), r.Crit, consumedFields, r.Breakdown);
                 if (Phase != Phase.Over && !ctx.Interrupted)
                 {
                     if (ctx.Dealt > 0) PersonaStageOnHit(f, node);
@@ -588,7 +627,8 @@ namespace StreamDuel.Core
                 if (d.Dot > 0)
                 {
                     int amt = Math.Max(1, (int)(p.MaxHp * d.Dot));
-                    Damage(p, amt, Node.TurnEnd, p.Name + " 因「" + d.Name + "」人气 -{n}", false);
+                    Damage(p, amt, Node.TurnEnd, p.Name + " 因「" + d.Name + "」人气 -{n}", false,
+                        breakdown: FractionBreakdown("状态持续伤害", d.Name, "最大人气", p.MaxHp, "持续伤害比例", d.Dot, false));
                     // 最后一位下播后整局立即停止，不能再引流回血或追加结束后的日志。
                     if (Phase == Phase.Over) return;
                     if (d.Leech) { var f = Active(1 - s); if (!f.Fainted) Heal(f, amt, Node.TurnEnd, "引流："); }
@@ -600,7 +640,8 @@ namespace StreamDuel.Core
             {
                 var fd = Db.Fields[fl.Id];
                 if (fd.Heal > 0) Heal(p, (int)(p.MaxHp * fd.Heal), Node.TurnEnd, "「" + fd.Name + "」：");
-                if (fd.Dot > 0) Damage(p, Math.Max(1, (int)(p.MaxHp * fd.Dot)), Node.TurnEnd, p.Name + " 因「" + fd.Name + "」人气 -{n}", false);
+                if (fd.Dot > 0) Damage(p, Math.Max(1, (int)(p.MaxHp * fd.Dot)), Node.TurnEnd, p.Name + " 因「" + fd.Name + "」人气 -{n}", false,
+                    breakdown: FractionBreakdown("直播间持续伤害", fd.Name, "最大人气", p.MaxHp, "持续伤害比例", fd.Dot, false));
                 if (p.Fainted || Phase == Phase.Over) return;
                 if (fl.Turns >= 0 && --fl.Turns <= 0) { p.Fields.Remove(fl); Add(Node.TurnEnd, p.Name + " 的「" + fd.Name + "」结束", "field", s); Emit(BattleEventKind.FieldRemove, p, fl.Id); }
             }

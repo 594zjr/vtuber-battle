@@ -40,7 +40,7 @@ namespace StreamDuel.Cli
                     if (session.NeedsHandover && !ConfirmHotseatHandover(session, options)) return Quit();
                     int side = session.WhoseTurn;
                     var view = session.ViewFor(side);
-                    PrintHotseatLog(session.DisplayLog, ref logIndex);
+                    PrintHotseatLog(session, ref logIndex, options.ExplainDamage);
                     Console.WriteLine();
                     Console.WriteLine("===== 第 " + view.Turn + " 回合 · " + view.Sides[side].Name + " 操作 =====");
                     PrintHotseatTeams(view);
@@ -73,7 +73,7 @@ namespace StreamDuel.Cli
                 }
             }
             catch (BattleFinishedException) { }
-            PrintHotseatLog(session.DisplayLog, ref logIndex);
+            PrintHotseatLog(session, ref logIndex, options.ExplainDamage);
             return SaveCompletedBattle(session.CloneCompletedBattle(), options, 0);
         }
 
@@ -222,8 +222,9 @@ namespace StreamDuel.Cli
             foreach (var chip in fighter.Statuses) Console.WriteLine("    " + chip.Tooltip);
         }
 
-        private static void PrintHotseatLog(IReadOnlyList<LogEntry> log, ref int index)
+        private static void PrintHotseatLog(HotseatSession session, ref int index, bool explainDamage)
         {
+            var log = session.DisplayLog;
             string node = null;
             int turn = -1;
             while (index < log.Count)
@@ -236,6 +237,7 @@ namespace StreamDuel.Cli
                     turn = entry.Turn;
                 }
                 Console.WriteLine("  " + entry.Text);
+                if (explainDamage) PrintDamageExplanation(session.DamageExplanationForLog(index - 1));
             }
         }
     }

@@ -57,7 +57,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("种子：" + record.Seed);
 
             bool first = true;
-            foreach (var turn in battle.Log.GroupBy(entry => entry.Turn))
+            foreach (var turn in battle.Log.Select((entry, index) => new { Entry = entry, Index = index }).GroupBy(item => item.Entry.Turn))
             {
                 if (!first && !options.Auto && !ReadReplayNext())
                 {
@@ -66,14 +66,16 @@ namespace StreamDuel.Cli
                 }
                 first = false;
                 string node = null;
-                foreach (var entry in turn)
+                foreach (var item in turn)
                 {
+                    var entry = item.Entry;
                     if (entry.Node != node)
                     {
                         Console.WriteLine("【第 " + entry.Turn + " 回合 · " + entry.Node + "】");
                         node = entry.Node;
                     }
                     Console.WriteLine("  " + entry.Text);
+                    PrintDamageExplanation(battle, item.Index, options.ExplainDamage);
                 }
             }
 
