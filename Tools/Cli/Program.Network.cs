@@ -172,6 +172,17 @@ namespace StreamDuel.Cli
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
             PrintTeams(battle);
             Console.WriteLine(BattleSummary.From(battle).ToText());
+            bool shareFailed = false;
+            try
+            {
+                PrintShareCode(battle.Record, options);
+            }
+            catch (FormatException ex)
+            {
+                // 分享码有大小上限，导出失败不能漏存已完成的对局。
+                Console.Error.WriteLine("错误：分享码导出失败：" + ex.Message);
+                shareFailed = true;
+            }
             bool reportFailed = false;
             try
             {
@@ -199,7 +210,7 @@ namespace StreamDuel.Cli
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed ? 0 : 1;
+            return replayWarning == null && !reportFailed && !shareFailed ? 0 : 1;
         }
     }
 }

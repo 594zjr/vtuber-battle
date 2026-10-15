@@ -26,13 +26,14 @@ namespace StreamDuel.Cli
                 }
 
                 if (!options.ListPacks) ValidateReportPath(options);
-                if (options.ReplayFile != null && !options.ListPacks) return PlayReplay(options);
+                if (options.ReplayMode && !options.ListPacks) return PlayReplay(options);
+                var imported = ReadTeamCode(options);
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
-                var player = options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray();
-                var errors = TeamCheck.Validate(db, null, player);
-                if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
+                var preset = PrepareTeam(db, options, imported);
+                var player = preset.Ids.ToArray();
+                if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
                 if (options.Network) return PlayNetwork(db, player, options);
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
                 var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
@@ -166,12 +167,14 @@ namespace StreamDuel.Cli
         private static void PrintHelp()
         {
             Console.WriteLine("用法：dotnet run --project Tools/Cli -- [参数]");
-            Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认原创包 original。");
+            Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认 original，导入队伍码时默认使用码内内容包。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
-            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定时自动建议，电脑先选剩余再补齐。");
+            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
+            Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
+            Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
@@ -179,16 +182,19 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
-            Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team。");
+            Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
+            Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
+            Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
             Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
-            Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash、--timer 同用，其他对战/存档参数不改变记录，也不写存档。");
-            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
+            Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code 或 --list-packs 同用。");
+            Console.WriteLine("两种回放都支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用，其他对战/存档参数不改变记录，也不写存档。");
+            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--replay-code、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希；--share 等终局校验完成后输出。");
         }
 
         private static string LevelName(AiLevel level)

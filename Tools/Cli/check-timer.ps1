@@ -130,7 +130,8 @@ try {
     }
     foreach ($case in @(
         @{ Name = 'duplicate'; Args = @('--timer', '1,2', '--timer', '3,4') },
-        @{ Name = 'replay'; Args = @('--timer', '1,2', '--replay', (Join-Path $runDirectory 'missing.json')) }
+        @{ Name = 'replay'; Args = @('--timer', '1,2', '--replay', (Join-Path $runDirectory 'missing.json')) },
+        @{ Name = 'replay-code'; Args = @('--timer', '1,2', '--replay-code', 'SD1-invalid') }
     )) {
         $child = Start-Cli $case.Name $case.Args
         $child.Process.StandardInput.Close()
@@ -145,6 +146,32 @@ try {
     $zeroCompleted = $result.Out.Contains('你：超时，提交默认跳过') -and $result.Out.Contains('电脑：超时，提交默认跳过') -and $result.Out.Contains('对局结束：')
     Assert-Check $zeroCompleted '零预算没有让双方采用默认动作并正常结束。'
     $checks.Add('零预算自动模式双方立即采用默认动作')
+
+    $coreDll = Join-Path $PSScriptRoot "bin/$Configuration/net8.0/StreamDuel.Core.dll"
+    Assert-Check (Test-Path -LiteralPath $coreDll -PathType Leaf) "请先运行 dotnet build Tools/Cli -c $Configuration。"
+    $assembly = [Reflection.Assembly]::LoadFrom($coreDll)
+    Assert-Check ([IO.Path]::GetFullPath($assembly.Location) -eq [IO.Path]::GetFullPath($coreDll)) '请在未加载其他 Core 的新 PowerShell 进程运行。'
+    $preset = [StreamDuel.Core.TeamPreset]::new()
+    $preset.Name = '计时「原六人」队伍'
+    $preset.PackId = 'original'
+    $preset.Ids.AddRange($team.Split(','))
+    $teamCode = [StreamDuel.Core.TeamCode]::Encode($preset)
+    $child = Start-Cli 'zero-team-code' @('--timer', '0,0', '--auto', '--team-code', $teamCode, '--export-team', '--share', '--seed', '7')
+    $result = Wait-Cli $child 0
+    Assert-Check ($result.Err.Length -eq 0 -and $result.Out.Contains('对局结束：') -and
+        $result.Out.Contains('你：超时，提交默认跳过') -and $result.Out.Contains('电脑：超时，提交默认跳过')) '队伍码与零预算共存时未正常超时完成对局。'
+    $exported = [regex]::Matches($result.Out, '(?m)^本方队伍码：(SDT1-[A-Za-z0-9_-]+)\r?$')
+    Assert-Check ($exported.Count -eq 1 -and $exported[0].Groups[1].Value -ceq $teamCode) '计时对局未原样导出队伍码。'
+    $decoded = [StreamDuel.Core.TeamCode]::Decode($exported[0].Groups[1].Value)
+    Assert-Check ($decoded.Name -ceq $preset.Name -and $decoded.PackId -ceq 'original' -and
+        ($decoded.Ids -join ',') -ceq $team) '计时对局的导出码丢失自定义名称或原六人顺序。'
+    $shared = [regex]::Matches($result.Out, '(?m)^分享码：(SD1-[A-Za-z0-9_-]+)\r?$')
+    Assert-Check ($shared.Count -eq 1) '队伍码计时对局未恰好导出一份回放分享码。'
+    $sharedRecord = [StreamDuel.Core.ShareCode]::Decode($shared[0].Groups[1].Value)
+    Assert-Check ($sharedRecord.Seed -eq 7 -and $sharedRecord.PackId -ceq 'original' -and
+        ($sharedRecord.Teams[0] -join ',') -ceq $team -and $sharedRecord.Events.Count -gt 0) '计时对局分享码未保留原始队伍或完整行动记录。'
+    Assert-Check (Test-Path -LiteralPath (Join-Path $child.SaveDirectory 'profile.json')) '队伍码计时对局完成后未保存档案。'
+    $checks.Add('T56 自定义队伍码与零预算完整对局共存，名称和原六人原样导出且可分享')
 
     $child = Start-Cli 'idle-then-input' @('--timer', '3,0', '--team', $team, '--seed', '7')
     [void](Wait-Output $child '选择行动（q 退出）>')
