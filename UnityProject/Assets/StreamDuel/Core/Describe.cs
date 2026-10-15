@@ -87,7 +87,13 @@ namespace StreamDuel.Core
                     dispel = f.Dispel ? Loc.T("describe.dispel.turns") : Loc.T("describe.dispel.no.turns");
                     break;
                 }
-                case "ADD_MARK": what = Loc.T("describe.effect.add.mark", tgt, db.Fields[e.Field].Name, e.N); dispel = Loc.T("describe.dispel.mark"); break;
+                case "ADD_MARK":
+                {
+                    var f = db.Fields[e.Field];
+                    what = Loc.T("describe.effect.add.mark", tgt, f.Name, e.N);
+                    dispel = Loc.T(f.Dispel ? "describe.dispel.turns" : "describe.dispel.mark");
+                    break;
+                }
                 case "POWER_PER_MARK": what = Loc.T("describe.effect.power.per.mark", db.Fields[e.Field].Name, System.Math.Round(e.Per * 100),
                     e.Consume ? Loc.T("describe.effect.consume.marks") : ""); break;
                 case "DISPEL_TURNS": what = Loc.T("describe.effect.dispel.turns"); break;

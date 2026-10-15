@@ -28,17 +28,19 @@ namespace StreamDuel.PackCheck
                 string packDirectory = null;
                 bool writeDocs = false;
                 bool listPacks = false;
+                bool listCodes = false;
                 for (int i = 0; i < args.Length; i++)
                 {
                     switch (args[i])
                     {
                         case "--help":
                         case "-h":
-                            Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--pack-dir <文件夹>] [--list-packs] [--write-docs]");
+                            Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--pack-dir <文件夹>] [--list-packs | --write-docs | --codes]");
                             Console.WriteLine("默认检查全部内容包；--pack 按包 id 选择，兼容内置文件名（不含 .json）。错误返回 1，提醒不影响退出码。");
                             Console.WriteLine("文本检查逐条输出 Level、Where、Id、Message，并汇总 error/warn；任何文本 error 都会阻止名单生成。");
                             Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出，id 冲突时内置优先并提示。");
                             Console.WriteLine("--write-docs 在所选内容包全部通过检查后，更新对应 docs/roster/<packId>.md。");
+                            Console.WriteLine("--codes 按已加载的全部技能和人设定义报告代码引用及未使用代码，可用 --pack 筛选；不能与 --list-packs 或 --write-docs 同用。");
                             return 0;
                         case "--pack":
                             if (++i >= args.Length || string.IsNullOrWhiteSpace(args[i]) || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -56,10 +58,18 @@ namespace StreamDuel.PackCheck
                         case "--write-docs":
                             writeDocs = true;
                             break;
+                        case "--codes":
+                            listCodes = true;
+                            break;
                         default:
                             throw new ArgumentException("未知选项：" + args[i] + "；使用 --help 查看用法。");
                     }
                 }
+
+                if (listCodes && (listPacks || writeDocs))
+                    throw new ArgumentException("--codes 不能与 --list-packs 或 --write-docs 同用。");
+                if (listCodes && packDirectory != null && !Directory.Exists(packDirectory))
+                    throw new IOException("代码使用报告的外部内容包目录不存在或无法访问：" + packDirectory);
 
                 string root = FindRoot();
                 string resources = Path.Combine(root, "UnityProject", "Assets", "StreamDuel", "Resources");
@@ -133,6 +143,19 @@ namespace StreamDuel.PackCheck
                         else Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (entry.BuiltIn ? "内置" : "外部") + "〕（" + result.FileName + "），内容指纹：" + result.Db.ContentHash());
                     }
                     return errors == 0 ? 0 : 1;
+                }
+
+                if (listCodes)
+                {
+                    foreach (var entry in entries)
+                        if (entry.Result.Db == null) report(true, entry.Path, entry.Result.Error);
+                    if (errors > 0)
+                    {
+                        Console.WriteLine("代码使用报告未生成：所选内容包加载失败，无法判断代码是否未使用。");
+                        return 1;
+                    }
+                    Console.Write(CodeUsageReport.Render(entries.Select(entry => entry.Result.Db)));
+                    return 0;
                 }
 
                 string[] sensitiveWords = File.ReadAllLines(Path.Combine(root, "Tools", "PackCheck", "sensitive_words.txt"))

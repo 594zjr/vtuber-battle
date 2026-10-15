@@ -240,23 +240,29 @@
 
 **效果码表**
 
-| code | 参数 | 作用 |
-|---|---|---|
-| `STATUS` | target, status | 施加状态（遵守 5.1 的规则） |
-| `STAGE` | target, changes{stat:n} | 改能力等级 |
-| `HEAL` | frac | 自身回复最大人气 × frac |
-| `RECOIL` | frac | 自身受到本次造成伤害 × frac（至少 1） |
-| `DRAIN` | frac | 自身回复本次造成伤害 × frac |
-| `PP_REDUCE` | n, target | 在指定 pre/post 时机使目标本次上场最后使用的技能 PP 减 n，最低为 0；还没有用过技能则无效。未命中、免扣 PP 的技能也计入；硬撑和受控跳过不计，下场清空记录。即时结算，不可驱散 |
-| `FIXED_DAMAGE` | n, target | 在指定 pre/post 时机对目标造成固定 n 点伤害，人气最低为 0；不受能力、赛道、直播间效果、人设或暴击影响，可解除挂机并导致下播，但不触发被击中后人设。即时结算，不可驱散 |
-| `FIELD` | target, field, turns | 获得/刷新直播间效果 |
-| `ADD_MARK` | target, field, n | 印记加层 |
-| `POWER_MUL` | mul | 本次威力 × mul（只能放在 pre） |
-| `POWER_PER_MARK` | field, per, consume | 威力 × (1 + per × 层数)（只能放在 pre） |
-| `DISPEL_TURNS` | target | 消回合 |
-| `DISPEL_BOOST` | target | 消强化 |
-| `STEAL_BOOST` | target | 在指定 pre/post 时机取走目标所有 > 0 的能力等级，加到自身对应等级（每项最高 +6），目标这些等级归零；目标负等级保留。转移后自身正等级可被消强化、下场清零；以自身为目标时无效。日志列明双方等级变化 |
-| `CLEANSE` | — | 净化自身弱化类状态 |
+`EffectCodes.All` 与下表是现有执行代码的只读元数据索引；它不代替 `Battle.RunEffect`，不新增内容校验或改变结算。每项 `CodeInfo` 提供 `Code`、`Timing`、`ParameterNames`、`DispelRule`、`DescriptionSource`，列表与参数列表均不可修改。参数只列该代码实际读取的代码专用字段，不重复公共字段 `code`、`at`、`chance`、`cond`；`changes` 是能力名到等级变化的对象。表中的 `pre/post` 表示两个时机都被现有实现接受，不保证放在任意时机都产生相同作用。所有效果仍先读取当时的条件，再进行概率判定。
+
+| code | 判定时机 | 参数 | 驱散规则 | 说明来源 | 作用 |
+|---|---|---|---|---|---|
+| `STATUS` | pre/post | target, status | 按 StatusDef.Cleanse 决定能否净化；下场保留 | Describe.Effect: describe.effect.status | 给目标施加状态，遵守 5.1 的免疫、重复施加与持续时间规则。 |
+| `STAGE` | pre/post | target, changes | 正等级可被消强化；负等级保留；下场清零 | Describe.Effect: describe.effect.stage | 按 changes 的能力名和整数变化量修改目标等级，遵守本局能力上下限。 |
+| `HEAL` | pre/post | frac | 即时结算；不可驱散 | Describe.Effect: describe.effect.heal | 自身回复 floor(最大人气 × frac)，不超过上限；忽略 target。 |
+| `RECOIL` | pre/post | frac | 即时结算；不可驱散 | Describe.Effect: describe.effect.recoil | 本次公式伤害实际扣除量大于 0 时，自身受到 max(1, floor(实际扣除量 × frac)) 反噬；pre 时该扣除量尚为 0，不生效；固定伤害不累计到这个量。忽略 target。 |
+| `DRAIN` | pre/post | frac | 即时结算；不可驱散 | Describe.Effect: describe.effect.drain | 本次公式伤害实际扣除量大于 0 时，自身回复 floor(实际扣除量 × frac)，不超过上限；pre 时该扣除量尚为 0，不生效；固定伤害不累计到这个量。忽略 target。 |
+| `PP_REDUCE` | pre/post | target, n | 即时结算；不可驱散 | Describe.Effect: describe.effect.pp.reduce | 使目标本次上场最后使用的技能 PP 减 max(0, n)，最低为 0；还没有用过技能则无效。未命中、免扣 PP 的技能也计入；硬撑和受控跳过不计，下场清空记录。 |
+| `FIXED_DAMAGE` | pre/post | target, n | 即时结算；不可驱散 | Describe.Effect: describe.effect.fixed.damage | 对目标造成 max(0, n) 点固定伤害，跳过伤害公式的能力、赛道、倍率与暴击；仍经过人气下限、保命、解除挂机、下播和直接技能伤害反弹处理，并可触发击倒回复。不触发被击中后人设。 |
+| `FIELD` | pre/post | target, field, turns | 按 FieldDef.Dispel 决定能否消回合；下场清除 | Describe.Effect: describe.effect.field | 给目标获得或刷新直播间效果，turns 小于 0 表示直到下场。 |
+| `ADD_MARK` | pre/post | target, field, n | 按 FieldDef.Dispel 决定能否消回合；可被指定效果消耗；下场清除 | Describe.Effect: describe.effect.add.mark | 修改目标对应效果的层数，最低 0，最高为 FieldDef.MaxStacks（未设正上限时为 99）。当前内容中的印记不能消回合；执行代码按所引效果的 Dispel 判断，不按代码名强制禁止。 |
+| `POWER_MUL` | pre/post | mul | 本次行动内即时结算；不可驱散 | Describe.Effect: describe.effect.power.mul | 修改本次威力乘数。放在 pre 才影响随后公式伤害；post 仍执行乘数修改和日志，但不会重新结算已经造成的伤害。 |
+| `POWER_PER_MARK` | pre/post | field, per, consume | 本次行动内即时结算；不可驱散；consume 为 true 时移除自身该效果 | Describe.Effect: describe.effect.power.per.mark | 读取自身 field 的层数，将本次威力乘以 (1 + per × 层数)；只在 pre 影响本次公式伤害。post 仍读取层数和记录日志，consume 为 true 时也会移除自身该效果。忽略 target。 |
+| `DISPEL_TURNS` | pre/post | — | 即时结算；不可驱散 | Describe.Effect: describe.effect.dispel.turns | 固定移除对手身上 FieldDef.Dispel 为 true 的直播间效果；忽略 target。 |
+| `DISPEL_BOOST` | pre/post | — | 即时结算；不可驱散 | Describe.Effect: describe.effect.dispel.boost | 固定把对手所有正能力等级归零，负等级保留；忽略 target。 |
+| `STEAL_BOOST` | pre/post | target | 转移后的正等级可被消强化；下场清零 | Describe.Effect: describe.effect.steal.boost | 取走目标所有正能力等级，加到自身对应等级，目标这些等级归零，负等级保留；遵守本局上限，默认 +6，启用 stage_cap_3 时为 +3。以自身为目标时无效。日志列明双方等级变化。 |
+| `CLEANSE` | pre/post | — | 即时结算；不可驱散 | Describe.Effect: describe.effect.cleanse | 固定移除自身所有 StatusDef.Cleanse 为 true 的状态；忽略 target。 |
+
+只有参数列包含 `target` 的代码才使用它：`self` 指自身，其余值按现有实现指对手，缺省为 `foe`。说明来源列记录 `Describe.Effect` 使用的主文案本地化键，条件、概率、时机和驱散文字还使用各自的通用键；这里不复制或改写玩家文案。
+
+`ADD_MARK` 的驱散说明按引用的 `FieldDef.Dispel` 生成：可驱散时显示“可被消回合”，不可驱散时保留“印记，消回合清不掉”；不根据名称或 `Kind` 猜测。这只改变说明显示，不改变结算或源内容数据。
 
 **条件 `cond.kind`**：`foeHpAbove`(value)、`foeWeak`、`actedFirst`、`actedSecond`、`foeBuffed`。在效果自己的 `at` 时机读取当时的数值。
 
@@ -268,31 +274,33 @@
 
 `node` 只给界面显示；真正的调用时机由 `code` 决定：
 
-| code | 调用时机 | 参数 | 作用 |
-|---|---|---|---|
-| `T_LOWHP_POWER` | 本方造成伤害时 | below, mul | 自身人气低于 below 时伤害 × mul |
-| `T_EXECUTE` | 本方造成伤害时 | below, mul | 对手人气低于 below 时伤害 × mul |
-| `T_REGEN` | 回合结束 | frac | 回复最大人气 × frac |
-| `T_BENCH_GUARD` | 受到伤害时 | per | 己方后排每有 1 位在播，受伤 -per |
-| `T_INTERACT_REDUCE` | 受到伤害时 | mul | 受到互动伤害 × mul |
-| `T_FIRST_TURN_PRIO` | 排先手时 | prio | 上场后第一个回合先制 + prio |
-| `T_TURNSTART_CLEANSE` | 回合开始 | — | 移除自身 1 个弱化类状态 |
-| `T_FREE_PP_SLOT6` | 使用技能时 | — | 己方 6 号位队友在播（且不是自己）时不扣 PP |
-| `T_CONTACT_STATUS` | 被击中后 | chance；人设的 `status` 字段 | 被互动技能击中后按概率给攻击方施加状态 |
-| `T_ENTER_FIELD` | 登场时 | turns；人设的 `field` 字段 | 登场获得直播间效果（按那个效果自己的驱散规则） |
-| `T_FAINT_CURSE` | 下播时 | n | 对手场上主播五项能力各 + n（n 为负） |
-| `T_SPEED_IF_FIRST` | 回合结束 | n | 本回合先手则反应 + n |
-| `T_KO_HEAL` | 本方技能直接击倒对手后 | frac | 本方普通或固定技能伤害击倒对手后，自身回复 floor(最大人气 × frac)，不超过上限；对战已经结束则不再触发 |
-| `T_FIRST_CONTROL_IMMUNE` | 被施加控制类状态时 | — | 每次登场后，第一次本来可施加的控制类状态无效；下场再登场时重新计算。重连保护或已有控制已经使施加无效时，不消耗本次免疫 |
-| `T_ENDURE` | 受到伤害时 | — | 每场对战一次：受到会使人气归零的伤害时，保留 1 点人气；下场不重置，反弹伤害不触发 |
-| `T_ALLY_PP_ON_ENTER` | 登场时 | n | 己方后排所有还在播的队友，每个技能 PP +n，不超过各技能上限；不回复自身或已下播队友 |
-| `T_STAGE_ON_HIT` | 受到普通技能直接伤害后 | 能力名 → 提升等级，例如 `{"def": 1}` | 实际扣除人气且没有下播时，按参数中的正值提升自身能力等级（最高 +6），每次被击中均触发；固定伤害、持续伤害、反噬和反弹不触发 |
+`PersonaCodes.All` 与下表使用相同的 `CodeInfo` 契约。参数通常在 `params` 中；`status`、`field` 是人设顶层字段，也列入代码实际使用的参数列表。`T_STAGE_ON_HIT` 明列可识别的五个能力名，每项可省略，缺省为 0。这里的“普通技能伤害”指按伤害公式结算的伤害，包含第五技能与硬撑，与固定伤害区分。
+
+| code | 判定时机 | 参数 | 驱散规则 | 说明来源 | 作用 |
+|---|---|---|---|---|---|
+| `T_LOWHP_POWER` | 本方造成普通技能伤害时 | below, mul | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 自身人气严格低于最大人气 × below 时伤害乘以 mul；不参与固定伤害。 |
+| `T_EXECUTE` | 本方造成普通技能伤害时 | below, mul | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 对手人气严格低于其最大人气 × below 时伤害乘以 mul；不参与固定伤害。 |
+| `T_REGEN` | 回合结束 | frac | 人设本体不可消除；人气回复即时结算 | Describe.Persona: PersonaDef.Node/Desc | 自身回复 floor(最大人气 × frac)，不超过上限。 |
+| `T_BENCH_GUARD` | 受到普通技能伤害时 | per | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 伤害乘以 (1 - per × 己方仍在播后排人数)；不参与固定伤害。 |
+| `T_INTERACT_REDUCE` | 受到普通互动技能伤害时 | mul | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 受到互动类公式伤害乘以 mul；不参与固定伤害。 |
+| `T_FIRST_TURN_PRIO` | 排先手时 | prio | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 上场后第一个回合先制加 prio。 |
+| `T_TURNSTART_CLEANSE` | 回合开始 | — | 人设本体不可消除；移除状态即时结算 | Describe.Persona: PersonaDef.Node/Desc | 移除自身状态列表中第一个非控制类状态，不另检查该状态的 Cleanse 标记。 |
+| `T_FREE_PP_SLOT6` | 检查技能可用性及使用技能时 | — | 人设本体永久生效；不可消除 | Describe.Persona: PersonaDef.Node/Desc | 己方第 6 号位在播且不是自身时，可用 0 PP 技能且使用时不扣 PP。 |
+| `T_CONTACT_STATUS` | 被普通互动技能击中后 | chance, status | 人设本体不可消除；所施状态按 StatusDef.Cleanse 决定能否净化 | Describe.Persona: PersonaDef.Node/Desc | 按 chance 的百分比给仍在播的攻击方施加顶层 status 指定的状态；固定伤害不触发。该分支不要求自身仍在播，也不要求实际扣血大于 0；仍遵守反弹中断及对战结束后不再触发的规则。 |
+| `T_ENTER_FIELD` | 登场时 | turns, field | 人设本体不可消除；所授效果按 FieldDef.Dispel 决定能否消回合；下场清除 | Describe.Persona: PersonaDef.Node/Desc | 自身获得顶层 field 指定的直播间效果，持续 params.turns 回合。 |
+| `T_FAINT_CURSE` | 下播时（反弹导致的下播除外） | n | 人设本体不可消除；产生的正等级可被消强化；下场清零 | Describe.Persona: PersonaDef.Node/Desc | 仍在播的对手场上主播五项能力各加 n；现有内容使用负值，执行代码本身也接受正值，遵守本局能力上下限。 |
+| `T_SPEED_IF_FIRST` | 回合结束 | n | 人设本体不可消除；产生的正等级可被消强化；下场清零 | Describe.Persona: PersonaDef.Node/Desc；StageLimit != 6 时 describe.persona.speed.first | 本回合先手则自身反应加 n，遵守本局能力上下限。 |
+| `T_KO_HEAL` | 本方技能直接击倒对手后 | frac | 人设本体不可消除；人气回复即时结算 | Describe.Persona: describe.persona.ko.heal | 本方普通或固定技能伤害击倒对手后，自身回复 floor(最大人气 × frac)，不超过上限；对战已经结束则不再触发。 |
+| `T_FIRST_CONTROL_IMMUNE` | 被施加控制类状态时 | — | 人设本体不可消除；每次登场重置免疫次数 | Describe.Persona: describe.persona.first.control.immune | 每次登场后，第一次本来可施加的控制类状态无效；重连保护或已有控制已经使施加无效时，不消耗本次免疫。 |
+| `T_ENDURE` | 受到伤害时（反弹除外） | — | 人设本体不可消除；每场对战一次；下场不重置 | Describe.Persona: describe.persona.endure | 受到会使人气归零的伤害时保留 1 点人气；可响应普通、固定、持续伤害及自身反噬，不能响应反弹。 |
+| `T_ALLY_PP_ON_ENTER` | 登场时 | n | 人设本体不可消除；PP 回复即时结算 | Describe.Persona: describe.persona.ally.pp.enter | 己方后排所有仍在播的队友，每个技能 PP 加 max(0, n)，不超过各自上限；不回复自身或已下播队友。 |
+| `T_STAGE_ON_HIT` | 受到普通技能直接伤害后 | atk, def, spa, sdef, spd | 人设本体不可消除；产生的正等级可被消强化；下场清零 | Describe.Persona: describe.persona.stage.hit | 实际扣除人气且自身没有下播时，把五项参数分别截为整数，按其中正值提升能力，遵守本局上限（默认 +6，stage_cap_3 为 +3）；固定伤害、持续伤害、反噬和反弹不触发。 |
 
 “上场后第一个回合”：开局上场 = 第 1 回合；回合中换人上场 = 下一回合；补位上场 = 补位后的那个回合。
 
 人设本体永久生效、不可消除；`T_KO_HEAL` 的人气回复和 `T_ALLY_PP_ON_ENTER` 的 PP 回复即时结算；`T_STAGE_ON_HIT` 产生的能力提升仍可被消强化，下场清零。被击中后的人设遵守 3.4：反弹使行动方下播后，不再执行后续的被击中后人设。`T_ENDURE` 的一次性保命属于人气下限规则，不改变固定伤害的数值计算；它可以响应普通、固定、持续伤害和自身反噬，但依照 5.2 不响应反弹。`T_KO_HEAL` 不因持续伤害、自身反噬或反弹归因触发，且遵守 3.2 的全灭后立即结束规则。
 
-界面可调用 `Describe.Persona(db, persona)` 获取触发时机、说明和消除规则。上述 5 个新人设按代码和参数生成说明；已有代码保留其 `node`、`desc`，兼容内容包中的自定义文案。
+界面可调用 `Describe.Persona(db, persona)` 获取触发时机、说明和消除规则。`T_KO_HEAL`、`T_FIRST_CONTROL_IMMUNE`、`T_ENDURE`、`T_ALLY_PP_ON_ENTER`、`T_STAGE_ON_HIT` 按代码和参数生成说明；其余代码默认保留 `PersonaDef.Node/Desc`，兼容内容包中的自定义文案。传入对战且 `StageLimit != 6` 时，`T_SPEED_IF_FIRST` 也改用生成说明以显示本局上限。说明来源列指主文案来源；通用时机、驱散和参数格式另由 `Describe` 的公共本地化键提供，不要求内容包的自定义 node 文案与表中的执行时机逐字相同。
 
 ### 6.3 内容包 `Packs/<id>.json`
 
