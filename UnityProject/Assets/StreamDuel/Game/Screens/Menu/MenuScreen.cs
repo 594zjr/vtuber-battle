@@ -83,6 +83,11 @@ namespace StreamDuel.Game
             var choices = new List<string>();
             packIds = new List<string>();
             IReadOnlyList<ContentDb> packs = legacy.MenuPacks;
+            // 先保留原始名称，避免重名项的包 id 后缀占用另一包本来就有的名称。
+            var reservedLabels = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var pack in packs)
+                reservedLabels.Add(string.IsNullOrWhiteSpace(pack.PackName) ? pack.PackId : pack.PackName);
+            var usedLabels = new HashSet<string>(StringComparer.Ordinal);
             foreach (var pack in packs)
             {
                 string label = string.IsNullOrWhiteSpace(pack.PackName) ? pack.PackId : pack.PackName;
@@ -93,7 +98,20 @@ namespace StreamDuel.Game
                         && string.Equals(label, string.IsNullOrWhiteSpace(other.PackName) ? other.PackId : other.PackName, StringComparison.Ordinal))
                         repeated = true;
                 }
-                choices.Add(repeated ? label + "（" + pack.PackId + "）" : label);
+                string choice = label;
+                if (repeated || usedLabels.Contains(choice))
+                {
+                    string baseChoice = label + "（" + pack.PackId + "）";
+                    choice = baseChoice;
+                    int suffix = 2;
+                    while (reservedLabels.Contains(choice) || usedLabels.Contains(choice))
+                    {
+                        choice = baseChoice + "（" + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture) + "）";
+                        suffix++;
+                    }
+                }
+                usedLabels.Add(choice);
+                choices.Add(choice);
                 packIds.Add(pack.PackId);
             }
             packField = new DropdownField { name = "menu-pack", choices = choices, focusable = true };

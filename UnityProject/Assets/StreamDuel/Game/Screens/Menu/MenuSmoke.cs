@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using StreamDuel.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -200,6 +201,7 @@ namespace StreamDuel.Game
                 ValidatePage(ScreenIds.Menu);
                 report.steps.Add(Size + "：原创包/同人包下拉回调与旧组队共用内容库，notice 原文常驻显示。");
 
+                yield return CheckDuplicatePackLabels();
                 yield return CheckInput(false);
                 yield return CheckInput(true);
                 foreach (var route in Routes)
@@ -244,6 +246,99 @@ namespace StreamDuel.Game
             Require(index >= 0 && dropdown.choices.Count == legacy.MenuPacks.Count, "下拉选项与可用内容包不一致。");
             dropdown.index = index;
             Require(legacy.MenuPack.PackId == id, "下拉变更没有更新共用内容包。");
+        }
+
+        IEnumerator CheckDuplicatePackLabels()
+        {
+            Require(!legacy.enabled && !legacy.MenuPackLocked, "重名内容包检查须在菜单中且没有锁定的对局。");
+            var rules = Resources.Load<TextAsset>("StreamDuelRules");
+            var original = Resources.Load<TextAsset>("Packs/original");
+            Require(rules != null && original != null, "重名内容包检查缺少内置规则或原创包资源。");
+            var fixture = new List<ContentDb>();
+            string[] ids = { "a", "b", "c" };
+            string[] names = { "同名", "同名", "同名（a）" };
+            string[] notices = { "A", "B", "C" };
+            for (int i = 0; i < ids.Length; i++)
+            {
+                var pack = ContentDb.FromJson(rules.text, original.text);
+                pack.PackId = ids[i];
+                pack.PackName = names[i];
+                pack.PackNotice = notices[i];
+                fixture.Add(pack);
+            }
+
+            FieldInfo Field(string name)
+            {
+                var field = typeof(BattleScreen).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+                Require(field != null, "重名内容包检查找不到旧组件字段：" + name);
+                return field;
+            }
+
+            // 夹具只替换本次冒烟的内存来源；真实回调会更新选择、组队和滚动位置，结束后一并还原。
+            var saved = new Dictionary<FieldInfo, object>();
+            foreach (string name in new[] { "packs", "db", "pick", "teamDetail", "rosterScroll", "teamDetailScroll" })
+            {
+                var field = Field(name);
+                saved.Add(field, field.GetValue(legacy));
+            }
+            var settings = Field("settings").GetValue(legacy) as GameSettings;
+            Require(settings != null, "重名内容包检查缺少内存设置。");
+            string previousDefaultPack = settings.DefaultPack;
+            var previousPack = legacy.MenuPack;
+            object previousArgs = router.CurrentArgs;
+            try
+            {
+                Field("packs").SetValue(legacy, fixture);
+                Field("db").SetValue(legacy, fixture[1]);
+                settings.DefaultPack = "b";
+                router.Show(ScreenIds.Menu);
+                yield return Settle();
+                var dropdown = document.rootVisualElement.Q<DropdownField>("menu-pack");
+                Require(dropdown != null && dropdown.enabledInHierarchy && dropdown.choices.Count == 3,
+                    "重名内容包夹具没有生成三个可选项。");
+                Require(ReferenceEquals(legacy.MenuPack, fixture[1]) && dropdown.index == 1
+                    && document.rootVisualElement.Q<Label>("pack-notice").text == "B",
+                    "重名内容包检查没有从第二个内容包 b 开始。");
+
+                // 模拟弹出列表按显示值选中第三项，不能以直接调用 SelectMenuPack 绕过 Dropdown 的值到下标映射。
+                dropdown.value = dropdown.choices[2];
+                yield return Settle();
+                Require(ReferenceEquals(legacy.MenuPack, fixture[2]) && dropdown.index == 2
+                    && document.rootVisualElement.Q<Label>("pack-notice").text == "C"
+                    && settings.DefaultPack == "c",
+                    "选择第三项 c 时回调选中了同标签的其它包，或声明与内存设置没有同步。");
+                Require(new HashSet<string>(dropdown.choices, StringComparer.Ordinal).Count == 3,
+                    "重名内容包的最终显示标签仍然重复。");
+                Require(dropdown.choices[2] == fixture[2].PackName,
+                    "为重名内容包去重时改变了原本唯一的包名。");
+                ValidateMenu();
+                ValidatePage(ScreenIds.Menu);
+
+                router.Show(ScreenIds.Menu);
+                yield return Settle();
+                dropdown = document.rootVisualElement.Q<DropdownField>("menu-pack");
+                Require(dropdown != null && dropdown.choices.Count == 3 && dropdown.index == 2
+                    && dropdown.value == dropdown.choices[2] && ReferenceEquals(legacy.MenuPack, fixture[2])
+                    && document.rootVisualElement.Q<Label>("pack-notice").text == "C",
+                    "重建菜单后第三个内容包 c 的选择或声明丢失。");
+                Require(new HashSet<string>(dropdown.choices, StringComparer.Ordinal).Count == 3,
+                    "重建菜单后出现重复的内容包显示标签。");
+                for (int i = 0; i < fixture.Count; i++)
+                    Require(ReferenceEquals(legacy.MenuPacks[i], fixture[i]), "内容包去重改变了原始排列顺序。");
+                ValidateMenu();
+                ValidatePage(ScreenIds.Menu);
+                report.steps.Add(Size + "：同名/同名/同名（a）三个包从 b 经 Dropdown.value 选择 c，最终标签唯一、声明为 C，重建后仍选 c。");
+            }
+            finally
+            {
+                foreach (var entry in saved) entry.Key.SetValue(legacy, entry.Value);
+                settings.DefaultPack = previousDefaultPack;
+                router.Show(ScreenIds.Menu, previousArgs);
+            }
+            yield return Settle();
+            Require(ReferenceEquals(legacy.MenuPack, previousPack) && settings.DefaultPack == previousDefaultPack,
+                "重名内容包检查结束后没有还原原内容包选择。");
+            ValidateMenu();
         }
 
         void ValidateMenu()
