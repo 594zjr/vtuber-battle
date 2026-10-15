@@ -4,7 +4,7 @@ param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug')
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$binaryDirectory = Join-Path $PSScriptRoot "bin/$Configuration/net8.0"
+$binaryDirectory = Join-Path $repository "Tools/Cli/bin/$Configuration/net8.0"
 $cliDll = Join-Path $binaryDirectory 'Cli.dll'
 $coreDll = Join-Path $binaryDirectory 'StreamDuel.Core.dll'
 foreach ($path in @($cliDll, $coreDll)) {
@@ -206,6 +206,58 @@ try {
     )) {
         $null = Invoke-Cli ('reject-' + $case.Name) (@('--tournament', $rejected) + $case.Args) @() 1
         Assert-Check (-not (Test-Path -LiteralPath $rejected)) '不兼容参数被拒绝前已创建赛事。'
+    }
+    # 两种参数顺序都必须在进入任一模式前拒绝，未知选项错误不能代替互斥检查。
+    $existingTournamentHash = (Get-FileHash -LiteralPath $roundRobin -Algorithm SHA256).Hash
+    $integratedModes = @(
+        @{ Name = 'glossary'; Option = '--glossary'; Args = @('--glossary', '状态') },
+        @{ Name = 'replays'; Option = '--replays'; Args = @('--replays') },
+        @{ Name = 'hotseat'; Option = '--hotseat'; Args = @('--hotseat') }
+    )
+    foreach ($case in $integratedModes) {
+        foreach ($order in @('tournament-first', 'tournament-last')) {
+            foreach ($saveKind in @('fresh', 'existing')) {
+                $caseName = "18-conflict-$($case.Name)-$order-$saveKind"
+                $freshTournamentDirectory = Join-Path $runDirectory ($caseName + '-tournament')
+                Assert-Check (-not (Test-Path -LiteralPath $freshTournamentDirectory)) '互斥用例的新赛事目录已经存在。'
+                $targetTournament = if ($saveKind -eq 'fresh') {
+                    Join-Path $freshTournamentDirectory 'event.json'
+                } else { $roundRobin }
+                $tournamentArguments = @('--tournament', $targetTournament)
+                $parameters = if ($order -eq 'tournament-first') {
+                    $tournamentArguments + $case.Args
+                } else { $case.Args + $tournamentArguments }
+
+                $conflict = Invoke-Cli $caseName $parameters @() 1
+
+                Assert-Check ($conflict.Out.Length -eq 0) "$caseName 在拒绝前已输出赛事、图鉴、录像列表或同屏对战界面。"
+                Assert-Check ($conflict.Err.Contains('错误：') -and
+                    $conflict.Err -notmatch '未知参数|缺少参数' -and
+                    ($conflict.Err.Contains('--tournament') -or $conflict.Err.Contains($case.Option))) "$caseName 不是已识别入口之间的互斥错误。"
+                Assert-Check (-not (Test-Path -LiteralPath $freshTournamentDirectory)) "$caseName 拒绝前创建了新赛事目录或文件。"
+                Assert-Check ((Get-FileHash -LiteralPath $roundRobin -Algorithm SHA256).Hash -ceq $existingTournamentHash) "$caseName 改变了既有赛事文件。"
+            }
+        }
+    }
+    # 赛事文件混入录像库会被当作坏录像；用已有索引证明拒绝前没有任何文件操作。
+    $protectedLibrary = Join-Path $runDirectory '19-protected-replay-library/replay-library'
+    [void][IO.Directory]::CreateDirectory($protectedLibrary)
+    $protectedIndex = Join-Path $protectedLibrary 'index.json'
+    [IO.File]::WriteAllText($protectedIndex, '{"version":1,"entries":[]}', $utf8)
+    $protectedIndexHash = (Get-FileHash -LiteralPath $protectedIndex -Algorithm SHA256).Hash
+    foreach ($case in @(
+        @{ Name = 'root'; Relative = 'new-event.json' },
+        @{ Name = 'nested'; Relative = 'nested/new-event.json' }
+    )) {
+        $targetTournament = Join-Path $protectedLibrary $case.Relative
+        Assert-Check (-not (Test-Path -LiteralPath $targetTournament)) '录像库边界用例的赛事目标已经存在。'
+        $blocked = Invoke-Cli ("19-reject-replay-library-" + $case.Name) @('--tournament', $targetTournament) @('1', 'q') 1
+        Assert-Check ($blocked.Out.Length -eq 0 -and $blocked.Err.Contains('赛事文件不能放在')) '录像库路径没有在创建赛事或显示交互提示前拒绝。'
+        Assert-Check (-not (Test-Path -LiteralPath $targetTournament) -and
+            -not (Test-Path -LiteralPath ($targetTournament + '.tournament.lock')) -and
+            -not (Test-Path -LiteralPath ($targetTournament + '.tournament.tmp'))) '拒绝录像库路径后仍产生了赛事文件、锁或临时文件。'
+        Assert-Check (@(Get-ChildItem -LiteralPath $protectedLibrary -Force).Count -eq 1) '拒绝录像库路径后仍新增了文件或子目录。'
+        Assert-Check ((Get-FileHash -LiteralPath $protectedIndex -Algorithm SHA256).Hash -ceq $protectedIndexHash) '赛事路径拒绝改变了既有录像库索引。'
     }
     $null = Invoke-Cli '16-missing-path' @('--tournament') @() 1
     $help = Invoke-Cli '17-help' @('--tournament', $rejected, '--help')

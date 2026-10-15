@@ -17,6 +17,8 @@ namespace StreamDuel.Core
     public sealed class BattleSummary
     {
         public List<FighterStats>[] Sides;
+        public int Winner = -1;
+        public int Turns;
         readonly string[] sideNames = new string[2];
         readonly List<string>[] fighterNames = { new List<string>(), new List<string>() };
         readonly Dictionary<string, string> skillNames = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -26,7 +28,9 @@ namespace StreamDuel.Core
             if (b == null) throw new ArgumentNullException(nameof(b));
             var summary = new BattleSummary
             {
-                Sides = new[] { new List<FighterStats>(), new List<FighterStats>() }
+                Sides = new[] { new List<FighterStats>(), new List<FighterStats>() },
+                Winner = b.Winner,
+                Turns = b.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)
             };
             for (int side = 0; side < b.Sides.Length; side++)
             {

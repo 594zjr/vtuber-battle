@@ -308,7 +308,7 @@ namespace StreamDuel.Cli
             {
                 if (OperatingSystem.IsWindows() && IsTournamentDeviceName(part))
                     throw new ArgumentException("赛事路径不能使用 Windows 保留设备名：" + part);
-                if (new[] { ".git", "replays", "Resources", "Packs", "Content", "ProjectSettings", "Packages" }
+                if (new[] { ".git", "replays", "replay-library", "Resources", "Packs", "Content", "ProjectSettings", "Packages" }
                     .Contains(part, StringComparer.OrdinalIgnoreCase))
                     throw new ArgumentException("赛事文件不能放在程序资源、内容包或玩家回放目录中。");
                 if (OperatingSystem.IsWindows() && part.Length > 0 && (part.EndsWith(".", StringComparison.Ordinal)

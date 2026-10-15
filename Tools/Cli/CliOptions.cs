@@ -16,6 +16,10 @@ namespace StreamDuel.Cli
         public AiLevel Level = AiLevel.Normal;
         public uint Seed = 1;
         public string[] Team = null;
+        public string[] TeamB;
+        public string NameA = "玩家 A";
+        public string NameB = "玩家 B";
+        public bool Hotseat;
         public string TeamCode;
         public bool ExportTeam;
         public string SaveDir = "saves";
@@ -36,7 +40,10 @@ namespace StreamDuel.Cli
         public bool Hash;
         public bool Help;
         public bool ListPacks;
+        public bool ListReplays;
         public bool Share;
+        public bool Glossary;
+        public string GlossaryKeyword;
         public string CalcAttacker;
         public string CalcDefender;
         public int CalcSkillIndex;
@@ -56,6 +63,21 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--hotseat")
+                {
+                    if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
+                    options.Hotseat = true;
+                    continue;
+                }
+                if (option == "--glossary")
+                {
+                    if (options.Glossary) throw new ArgumentException(Loc.Current.T("glossary.cli.duplicate"));
+                    options.Glossary = true;
+                    if (i + 1 < args.Length && args[i + 1] != null
+                        && !args[i + 1].StartsWith("--", StringComparison.Ordinal) && args[i + 1] != "-h")
+                        options.GlossaryKeyword = args[++i];
+                    continue;
+                }
                 if (option == "--calc")
                 {
                     if (options.CalcAttacker != null) throw new ArgumentException("--calc 不能重复指定。");
@@ -99,6 +121,11 @@ namespace StreamDuel.Cli
                     options.ListPacks = true;
                     continue;
                 }
+                if (option == "--replays")
+                {
+                    options.ListReplays = true;
+                    continue;
+                }
                 if (option == "--ban")
                 {
                     options.Ban = true;
@@ -125,6 +152,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
+                    && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
@@ -139,6 +167,20 @@ namespace StreamDuel.Cli
                         if (options.TournamentFile != null) throw new ArgumentException("--tournament 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament 需要非空的赛事 JSON 文件路径。");
                         options.TournamentFile = value;
+                        break;
+                    case "--team-b":
+                        if (options.TeamB != null) throw new ArgumentException("--team-b 不能重复指定。");
+                        options.TeamB = value.Split(',').Select(id => id.Trim()).ToArray();
+                        if (options.TeamB.Any(id => id.Length == 0))
+                            throw new ArgumentException("--team-b 需要用逗号分隔的非空主播编号。");
+                        break;
+                    case "--name-a":
+                    case "--name-b":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException(option + " 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
+                            throw new ArgumentException(option + " 需要非空玩家名称，不能含换行或控制字符。");
+                        if (option == "--name-a") options.NameA = value.Trim();
+                        else options.NameB = value.Trim();
                         break;
                     case "--lan-host":
                         if (options.LanHostName != null) throw new ArgumentException("--lan-host 不能重复指定。");
@@ -174,7 +216,7 @@ namespace StreamDuel.Cli
                         break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
-                            throw new ArgumentException("--replay 需要非空的回放文件路径。");
+                            throw new ArgumentException("--replay 需要非空的录像库编号或回放文件路径。");
                         options.ReplayFile = value;
                         break;
                     case "--replay-code":
@@ -234,8 +276,31 @@ namespace StreamDuel.Cli
                     throw new ArgumentException("赛事模式仅支持搭配 --pack、--pack-dir、--auto；不能与 "
                         + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI，种子由对局编号决定。");
             }
+            if (!options.Help)
+            {
+                if (!options.Hotseat && provided.Any(option => option == "--team-b" || option == "--name-a" || option == "--name-b"))
+                    throw new ArgumentException("--team-b、--name-a 和 --name-b 仅用于 --hotseat 同屏双人对战。");
+                if (options.Hotseat)
+                {
+                    var allowed = new HashSet<string>(new[] { "--hotseat", "--pack", "--pack-dir", "--seed", "--team",
+                        "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
+                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                    var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
+                    if (unsupported.Length > 0)
+                        throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)
+                            + "；双方请轮流手动操作，并在交接后按回车确认。");
+                }
+            }
             if (options.CalcAttacker != null && options.MatchupTeamA != null)
                 throw new ArgumentException("--calc 与 --matchup 不能同时使用，请选择单次伤害或阵容对位分析。");
+            if (options.Glossary && !options.Help)
+            {
+                var incompatible = provided.Where(option => option != "--glossary"
+                    && option != "--pack" && option != "--pack-dir").ToArray();
+                if (incompatible.Length > 0)
+                    throw new ArgumentException(Loc.Current.T("glossary.cli.conflict",
+                        string.Join(Loc.Current.T("describe.list.separator"), incompatible)));
+            }
             if (options.AnalysisMode && !options.Help)
             {
                 var unsupported = provided.Where(option => option != "--calc" && option != "--matchup"
@@ -266,6 +331,10 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.ListReplays && !options.Help && (options.ReplayMode || options.ListPacks
+                || options.Network || options.ReportFile != null || options.Share
+                || options.TeamCode != null || options.ExportTeam || options.TurnSeconds.HasValue))
+                throw new ArgumentException("--replays 只列出录像库，不能与 --replay、--replay-code、--list-packs、--host、--join、--lan-host、--report、--share、--team-code、--export-team 或 --timer 同用。");
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]
