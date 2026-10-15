@@ -25,8 +25,13 @@ namespace StreamDuel.Core
 
         public BattleViewModel ViewFor(int viewerSide)
         {
+            return ViewFor(viewerSide, null);
+        }
+
+        public BattleViewModel ViewFor(int viewerSide, GameSettings settings)
+        {
             if (Battle == null) throw new InvalidOperationException("握手尚未完成，无法显示对战。");
-            return BattleViewModel.From(Battle, viewerSide);
+            return BattleViewModel.From(Battle, viewerSide, settings);
         }
     }
 }
