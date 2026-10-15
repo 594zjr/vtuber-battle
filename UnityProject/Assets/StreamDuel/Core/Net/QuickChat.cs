@@ -90,17 +90,32 @@ namespace StreamDuel.Core
             int offset = 0;
             SkipChatWhitespace(message, ref offset);
             if (offset >= message.Length || message[offset++] != '{') return false;
-            if (!ReadChatHeaderText(message, ref offset, "type")) return false;
-            SkipChatWhitespace(message, ref offset);
-            if (offset >= message.Length || message[offset++] != ':') return false;
-            if (!ReadChatHeaderText(message, ref offset, "chat")) return false;
-            SkipChatWhitespace(message, ref offset);
-            // 只有明确的首字段路由头可豁免坏 JSON，不能让其它协议载荷中的 chat 字样掩盖错误。
-            return offset == message.Length || message[offset] == ',' || message[offset] == '}';
+            bool foundChat = false;
+            while (offset < message.Length)
+            {
+                SkipChatWhitespace(message, ref offset);
+                if (offset == message.Length || message[offset] == '}') return foundChat;
+                if (!ReadChatHeaderText(message, ref offset, out var key)) return foundChat;
+                SkipChatWhitespace(message, ref offset);
+                if (offset == message.Length || message[offset++] != ':') return foundChat;
+                if (key == "type")
+                {
+                    if (!ReadChatHeaderText(message, ref offset, out var type) || type != "chat") return false;
+                    SkipChatWhitespace(message, ref offset);
+                    if (offset < message.Length && message[offset] != ',' && message[offset] != '}') return false;
+                    foundChat = true;
+                }
+                else if (!SkipChatValue(message, ref offset)) return foundChat;
+                SkipChatWhitespace(message, ref offset);
+                if (offset == message.Length || message[offset] == '}') return foundChat;
+                if (message[offset++] != ',') return false;
+            }
+            return foundChat;
         }
 
-        private static bool ReadChatHeaderText(string message, ref int offset, string expected)
+        private static bool ReadChatHeaderText(string message, ref int offset, out string value)
         {
+            value = null;
             SkipChatWhitespace(message, ref offset);
             int start = offset;
             if (offset >= message.Length || message[offset++] != '"') return false;
@@ -114,9 +129,53 @@ namespace StreamDuel.Core
                 }
                 else if (current == '"')
                 {
-                    try { return MiniJson.Parse(message.Substring(start, offset - start)) as string == expected; }
-                    catch (FormatException) { return false; }
+                    try { value = MiniJson.Parse(message.Substring(start, offset - start)) as string; }
+                    catch (FormatException) { }
+                    // 已闭合但无效的键不能遮住后续根字段；无效 type 的 null 值仍会被拒绝。
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        private static bool SkipChatValue(string message, ref int offset)
+        {
+            SkipChatWhitespace(message, ref offset);
+            if (offset == message.Length) return false;
+            // 只找根对象的字段边界；不转换载荷数值，溢出的 index 仍能按聊天丢弃。
+            var closers = new Stack<char>();
+            while (offset < message.Length)
+            {
+                char current = message[offset];
+                if (closers.Count == 0 && (current == ',' || current == '}')) return true;
+                if (current == '"')
+                {
+                    if (!SkipChatString(message, ref offset)) return false;
+                    continue;
+                }
+                if (current == '{' || current == '[') closers.Push(current == '{' ? '}' : ']');
+                else if (current == '}' || current == ']')
+                {
+                    if (closers.Count == 0 || closers.Pop() != current) return false;
+                }
+                offset++;
+            }
+            return closers.Count == 0;
+        }
+
+        private static bool SkipChatString(string message, ref int offset)
+        {
+            offset++;
+            while (offset < message.Length)
+            {
+                char current = message[offset++];
+                // 非路由文本即使有非法转义，也不能遮住后续明确的非聊天类型。
+                if (current == '\\')
+                {
+                    if (offset == message.Length) return false;
+                    offset++;
+                }
+                else if (current == '"') return true;
             }
             return false;
         }

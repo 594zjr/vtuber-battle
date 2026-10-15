@@ -36,7 +36,8 @@ namespace StreamDuel.Core
             public string Hash;
         }
 
-        public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed)
+        public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
+            double? turnSeconds = null, double? bankSeconds = null)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
@@ -45,6 +46,7 @@ namespace StreamDuel.Core
             this.myName = myName;
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
+            if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
             var errors = TeamCheck.Validate(db, null, this.myTeam);
             if (errors.Count > 0 || myName == null)
             {
@@ -57,7 +59,7 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + "}");
         }
 
         public void Poll()
@@ -66,7 +68,8 @@ namespace StreamDuel.Core
             try
             {
                 string message;
-                while (!Faulted && transport.TryReceive(out message))
+                // 聊天洪泛不能占住调用线程，计时和界面需在下一批前继续推进。
+                for (int received = 0; received < 64 && !Faulted && transport.TryReceive(out message); received++)
                 {
                     if (Receive(message)) Advance();
                 }
@@ -182,6 +185,7 @@ namespace StreamDuel.Core
                 sharedSeed = hostSeed.Value;
             }
             else sharedSeed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue);
+            ReceiveTimerHello(obj);
             var teams = new IList<string>[2];
             var names = new string[2];
             teams[MySide] = myTeam;
@@ -235,6 +239,7 @@ namespace StreamDuel.Core
         {
             rngCheckpoint = Battle.NetRngState;
             string hash = Battle.StateHash().ToString("x16", CultureInfo.InvariantCulture);
+            if (hashes.Count == 0) BeginHashTimer();
             hashes.Enqueue(new HashStamp { Turn = operationTurn, Hash = hash });
             Send("{\"type\":\"hash\",\"turn\":" + Number(operationTurn) + ",\"hash\":" + NetJson.Quote(hash) + "}");
         }
@@ -254,6 +259,7 @@ namespace StreamDuel.Core
             }
             hashes.Dequeue();
             if (hashes.Count == 0) BeginPhase();
+            else BeginHashTimer();
         }
 
         private void BeginPhase()
@@ -274,6 +280,7 @@ namespace StreamDuel.Core
             else if (phase == Phase.Choose) State = NetState.Choose;
             else if (phase == Phase.Replace) State = needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
             else Fault(NetState.Error, "同步协议暂不支持禁用或首发选择阶段。");
+            BeginTimerPhase();
         }
 
         private bool Send(string message)
