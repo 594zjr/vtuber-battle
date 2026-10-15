@@ -230,10 +230,29 @@ namespace StreamDuel.Sim
         private static void CheckReportPath(string reportPath, params string[] inputs)
         {
             if (reportPath == null) return;
-            string output = Path.GetFullPath(reportPath);
+            string output = WeightPathForComparison(reportPath);
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             foreach (string input in inputs)
-                if (input != null && string.Equals(output, Path.GetFullPath(input), StringComparison.OrdinalIgnoreCase))
+                if (input != null && string.Equals(output, WeightPathForComparison(input), comparison))
                     throw new ArgumentException("--report 不能覆盖 --weights 或 --baseline 输入文件。");
+        }
+
+        private static string WeightPathForComparison(string value)
+        {
+            string path = Path.GetFullPath(value);
+            if (!OperatingSystem.IsWindows()) return path;
+            // 普通路径和扩展前缀可以指向同一输入，比较前统一，避免报告覆盖权重。
+            if (path.StartsWith(@"\\.\", StringComparison.Ordinal))
+                throw new ArgumentException("权重及报告需要普通文件路径，不能使用设备路径。");
+            if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+                path = @"\\" + path.Substring(8);
+            else if (path.StartsWith(@"\\?\", StringComparison.Ordinal))
+            {
+                path = path.Substring(4);
+                if (path.Length < 3 || !char.IsLetter(path[0]) || path[1] != ':' || path[2] != '\\')
+                    throw new ArgumentException("权重及报告需要普通文件路径，不能使用设备路径。");
+            }
+            return Path.GetFullPath(path);
         }
 
         private static void SaveReport(string path, Report report)

@@ -20,7 +20,9 @@ namespace StreamDuel.Core
 
     public sealed class BattleRecord
     {
-        public int Version { get; set; } = 2;
+        public const int CurrentVersion = 2;
+
+        public int Version { get; set; } = CurrentVersion;
         public string ContentHash { get; set; }
         public uint Seed { get; set; }
         public string PackId { get; set; }
@@ -230,7 +232,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public static class Replay
+    public static partial class Replay
     {
         public static Battle Run(ContentDb db, BattleRecord r)
         {
@@ -243,6 +245,11 @@ namespace StreamDuel.Core
                     throw new InvalidOperationException("内容不一致：记录指纹 " + r.ContentHash + "，当前指纹 " + contentHash);
             }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
+            return RunEvents(db, r);
+        }
+
+        static Battle RunEvents(ContentDb db, BattleRecord r)
+        {
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
                 new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
             foreach (var e in r.Events)

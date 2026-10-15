@@ -1,0 +1,198 @@
+{
+  "id": "original_wave2",
+  "name": "原创主播·第二期",
+  "notice": "本包角色、昵称、设定与文案均为本作虚构创作。免费、非商业使用；内容许可见 Packs/LICENSE.md。",
+  "fields": {
+    "og2_lens_hood": {
+      "name": "星尺遮光罩", "kind": "turn", "when": "受到伤害时", "dispel": true,
+      "dmgTakenMul": 0.85,
+      "desc": "受到的普通技能伤害 ×0.85，不影响固定、持续、反噬和反弹伤害。回合类，可被消回合，下场清空。"
+    }
+  },
+  "personas": {
+    "og2_lamp_watch": {
+      "name": "留灯值班", "code": "T_REGEN", "node": "回合结束",
+      "params": { "frac": 0.05 },
+      "desc": "回合结束时回复最大人气的 5%，不超过上限。回复即时结算；人设不可消除。"
+    },
+    "og2_split_finish": {
+      "name": "分段报时", "code": "T_KO_HEAL", "node": "本方技能直接击倒对手后",
+      "params": { "frac": 0.15 },
+      "desc": "普通或固定技能伤害直接击倒对手后，自身回复最大人气的 15%，向下取整且不超过上限；对战已结束则不触发。持续伤害、反噬和反弹不触发；回复即时结算，人设不可消除。"
+    },
+    "og2_fold_brace": {
+      "name": "折角加固", "code": "T_STAGE_ON_HIT", "node": "受到普通技能直接伤害后",
+      "params": { "def": 1 },
+      "desc": "受到普通技能直接伤害、实际失去人气且仍在播时，抗压 +1，最高 +6。固定伤害、持续伤害、反噬和反弹不触发；反弹使行动方下播后也不再触发。能力提升可被消强化，下场清零；人设不可消除。"
+    },
+    "og2_dark_adapt": {
+      "name": "暗场校准", "code": "T_ENTER_FIELD", "node": "登场时",
+      "params": { "turns": 3 }, "field": "og2_lens_hood",
+      "desc": "每次登场获得「星尺遮光罩」3 回合，受到的普通技能伤害 ×0.85，不影响固定、持续、反噬和反弹伤害。遮光罩可被消回合，下场清空；人设本体不可消除。"
+    },
+    "og2_table_prep": {
+      "name": "备料传盘", "code": "T_ALLY_PP_ON_ENTER", "node": "登场时",
+      "params": { "n": 1 },
+      "desc": "登场时，己方后排所有仍在播的队友每个技能 PP +1，不超过上限；不回复自身或已下播队友。回复即时结算；人设不可消除。"
+    },
+    "og2_coda": {
+      "name": "尾奏返场", "code": "T_LOWHP_POWER", "node": "本方造成伤害时",
+      "params": { "below": 0.3333, "mul": 1.4 },
+      "desc": "自身人气低于约 1/3（33.33%）时，普通技能伤害 ×1.4；在伤害结算时读取人气，不影响固定伤害。人设不可消除。"
+    },
+    "og2_route_note": {
+      "name": "夜路备忘", "code": "T_FIRST_CONTROL_IMMUNE", "node": "被施加控制类状态时",
+      "params": {},
+      "desc": "每次登场后，第一次本来可以施加的控制类状态无效；下场再登场重新计算。已有控制或重连保护已使施加无效时不消耗机会；人设不可消除。"
+    },
+    "og2_bench_pad": {
+      "name": "工作台软垫", "code": "T_INTERACT_REDUCE", "node": "受到伤害时",
+      "params": { "mul": 0.8 },
+      "desc": "受到的互动类普通技能伤害 ×0.8，不影响固定伤害。人设不可消除。"
+    },
+    "og2_first_phrase": {
+      "name": "开场转韵", "code": "T_FIRST_TURN_PRIO", "node": "排行动顺序时",
+      "params": { "prio": 1 },
+      "desc": "上场后第一个回合，所有技能先制 +1；回合中换入时从下一回合计。人设不可消除。"
+    },
+    "og2_clean_grid": {
+      "name": "擦净网格", "code": "T_TURNSTART_CLEANSE", "node": "回合开始",
+      "params": {},
+      "desc": "回合开始时移除自身 1 个弱化类状态，不移除控制类状态。净化即时结算；人设不可消除。"
+    },
+    "og2_quiet_seats": {
+      "name": "静听座席", "code": "T_BENCH_GUARD", "node": "受到伤害时",
+      "params": { "per": 0.04 },
+      "desc": "己方后排每有 1 位仍在播的队友，受到的普通技能伤害减少 4%；不影响固定伤害。人设不可消除。"
+    },
+    "og2_last_beat": {
+      "name": "留住末拍", "code": "T_ENDURE", "node": "受到伤害时",
+      "params": {},
+      "desc": "每场对战一次，受到会使人气归零的伤害时保留 1 点人气；下场不重置。普通、固定、持续伤害和反噬均可触发，反弹不触发；人设不可消除。"
+    }
+  },
+  "skills": {
+    "og2_night_mail": {
+      "name": "夜邮回声", "type": "talk", "cat": "talent", "power": 75, "pp": 10,
+      "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.4 } ]
+    },
+    "og2_split_dash": {
+      "name": "折线冲表", "type": "game", "cat": "interact", "power": 85, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.25, "cond": { "kind": "actedFirst" } } ]
+    },
+    "og2_paper_dome": {
+      "name": "纸穹合拢", "type": "art", "cat": "talent", "power": 75, "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "shield", "turns": 2 } ]
+    },
+    "og2_star_measure": {
+      "name": "星图复测", "type": "tech", "cat": "talent", "power": 90, "pp": 10,
+      "effects": [ { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ]
+    },
+    "og2_pot_parade": {
+      "name": "咕轮出锅", "type": "meme", "cat": "interact", "power": 85, "pp": 10,
+      "effects": [ { "at": "post", "code": "HEAL", "frac": 0.15 } ]
+    },
+    "og2_slant_chord": {
+      "name": "斜拍合奏", "type": "song", "cat": "talent", "power": 100, "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 30, "changes": { "sdef": -1 } } ]
+    },
+    "og2_fog_cut": {
+      "name": "雾罐切镜", "type": "horror", "cat": "interact", "power": 85, "pp": 10,
+      "effects": [ { "at": "pre", "code": "STATUS", "target": "foe", "status": "stall", "chance": 20, "cond": { "kind": "foeHpAbove", "value": 0.5 } } ]
+    },
+    "og2_solder_check": {
+      "name": "焊点巡检", "type": "tech", "cat": "interact", "power": 95, "pp": 5,
+      "effects": [ { "at": "pre", "code": "PP_REDUCE", "target": "foe", "n": 2 } ]
+    },
+    "og2_bamboo_rhyme": {
+      "name": "竹筒接韵", "type": "talk", "cat": "interact", "power": 85, "pp": 10,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "changes": { "atk": -1 } } ]
+    },
+    "og2_pixel_stitch": {
+      "name": "格点拼帧", "type": "art", "cat": "talent", "power": 90, "pp": 5,
+      "effects": [ { "at": "pre", "code": "STEAL_BOOST", "target": "foe" } ]
+    },
+    "og2_leaf_sand": {
+      "name": "枕叶落砂", "type": "asmr", "cat": "talent", "power": 85, "pp": 10,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" } ]
+    },
+    "og2_sprout_fill": {
+      "name": "鼓芽滚奏", "type": "song", "cat": "interact", "power": 85, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_PER_MARK", "field": "hype", "per": 0.25, "consume": true } ]
+    }
+  },
+  "streamers": [
+    {
+      "id": "og2_qideng", "name": "栖灯短波", "org": "原创", "type": "talk", "type2": "asmr",
+      "stats": { "hp": 410, "atk": 210, "def": 270, "spa": 300, "sdef": 300, "spd": 230 },
+      "persona": "og2_lamp_watch", "skills": [ "roast_chain", "whisper_tide", "mod_guard", "redraw" ], "fifth": "og2_night_mail",
+      "blurb": "深夜电台的留灯员，把听众寄来的小故事读成晚安。"
+    },
+    {
+      "id": "og2_miaozhen", "name": "秒针折线", "org": "原创", "type": "game",
+      "stats": { "hp": 350, "atk": 280, "def": 250, "spa": 200, "sdef": 240, "spd": 340 },
+      "persona": "og2_split_finish", "skills": [ "aim_burst", "quick_mic", "gain_takeover", "cat_walk" ], "fifth": "og2_split_dash",
+      "blurb": "给每条速通路线画折线，连失误也认真记进分段表。"
+    },
+    {
+      "id": "og2_zhisun", "name": "纸榫团子", "org": "原创", "type": "art",
+      "stats": { "hp": 410, "atk": 210, "def": 280, "spa": 300, "sdef": 290, "spd": 220 },
+      "persona": "og2_fold_brace", "skills": [ "sketch", "one_stroke", "thick_paint", "mirror_setup" ], "fifth": "og2_paper_dome",
+      "blurb": "不用胶水搭纸屋的手工主播，最爱演示小小榫卯。"
+    },
+    {
+      "id": "og2_xingchi", "name": "星尺豆灯", "org": "原创", "type": "tech", "type2": "art",
+      "stats": { "hp": 390, "atk": 200, "def": 260, "spa": 310, "sdef": 300, "spd": 270 },
+      "persona": "og2_dark_adapt", "skills": [ "ban_danmaku", "sketch", "overclock", "beauty_cam" ], "fifth": "og2_star_measure",
+      "blurb": "用自制星尺讲天文，把观测笔记画成一页页小灯图。"
+    },
+    {
+      "id": "og2_tangshao", "name": "汤勺咕轮", "org": "原创", "type": "meme", "type2": "asmr",
+      "stats": { "hp": 430, "atk": 290, "def": 290, "spa": 250, "sdef": 280, "spd": 210 },
+      "persona": "og2_table_prep", "skills": [ "lucky_draw", "wave_mic", "deep_breath", "thick_skin" ], "fifth": "og2_pot_parade",
+      "blurb": "把面团捏成小车的料理主播，等出锅时直播咕嘟声。"
+    },
+    {
+      "id": "og2_xiankou", "name": "弦扣斜拍", "org": "原创", "type": "song",
+      "stats": { "hp": 380, "atk": 210, "def": 260, "spa": 350, "sdef": 250, "spd": 320 },
+      "persona": "og2_coda", "skills": [ "full_volume", "noise_cancel", "warm_up", "overclock" ], "fifth": "og2_slant_chord",
+      "blurb": "爱写错拍小曲的乐队主唱，用衣扣标记排练节奏。"
+    },
+    {
+      "id": "og2_wuguan", "name": "雾罐夜游", "org": "原创", "type": "horror", "type2": "game",
+      "stats": { "hp": 380, "atk": 310, "def": 260, "spa": 210, "sdef": 250, "spd": 300 },
+      "persona": "og2_route_note", "skills": [ "jumpscare", "cold_shock", "night_walk", "map_cannon" ], "fifth": "og2_fog_cut",
+      "blurb": "玩恐怖实况先画出口地图，把惊吓剪成雾罐小剧场。"
+    },
+    {
+      "id": "og2_handian", "name": "焊点松饼", "org": "原创", "type": "tech",
+      "stats": { "hp": 430, "atk": 310, "def": 320, "spa": 200, "sdef": 280, "spd": 180 },
+      "persona": "og2_bench_pad", "skills": [ "teardown", "gear_blade", "iron_wall", "hotfix" ], "fifth": "og2_solder_check",
+      "blurb": "给旧键盘做测评的小工匠，把测试台布置得像早餐桌。"
+    },
+    {
+      "id": "og2_zhutong", "name": "竹筒转音", "org": "原创", "type": "talk",
+      "stats": { "hp": 400, "atk": 300, "def": 270, "spa": 250, "sdef": 280, "spd": 290 },
+      "persona": "og2_first_phrase", "skills": [ "wave_mic", "lock_mic", "ride_trend", "quick_mic" ], "fifth": "og2_bamboo_rhyme",
+      "blurb": "收集日常方言韵脚，用自制竹筒麦排练轻快绕口令。"
+    },
+    {
+      "id": "og2_gedian", "name": "格点绒笔", "org": "原创", "type": "art",
+      "stats": { "hp": 390, "atk": 200, "def": 260, "spa": 320, "sdef": 300, "spd": 280 },
+      "persona": "og2_clean_grid", "skills": [ "sketch", "one_stroke", "rage_collab", "redraw" ], "fifth": "og2_pixel_stitch",
+      "blurb": "逐格绘制像素小镇，喜欢邀请观众决定下一扇窗的颜色。"
+    },
+    {
+      "id": "og2_zhenye", "name": "枕叶砂钟", "org": "原创", "type": "asmr",
+      "stats": { "hp": 420, "atk": 200, "def": 290, "spa": 290, "sdef": 310, "spd": 200 },
+      "persona": "og2_quiet_seats", "skills": [ "whisper_tide", "surround", "deep_breath", "firewall_setup" ], "fifth": "og2_leaf_sand",
+      "blurb": "用干叶和砂钟录制助眠声，每晚整理一小盒安静。"
+    },
+    {
+      "id": "og2_guya", "name": "鼓芽节拍", "org": "原创", "type": "song", "type2": "meme",
+      "stats": { "hp": 380, "atk": 310, "def": 270, "spa": 260, "sdef": 250, "spd": 310 },
+      "persona": "og2_last_beat", "skills": [ "warm_up", "meme_punch", "cat_walk", "thick_skin" ], "fifth": "og2_sprout_fill",
+      "blurb": "把锅盖和种子罐当鼓的节拍主播，给日常物件编小合奏。"
+    }
+  ]
+}

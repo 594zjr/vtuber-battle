@@ -208,6 +208,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
+            Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
             Console.WriteLine("  --help / -h       显示本帮助。");
@@ -274,7 +275,7 @@ namespace StreamDuel.Cli
         {
             for (int side = 0; side < 2; side++)
             {
-                Console.WriteLine(battle.Sides[side].Name + "的队伍：" + string.Join("；", battle.Sides[side].Team.Select(
+                Console.WriteLine(TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text + "的队伍：" + string.Join("；", battle.Sides[side].Team.Select(
                     f => f.Slot + "号 " + f.Name + "（" + f.Def.Id + "，" + f.Hp + "/" + f.MaxHp + (f.Fainted ? "，已下播" : "") + "）")));
             }
         }
@@ -282,7 +283,7 @@ namespace StreamDuel.Cli
         private static void PrintFighter(Battle battle, int side)
         {
             var fighter = battle.Active(side);
-            Console.WriteLine(battle.Sides[side].Name + "场上：" + fighter.Name + " · " + Describe.Tracks(battle.Db, fighter.Def)
+            Console.WriteLine(TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text + "场上：" + fighter.Name + " · " + Describe.Tracks(battle.Db, fighter.Def)
                 + " · 人气 " + fighter.Hp + "/" + fighter.MaxHp + (fighter.Fainted ? "（已下播）" : ""));
             var persona = battle.PersonaOf(fighter);
             Console.WriteLine("  人设：" + persona.Name + "〔" + persona.Node + "；不可消除〕" + persona.Desc);
@@ -436,6 +437,8 @@ namespace StreamDuel.Cli
 
         private static void PrintNewLog(Battle battle, ref int index)
         {
+            if (index >= battle.Log.Count) return;
+            battle = TextInput.ForDisplay(battle);
             string node = null;
             int turn = -1;
             while (index < battle.Log.Count)

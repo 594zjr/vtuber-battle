@@ -7,9 +7,13 @@ namespace StreamDuel.Core
 {
     public sealed class TeamPreset
     {
+        // 原名用于存档和队伍码保真；显示时统一走过滤后的属性。
         public string Name = "";
         public string PackId = "";
         public List<string> Ids = new List<string>();
+
+        public TextInputResult NameInput { get { return TextInput.Clean(Name, TextInputKind.TeamName); } }
+        public string DisplayName { get { return NameInput.Text; } }
 
         public List<string> Check(ContentDb db, string seasonId)
         {

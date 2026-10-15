@@ -87,11 +87,13 @@ namespace StreamDuel.Cli
                 || child.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar, comparison);
         }
 
-        private static void SaveReport(Battle battle, CliOptions options, int viewerSide = 0)
+        private static void SaveReport(Battle battle, CliOptions options, int viewerSide = 0, bool approximateReplay = false)
         {
             string path = ValidateReportPath(options);
             if (path == null) return;
-            string markdown = BattleReport.Markdown(battle, viewerSide);
+            string markdown = BattleReport.Markdown(TextInput.ForDisplay(battle), viewerSide);
+            if (approximateReplay)
+                markdown = "> 尽力重放：原录像与当前内容不同，以下结果按当前内容重新计算，可能与原对局不同。\n\n" + markdown;
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
