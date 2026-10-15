@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.TournamentFile != null) return RunTournament(options);
                 if (options.LanList) return ListLanRooms();
                 if (!options.ListPacks) ValidateReportPath(options);
                 if (options.ReplayMode && !options.ListPacks) return PlayReplay(options);
@@ -180,6 +181,10 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮、录入姓名与队伍码、记录胜负。");
+            Console.WriteLine("                    只可搭配 --pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
+            Console.WriteLine("                    报名时空姓名开始赛事；q 或输入结束保存退出。每次报名、排轮和报分立即保存。");
+            Console.WriteLine("                    自动种子为 0x9E3779B9 加存档中的零起点对局编号（uint 回绕）；不接受 --seed。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");

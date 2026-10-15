@@ -22,6 +22,7 @@ namespace StreamDuel.Cli
         public string ReplayFile;
         public string ReplayCode;
         public string ReportFile;
+        public string TournamentFile;
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
@@ -124,7 +125,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
-                    && option != "--report"
+                    && option != "--report" && option != "--tournament"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
@@ -134,6 +135,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--tournament":
+                        if (options.TournamentFile != null) throw new ArgumentException("--tournament 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament 需要非空的赛事 JSON 文件路径。");
+                        options.TournamentFile = value;
+                        break;
                     case "--lan-host":
                         if (options.LanHostName != null) throw new ArgumentException("--lan-host 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
@@ -218,6 +224,15 @@ namespace StreamDuel.Cli
                         options.TeamCode = value;
                         break;
                 }
+            }
+            if (options.TournamentFile != null && !options.Help)
+            {
+                var unsupported = provided.Where(option => option != "--tournament" && option != "--pack"
+                    && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h")
+                    .Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("赛事模式仅支持搭配 --pack、--pack-dir、--auto；不能与 "
+                        + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI，种子由对局编号决定。");
             }
             if (options.CalcAttacker != null && options.MatchupTeamA != null)
                 throw new ArgumentException("--calc 与 --matchup 不能同时使用，请选择单次伤害或阵容对位分析。");
