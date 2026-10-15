@@ -438,4 +438,30 @@ public class T99_TurnCapTests
         AtCap(battle);
         Ended(battle, 0, "回合上限", "伤害");
     }
+
+    [Fact]
+    public void TurnCapWinnerNameIsCleanedOnlyInTheDisplayProjection()
+    {
+        string rawName = "甲方\n\u200b超长超长超长超长超长超长名字";
+        var battle = new Battle(Content(), Teams, new[] { rawName, "乙方" }, new BattleOptions
+        {
+            Seed = 99, Modifiers = new List<string> { "turn_cap_60" }
+        });
+        HitThenHeal(battle, 0);
+        AtCap(battle);
+        string rawLog = battle.Log.Last().Text;
+        string rawRecord = battle.Record.ToJson();
+        ulong hash = battle.StateHash();
+        var display = TextInput.ForDisplay(battle);
+        string cleanName = TextInput.Clean(rawName, TextInputKind.PlayerName).Text;
+
+        Assert.Contains(rawName + " 获胜", rawLog);
+        Assert.Equal(rawLog.Replace(rawName + " 获胜", cleanName + " 获胜"), display.Log.Last().Text);
+        Assert.DoesNotContain("\n", display.Log.Last().Text);
+        Assert.Equal("回合上限", BattleSummary.From(display).EndReason);
+        Assert.Equal(hash, display.StateHash());
+        Assert.Equal(rawLog, battle.Log.Last().Text);
+        Assert.Equal(rawRecord, battle.Record.ToJson());
+        Assert.Equal(rawName, battle.Sides[0].Name);
+    }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using StreamDuel.Core;
 
 namespace StreamDuel.Cli
@@ -41,14 +42,18 @@ namespace StreamDuel.Cli
                 }
                 Console.WriteLine("  时间：" + entry.Date.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'"));
                 Console.WriteLine("  内容包：" + OneLine(entry.PackId));
-                string first = OneLine(entry.Names[0]), second = OneLine(entry.Names[1]);
+                var names = entry.DisplayNames;
+                string first = names[0], second = names[1];
                 Console.WriteLine("  双方：" + first + " / " + second);
                 for (int side = 0; side < 2; side++)
                     Console.WriteLine("  " + (side == 0 ? first : second) + "阵容："
                         + OneLine(string.Join("、", entry.Teams[side])));
                 Console.WriteLine("  胜方：" + (entry.Winner < 0 ? "平局" : entry.Winner == 0 ? first : second)
                     + "；回合：" + entry.Turns);
-                Console.WriteLine("  备注：" + (string.IsNullOrEmpty(entry.Note) ? "无" : OneLine(entry.Note)));
+                Console.WriteLine("  备注：" + entry.DisplayNote);
+                if (entry.NameInputs.Any(input => input.Changed)
+                    || (entry.Note != null && entry.NoteInput.Changed))
+                    Console.WriteLine("  文字提示：昵称或备注已按输入规范清理后显示。");
             }
             return 0;
         }

@@ -91,7 +91,7 @@ namespace StreamDuel.Cli
         {
             string path = ValidateReportPath(options);
             if (path == null) return;
-            string markdown = BattleReport.Markdown(battle, viewerSide);
+            string markdown = BattleReport.Markdown(TextInput.ForDisplay(battle), viewerSide);
             if (approximateReplay)
                 markdown = "> 尽力重放：原录像与当前内容不同，以下结果按当前内容重新计算，可能与原对局不同。\n\n" + markdown;
             try
