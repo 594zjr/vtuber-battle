@@ -46,6 +46,8 @@
 
 专家难度在独立对战副本上试算行动与补位，真实对局只在最高分相同时抽签。策略和实测见 [专家 AI 验证](docs/ai_expert.md)；`pwsh -File Tools/Sim/check-expert.ps1 -Mode acceptance -Games 200` 可复现对困难 AI 的验收分队，并统计专家决策耗时。
 
+天梯模拟：`dotnet run --project Tools/Ladder -- --pack original --teams 64 --rounds 10 --seed 1 --out ./ladder_out`，输出阵容及主播出场加权 Elo 两份 CSV；可加 `--level hard`、`--season s1`，配对和统计口径见 [工具用法](Tools/Ladder/README.md)。
+
 内容包检查及名单文档：`dotnet run --project Tools/PackCheck -- --write-docs`；可加 `--pack original` 只检查一个包，详情见 [工具用法](Tools/PackCheck/README.md)。
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
