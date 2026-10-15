@@ -164,6 +164,8 @@
 | `HEAL` | frac | 自身回复最大人气 × frac |
 | `RECOIL` | frac | 自身受到本次造成伤害 × frac（至少 1） |
 | `DRAIN` | frac | 自身回复本次造成伤害 × frac |
+| `PP_REDUCE` | n, target | 在指定 pre/post 时机使目标本次上场最后使用的技能 PP 减 n，最低为 0；还没有用过技能则无效。未命中、免扣 PP 的技能也计入；硬撑和受控跳过不计，下场清空记录。即时结算，不可驱散 |
+| `FIXED_DAMAGE` | n, target | 在指定 pre/post 时机对目标造成固定 n 点伤害，人气最低为 0；不受能力、赛道、直播间效果、人设或暴击影响，可解除挂机并导致下播，但不触发被击中后人设。即时结算，不可驱散 |
 | `FIELD` | target, field, turns | 获得/刷新直播间效果 |
 | `ADD_MARK` | target, field, n | 印记加层 |
 | `POWER_MUL` | mul | 本次威力 × mul（只能放在 pre） |
