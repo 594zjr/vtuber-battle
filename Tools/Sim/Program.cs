@@ -19,6 +19,8 @@ namespace StreamDuel.Sim
             public uint Seed = 1;
             public bool Help;
             public bool ListPacks;
+            public bool Tune;
+            public int Rounds = 20;
         }
 
         private sealed class StreamerStats
@@ -45,6 +47,9 @@ namespace StreamDuel.Sim
                 if (options.Help)
                 {
                     Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1 [--pack-dir <文件夹>] [--list-packs]");
+                    Console.WriteLine("调参：dotnet run --project Tools/Sim -- --tune --rounds 20 --games 400 --seed 1；省略 games 时调参默认 400 局。");
+                    Console.WriteLine("调参 games 必须为正偶数；每轮扰动 1～3 个权重（±30%），挑战当前最好权重；胜率严格超过 55% 才替换。双方交替换边，平局不计胜场。");
+                    Console.WriteLine("调参标准输出只写最终权重 JSON；标准错误写每轮结果及独立种子集对 Default 的胜率。不会自动采用权重或改写文件。");
                     Console.WriteLine("默认：--pack original，--games 5000，--seed 1；games 为正整数，seed 为 0..4294967295。");
                     Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出。--pack 使用包 id，兼容内置文件名；id 冲突时内置优先并提示。");
                     Console.WriteLine("games 按入选队伍计数（包括未上场的后排）；wins 为所在队伍获胜次数，平局不计胜场。");
@@ -58,6 +63,11 @@ namespace StreamDuel.Sim
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
+                if (options.Tune)
+                {
+                    Tuning.Run(db, options.Rounds, options.Games, options.Seed);
+                    return 0;
+                }
                 var streamers = db.Streamers.ToDictionary(s => s.Id, s => new StreamerStats { Streamer = s });
                 var skills = db.Skills.Values.Concat(new[] { db.Struggle }).ToDictionary(s => s.Id);
                 var uses = skills.Keys.ToDictionary(id => id, id => 0L);
@@ -105,6 +115,8 @@ namespace StreamDuel.Sim
         private static Options ParseOptions(string[] args)
         {
             var options = new Options();
+            bool gamesSpecified = false;
+            bool roundsSpecified = false;
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
@@ -118,7 +130,12 @@ namespace StreamDuel.Sim
                     options.ListPacks = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed")
+                if (option == "--tune")
+                {
+                    options.Tune = true;
+                    continue;
+                }
+                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed" && option != "--rounds")
                     throw new ArgumentException("未知选项：" + option + "；使用 --help 查看用法。");
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
                     throw new ArgumentException(option + " 缺少参数值。");
@@ -136,6 +153,12 @@ namespace StreamDuel.Sim
                     case "--games":
                         if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Games) || options.Games <= 0)
                             throw new ArgumentException("--games 必须是 1..2147483647 的整数。");
+                        gamesSpecified = true;
+                        break;
+                    case "--rounds":
+                        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Rounds) || options.Rounds <= 0)
+                            throw new ArgumentException("--rounds 必须是 1..2147483647 的整数。");
+                        roundsSpecified = true;
                         break;
                     case "--seed":
                         if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Seed))
@@ -143,6 +166,11 @@ namespace StreamDuel.Sim
                         break;
                 }
             }
+            if (roundsSpecified && !options.Tune) throw new ArgumentException("--rounds 需要与 --tune 一起使用。");
+            if (options.Tune && !gamesSpecified) options.Games = 400;
+            if (options.Tune && options.Games % 2 != 0) throw new ArgumentException("调参的 --games 必须为正偶数，以便每组阵容交换双方各赛一局。");
+            if (options.Tune && (ulong)options.Rounds * (uint)options.Games + (uint)(options.Games / 2) > (ulong)uint.MaxValue + 1)
+                throw new ArgumentException("调参的轮数与局数组合超出种子范围，会重复训练或验证种子；请减少 --rounds 或 --games。");
             return options;
         }
 

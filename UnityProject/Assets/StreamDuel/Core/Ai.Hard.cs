@@ -416,6 +416,7 @@ namespace StreamDuel.Core
             leadPickAfterBan = source.leadPickAfterBan;
             Record = new BattleRecord
             {
+                Version = source.Record.Version, ContentHash = source.Record.ContentHash,
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
                 BanOne = source.Record.BanOne,
                 Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
