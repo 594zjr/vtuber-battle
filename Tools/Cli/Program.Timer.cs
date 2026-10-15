@@ -15,6 +15,7 @@ namespace StreamDuel.Cli
         {
             private Task<string> pending;
             private bool stopped;
+            private bool endOfInput;
 
             public void Start()
             {
@@ -29,26 +30,34 @@ namespace StreamDuel.Cli
                     if (pending != null && pending.IsCompleted)
                     {
                         string line = pending.GetAwaiter().GetResult();
+                        if (line == null) endOfInput = true;
                         if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) stopped = true;
                     }
                     return stopped;
                 }
             }
 
+            public bool EndOfInput { get { bool ignored = EndRequested; return endOfInput; } }
+
             public bool TryTake(out string line)
             {
                 line = null;
                 if (pending == null || !pending.IsCompleted) return false;
                 line = pending.GetAwaiter().GetResult();
+                if (line == null) endOfInput = true;
                 pending = null;
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) stopped = true;
                 return true;
             }
 
-            public void DiscardCompleted()
+            public void DiscardCompleted(bool preserveCommands = false)
             {
                 // 已完成的旧选择不跨阶段提交；EOF 和退出请求仍然有效。
-                if (!EndRequested && pending != null && pending.IsCompleted) pending = null;
+                if (!EndRequested && pending != null && pending.IsCompleted)
+                {
+                    if (preserveCommands && pending.GetAwaiter().GetResult().TrimStart().StartsWith("/", StringComparison.Ordinal)) return;
+                    pending = null;
+                }
             }
         }
 
@@ -164,7 +173,8 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadPumpedNumber(ConsoleInput input, string prompt, Action pump, Func<bool> expired)
+        private static int? ReadPumpedNumber(ConsoleInput input, string prompt, Action pump, Func<bool> expired,
+            Func<string, bool> command = null)
         {
             while (true)
             {
@@ -178,6 +188,11 @@ namespace StreamDuel.Cli
                     if (input.TryTake(out string line))
                     {
                         if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
+                        if (command != null && command(line))
+                        {
+                            if (expired()) throw new ChoiceExpiredException();
+                            break;
+                        }
                         if (int.TryParse(line.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value)) return value;
                         Console.WriteLine("请输入数字，或输入 q 退出。");
                         break;
@@ -217,7 +232,8 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadAction(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side)));
+                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                    line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             actions[side] = selected.Value;
                         }
@@ -260,7 +276,8 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadReplacement(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side)));
+                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                    line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             choices[side] = selected.Value;
                         }

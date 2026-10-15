@@ -72,6 +72,7 @@ namespace StreamDuel.Core
 
         public void Submit(BattleAction action)
         {
+            if (action.Type == ActionType.Surrender) { Surrender(); return; }
             RequireStage(Phase.Choose);
             var legal = battle.LegalFor(WhoseTurn);
             bool valid;
@@ -99,6 +100,14 @@ namespace StreamDuel.Core
             if (!valid) throw new InvalidOperationException("现在不能选择这个行动");
             actions[WhoseTurn] = action;
             FinishSubmission();
+        }
+
+        public void Surrender()
+        {
+            if (NeedsHandover || WhoseTurn < 0 || battle.Phase == Phase.Over)
+                throw new InvalidOperationException("请先确认交接，且对战尚未结束时才能投降。");
+            battle.Surrender(WhoseTurn);
+            StartStage(0);
         }
 
         public void SubmitReplace(int to)

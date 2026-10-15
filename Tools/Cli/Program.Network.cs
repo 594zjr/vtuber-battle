@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using StreamDuel.Core;
 
@@ -31,7 +32,7 @@ namespace StreamDuel.Cli
             using (connection)
             {
                 var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null,
-                    turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds);
+                    turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds, enableTermination: true);
                 Console.WriteLine("等待对手握手……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
@@ -54,15 +55,26 @@ namespace StreamDuel.Cli
                 else if (!host && options.TurnSeconds.HasValue)
                     Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
                 PrintTeams(TextInput.ForDisplay(battle));
+                PrintTerminationCommands(network: true);
                 var input = new ConsoleInput();
                 var pump = new NetworkPump(session);
+                bool drawNotified = false;
+                bool terminalCommand = false;
+                int awaitingDrawResponse = -1;
+                Action poll = () =>
+                {
+                    pump.Pump();
+                    ShowNetworkDraw(session, options.Auto, ref drawNotified);
+                };
+                Func<string, bool> command = line => HandleNetworkCommand(session, line,
+                    () => terminalCommand = true, () => awaitingDrawResponse = battle.Record.Events.Count);
                 ChoiceStamp? inputStage = null;
                 Action prepareInput = () =>
                 {
-                    if (options.Auto || session.State != NetState.Choose && session.State != NetState.Replace) return;
+                    if (options.Auto || terminalCommand || battle.Phase == Phase.Over) return;
                     if (!inputStage.HasValue || !inputStage.Value.Matches(battle))
                     {
-                        input.DiscardCompleted();
+                        input.DiscardCompleted(preserveCommands: true);
                         inputStage = new ChoiceStamp(battle);
                     }
                     input.Start();
@@ -72,13 +84,17 @@ namespace StreamDuel.Cli
                 bool waitingPrinted = false;
                 while (true)
                 {
+                    poll();
+                    if (awaitingDrawResponse >= 0 && battle.Record.Events.Skip(awaitingDrawResponse)
+                        .Any(entry => entry.Type == BattleRecordEventType.DrawResponse && entry.Side == 1 - session.MySide))
+                        awaitingDrawResponse = -1;
                     if (!options.Auto)
                     {
                         prepareInput();
-                        if (input.EndRequested) return Quit();
+                        // 已发出的终局操作必须等双方确认，输入管道随命令结束不能漏记结果。
+                        if (input.EndRequested && (!input.EndOfInput
+                            || !terminalCommand && awaitingDrawResponse < 0 && !session.DrawOfferPending && battle.Phase != Phase.Over)) return Quit();
                     }
-                    pump.Pump();
-                    prepareInput();
                     PrintNewLog(battle, ref logIndex);
                     if (options.Hash && session.State != NetState.Waiting && battle.Record.Events.Count != hashEventCount)
                     {
@@ -90,6 +106,16 @@ namespace StreamDuel.Cli
                     {
                         if (!waitingPrinted) Console.WriteLine("等待对手……");
                         waitingPrinted = true;
+                        if (!options.Auto && !terminalCommand && input.TryTake(out string line))
+                        {
+                            if (line != null && !line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase) && !command(line))
+                                Console.WriteLine("已提交选择，等待对手；仍可输入 /surrender 或 /draw 指令。");
+                        }
+                        Thread.Sleep(10);
+                        continue;
+                    }
+                    if (!options.Auto && input.EndOfInput && (awaitingDrawResponse >= 0 || session.DrawOfferPending))
+                    {
                         Thread.Sleep(10);
                         continue;
                     }
@@ -108,24 +134,24 @@ namespace StreamDuel.Cli
                         if (choosingState == NetState.Choose)
                         {
                             BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
-                                : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
+                                : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, poll, expired, command));
                             if (!action.HasValue) return Quit();
-                            pump.Pump();
+                            poll();
                             if (!expired()) session.Submit(action.Value);
                         }
                         else if (choosingState == NetState.Replace)
                         {
                             int? to = options.Auto ? Ai.ChooseReplacement(battle, session.MySide, options.Level)
-                                : ReadReplacement(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
+                                : ReadReplacement(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, poll, expired, command));
                             if (!to.HasValue) return Quit();
-                            pump.Pump();
+                            poll();
                             if (!expired()) session.SubmitReplace(to.Value);
                         }
                     }
                     catch (ChoiceExpiredException) { }
                     finally
                     {
-                        input.DiscardCompleted();
+                        input.DiscardCompleted(preserveCommands: true);
                     }
                     CheckNetwork(session);
                     Console.WriteLine("等待对手……");

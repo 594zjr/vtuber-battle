@@ -110,6 +110,7 @@ namespace StreamDuel.Core
         {
             if (!ValidSeconds(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), "推进时间必须是有限、非负的秒数。");
             if (Clock == null || Battle == null || Terminal) return;
+            if (TickTerminationBarrier(seconds)) return;
             double remaining = seconds;
             int peer = 1 - MySide;
             bool automaticallySubmitted = false;

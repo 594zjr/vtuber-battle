@@ -2,7 +2,7 @@
 param([ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug')
 
 # 同时保留兼容提示、显示清理和原始分享记录，避免两个功能合并时互相绕过。
-# 先构建 T93 + T97 合并后的 Tools/Cli；本脚本不构建，产物仅在本仓库 obj 下。
+# 先构建 T93 + T97 + T98 合并后的 Tools/Cli；本脚本不构建，产物仅在本仓库 obj 下。
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'Cli.csproj') -PathType Leaf)) {
@@ -168,6 +168,70 @@ try {
     Assert-Check (-not (Test-Path -LiteralPath $saveDirectory) -and -not (Test-Path -LiteralPath (Join-Path $runDirectory 'saves'))) '回放创建了战绩或新录像存档。'
     $checks.Add('指纹不符显式尽力回放：stdout/完整 Markdown 净化；两类中文警告保留；分享码原记录及源字节不变；无战绩和新录像')
 
+    # T98 追加：真实 v3 终止记录分别覆盖严格投降与指纹不符的和局链，不替换原 T93/T97 检查。
+    function Library-Fingerprint([string]$Directory) {
+        return [string]::Join("`n", @([IO.Directory]::GetFiles($Directory, '*', [IO.SearchOption]::AllDirectories) |
+            Sort-Object | ForEach-Object { $_ + ':' + (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }))
+    }
+    foreach ($ending in @('surrender', 'draw')) {
+        $stage = "v3-$ending"
+        $caseDirectory = Join-Path $runDirectory $stage
+        [void][IO.Directory]::CreateDirectory($caseDirectory)
+        $terminalBattle = [StreamDuel.Core.Battle]::new($db, $teams, [string[]]@($firstRaw, $secondRaw), [uint32]98)
+        if ($ending -eq 'surrender') { $terminalBattle.Surrender(0) }
+        else {
+            $terminalBattle.OfferDraw(0)
+            $terminalBattle.RespondDraw(1, $false)
+            $terminalBattle.OfferDraw(1)
+            $terminalBattle.RespondDraw(0, $true)
+        }
+        Assert-Check ($terminalBattle.Phase -eq [StreamDuel.Core.Phase]::Over -and $terminalBattle.Record.Version -eq 3) 'v3 夹具没有通过真实终止入口完局。'
+        $terminalRecord = [StreamDuel.Core.BattleRecord]::FromJson($terminalBattle.Record.ToJson())
+        if ($ending -eq 'draw') { $terminalRecord.ContentHash = '0000000000000000' }
+        $terminalJson = $terminalRecord.ToJson()
+        $terminalSource = Join-Path $caseDirectory 'source.json'
+        [IO.File]::WriteAllText($terminalSource, $terminalJson, $utf8)
+        $terminalBytes = File-Bytes $terminalSource
+        $terminalExpected = if ($ending -eq 'draw') { [StreamDuel.Core.Replay]::RunBestEffort($db, $terminalRecord) } else { [StreamDuel.Core.Replay]::Run($db, $terminalRecord) }
+        $terminalMarkdown = [StreamDuel.Core.BattleReport]::Markdown([StreamDuel.Core.TextInput]::ForDisplay($terminalExpected), 0)
+        if ($ending -eq 'draw') { $terminalMarkdown = "> 尽力重放：原录像与当前内容不同，以下结果按当前内容重新计算，可能与原对局不同。`n`n" + $terminalMarkdown }
+        $unusedSave = Join-Path $caseDirectory 'must-not-create-saves'
+        $librarySave = Join-Path $caseDirectory 'library-save'
+        $libraryDirectory = Join-Path $librarySave 'replay-library'
+        $library = [StreamDuel.Core.ReplayLibrary]::new($libraryDirectory, 200, $null)
+        $libraryId = $library.Save($terminalRecord, [StreamDuel.Core.BattleSummary]::From($terminalBattle), $null)
+        Assert-Check ($library.Load($libraryId).ToJson() -ceq $terminalJson) '录像库没有保留原始 v3 事件、响应或名称。'
+        $libraryBefore = Library-Fingerprint $librarySave
+        foreach ($entryPoint in @('file', 'library')) {
+            $name = "v3-$ending-$entryPoint"
+            $inputReference = if ($entryPoint -eq 'file') { $terminalSource } else { $libraryId }
+            $selectedSave = if ($entryPoint -eq 'file') { $unusedSave } else { $librarySave }
+            $terminalReport = Join-Path $caseDirectory "$entryPoint.md"
+            $parameters = @('--replay', $inputReference, '--auto', '--share', '--report', $terminalReport, '--save-dir', $selectedSave)
+            if ($ending -eq 'draw') { $parameters += '--replay-best-effort' }
+            $terminalOutput = Invoke-Cli $name $parameters
+            Assert-Check ($terminalOutput.Err.Length -eq 0 -and $terminalOutput.Out.Contains('回看结束：')) "$name 没有正常完成。"
+            Assert-Check ($terminalOutput.Out.Contains('昵称显示已调整：')) "$name 缺少昵称净化提示。"
+            Assert-Check ($terminalOutput.Out.Contains('结果可能不同') -eq ($ending -eq 'draw')) "$name 的兼容警告不准确。"
+            Assert-Check ($terminalOutput.Out.Contains($safeFirst) -and $terminalOutput.Out.Contains($safeSecond)) "$name 未显示净化后的双方名称。"
+            Assert-Safe $terminalOutput.Out "$name stdout"
+            $actualMarkdown = [IO.File]::ReadAllText($terminalReport)
+            Assert-Safe $actualMarkdown "$name Markdown"
+            Assert-Check ($actualMarkdown -ceq $terminalMarkdown) "$name 没有导出完整的净化战报和适用警告。"
+            $exported = [regex]::Matches($terminalOutput.Out, '(?m)^分享码：(SD1-[A-Za-z0-9_-]+)\r?$')
+            Assert-Check ($exported.Count -eq 1) "$name 分享码数量错误。"
+            Assert-Check ([StreamDuel.Core.ShareCode]::Decode($exported[0].Groups[1].Value).ToJson() -ceq $terminalJson) "$name 的分享码改写了原始 v3 记录。"
+            Assert-Check ((File-Bytes $terminalSource) -ceq $terminalBytes -and $terminalRecord.ToJson() -ceq $terminalJson) "$name 改写了源字节或源记录。"
+            Assert-Check ((Library-Fingerprint $librarySave) -ceq $libraryBefore) "$name 新增、清理或改写了录像库/原生索引。"
+            Assert-Check (-not (Test-Path -LiteralPath $unusedSave) -and -not (Test-Path -LiteralPath (Join-Path $librarySave 'profile.json'))) "$name 回看累计了战绩或创建了额外存档。"
+        }
+        $roundtrip = $library.Load($libraryId)
+        Assert-Check ($roundtrip.ToJson() -ceq $terminalJson) '两种回看之后录像库原记录改变。'
+        $reloaded = if ($ending -eq 'draw') { [StreamDuel.Core.Replay]::RunBestEffort($db, $roundtrip) } else { [StreamDuel.Core.Replay]::Run($db, $roundtrip) }
+        Assert-Check ($reloaded.StateHash() -eq $terminalBattle.StateHash()) 'v3 录像库往返未恢复终局状态。'
+        Assert-Check ((Library-Fingerprint $librarySave) -ceq $libraryBefore) '录像库读取过程改写了原生索引或源文件。'
+    }
+    $checks.Add('v3 投降/拒绝后同意和局：文件与原生录像库入口均净化 stdout/Markdown，适用兼容警告保留，分享与库往返原 record 不变，回看不新增战绩或录像')
     $stage = '未来版本仍须拒绝且不得导出'
     $future = [StreamDuel.Core.BattleRecord]::FromJson($rawJson)
     $future.Version = [StreamDuel.Core.BattleRecord]::CurrentVersion + 1
@@ -192,12 +256,12 @@ try {
     $checks.Add('未来合法版本含异常昵称及不同指纹：尽力回放仍提前中文拒绝，stdout 为空，不新建/覆盖战报，不改源字节，不保存战绩或录像')
     [IO.File]::WriteAllText((Join-Path $runDirectory 'result.json'),
         ([ordered]@{ status = 'PASS'; checks = $checks.ToArray(); invocations = $invocations.ToArray(); binaries = $binaryHashes; sourceSha256 = $sourceHash } | ConvertTo-Json -Depth 8), $utf8)
-    Write-Output "PASS：T93/T97 联合回归，$($invocations.Count) 个子进程；证据：$runDirectory"
+    Write-Output "PASS：T93/T97/T98 联合回归，$($invocations.Count) 个子进程；证据：$runDirectory"
 }
 catch {
     # 框架异常可能含原始文本，只把固定断言和阶段放入可分享的结果摘要。
     $safeFailure = if ($null -eq $failure) { '执行失败，请在本地检查证据；原始异常未写入摘要。' } else { $failure }
     [IO.File]::WriteAllText((Join-Path $runDirectory 'result.json'),
         ([ordered]@{ status = 'FAIL'; stage = $stage; error = $safeFailure; checks = $checks.ToArray(); invocations = $invocations.ToArray(); binaries = $binaryHashes } | ConvertTo-Json -Depth 8), $utf8)
-    throw "T93/T97 联合回归未通过：$stage；$safeFailure 证据：$runDirectory"
+    throw "T93/T97/T98 联合回归未通过：$stage；$safeFailure 证据：$runDirectory"
 }

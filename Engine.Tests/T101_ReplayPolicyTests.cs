@@ -246,8 +246,16 @@ public class T101_ReplayPolicyTests
         var initial = new ReplayLibrary(directory.Root, clock: () => Epoch, policy: PackPolicy.Empty);
         string id = Save(initial, record);
         string path = Path.Combine(directory.Root, id + ".json");
-        string json = File.ReadAllText(path).Replace("\"version\":" + BattleRecord.CurrentVersion,
+        string source = File.ReadAllText(path);
+        string marker = "\"version\":" + record.Version;
+        Assert.Contains(marker, source);
+        string json = source.Replace(marker,
             "\"version\":" + (BattleRecord.CurrentVersion + 1));
+        using (var parsed = JsonDocument.Parse(json))
+        {
+            Assert.Equal(BattleRecord.CurrentVersion + 1, parsed.RootElement.GetProperty("version").GetInt32());
+            Assert.Equal(1, parsed.RootElement.GetProperty("library").GetProperty("version").GetInt32());
+        }
         File.WriteAllText(path, json, new UTF8Encoding(false));
         byte[] original = File.ReadAllBytes(path);
         var restricted = new ReplayLibrary(directory.Root, policy: Policy(pack: record.PackId));

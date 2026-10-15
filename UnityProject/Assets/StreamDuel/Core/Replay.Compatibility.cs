@@ -103,7 +103,11 @@ namespace StreamDuel.Core
             foreach (var entry in r.Events)
             {
                 if (entry == null) return "录像包含空事件。";
+                try { BattleRecord.ValidateEventVersion(r.Version, entry); }
+                catch (FormatException error) { return error.Message; }
                 if (entry.Type == BattleRecordEventType.Turn) continue;
+                if (entry.Type == BattleRecordEventType.Surrender || entry.Type == BattleRecordEventType.DrawOffer
+                    || entry.Type == BattleRecordEventType.DrawResponse) continue;
                 if (entry.Type == BattleRecordEventType.Replace || entry.Type == BattleRecordEventType.Lead
                     || entry.Type == BattleRecordEventType.Ban)
                 {
