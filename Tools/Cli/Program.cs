@@ -42,7 +42,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine("开播对决 · 命令行对战");
                 Console.WriteLine("内容包：" + db.PackName);
                 Console.WriteLine(db.PackNotice);
-                Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + (options.Level == AiLevel.Easy ? "简单" : "普通")
+                Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
                 PrintTeams(battle);
                 int logIndex = 0;
@@ -110,7 +110,7 @@ namespace StreamDuel.Cli
                                 if (!choice.HasValue) return Quit();
                                 to = choice.Value;
                             }
-                            else to = Ai.ChooseReplacement(battle, side);
+                            else to = Ai.ChooseReplacement(battle, side, options.Level);
                             battle.Replace(side, to);
                             PrintNewLog(battle, ref logIndex);
                         }
@@ -181,7 +181,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认原创包 original。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
-            Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）；默认 normal。");
+            Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定时自动建议，电脑先选剩余再补齐。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
@@ -196,6 +196,17 @@ namespace StreamDuel.Cli
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
             Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
+        }
+
+        private static string LevelName(AiLevel level)
+        {
+            switch (level)
+            {
+                case AiLevel.Easy: return "简单";
+                case AiLevel.Hard: return "困难";
+                case AiLevel.Expert: return "专家";
+                default: return "普通";
+            }
         }
 
         private static ContentDb LoadPack(string content, CliOptions options)
