@@ -17,5 +17,6 @@
   <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
     <None Include="../UnityProject/Assets/StreamDuel/Resources/**/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Content" />
+    <None Include="../docs/ai-baseline.json" CopyToOutputDirectory="PreserveNewest" Link="ai-baseline.json" />
   </ItemGroup>
 </Project>

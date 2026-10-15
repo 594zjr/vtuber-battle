@@ -35,3 +35,23 @@ dotnet run --project Tools/Ladder -- --pack original --teams 16 --rounds 3 --see
 验收规模为 `--teams 16 --rounds 3`，共 48 局；可将输出写入 `Tools/Ladder/obj/` 下以免生成文件混入提交。
 
 自动验收：`pwsh -NoProfile -File Tools/Ladder/verify.ps1`（PowerShell 7）。脚本构建 Release，检查两次 CSV 与控制台字节一致、耗时、赛季合法性、积分和 Elo 守恒、登场统计、奇数轮空、困难模式和无效参数，并将日志及报告保存在 `Tools/Ladder/obj/verification/` 的独立子目录，不删除已有结果。
+
+## 电脑强度回归
+
+```powershell
+dotnet run --project Tools/Ladder -c Release -- --ai-regression
+dotnet run --project Tools/Ladder -c Release -- --ai-regression --pack original --games 100 --seed 1 --baseline docs/ai-baseline.json
+dotnet run --project Tools/Ladder -c Release -- --ai-regression --games 20 --seed 1 --write-baseline Tools/Ladder/obj/ai-baseline-candidate.json
+```
+
+`--ai-regression` 调用 Core 的 `AiRegression.Run`，比较简单、普通、困难、专家四档难度的全部六种配对。默认原创包、每对 100 局、种子 1；`--games` 必须为大于零的偶数。每组先从按 id 排序的名单随机抽取两支六人阵容，保持队内号位与对战种子不变，再交换双方难度打第二局；六种难度配对使用相同的阵容样本。随机数来自 `Battle.Rng`，技能先手顺序仍由 Core 正常结算，换边不会强制某档难度先行动。无赛季限制、禁用或选首发流程；每局使用引擎现有回合上限，达到上限也按 Core 的既有规则结算胜负。
+
+控制台输出行对列的胜率矩阵与每对难度的胜、负、平、未完成数量。胜率为胜场除以总局数，平局不折算半胜；同档难度没有实际对战，以 `—` 显示。未完成指保护性步数上限结束时仍未终局的异常情况，数量包含在平局中；任何未完成对局均判回归失败。
+
+默认基准由 `docs/ai-baseline.json` 复制到构建输出目录，运行时与当前工作目录无关；也可用 `--baseline` 指定已有文件。基准记录内容包、内容指纹、局数、种子、回合上限、采样版本、六组实测计数以及允许下降幅度。比较要求内容包、局数、种子、回合上限、采样版本一致；内容指纹变化时提示后继续比较，以便发现修改规则或内容后的退步。参数或文件错误、任一高难度对低难度胜率不大于 50%、任一高难度胜率比基准下降超过允许幅度（默认 5 个百分点）、任一未完成对局，均返回退出码 `1`。全部通过才返回 `0`，所有失败项逐条输出，不因其中一项失败而隐藏其余结果。
+
+`--write-baseline` 明确指定并覆盖一个输出文件，创建其父目录，写入本次实际测得的数据；不读取旧基准，也不比较历史下降。难度顺序或完整对局要求未达标时仍保存实际结果并返回 `1`，避免把测得的失败改成成功。建议先写到 `obj/` 下作为候选，审查测量结果后再决定是否替换仓库基准；生成命令本身不代表接受这套难度强度。该选项与 `--baseline` 互斥。
+
+回归模式只接受 `--pack`、`--games`、`--seed`、`--baseline` 或 `--write-baseline`，不能混用普通天梯的 `--teams`、`--rounds`、`--level`、`--season`、`--out`。回归专用参数也不能单独用于普通天梯。完整每对 100 局检查较慢，不在 CI 中运行；单元测试使用每对 20 局的小样本。
+
+`pwsh -NoProfile -File Tools/Ladder/verify-ai-regression.ps1` 检查帮助、参数互斥、损坏或不匹配的基准、默认基准加载、每对两局的小样本实际失败退出码，以及旧天梯模式仍可输出 CSV；它不会重复执行完整强度测量。已经构建 Release 时可加 `-SkipBuild`，日志保存在 `Tools/Ladder/obj/ai-regression-verification/` 的独立子目录。

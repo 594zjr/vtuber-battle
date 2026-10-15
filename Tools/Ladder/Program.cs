@@ -27,10 +27,18 @@ namespace StreamDuel.Ladder
                     Console.WriteLine("每局胜 1/平 0.5/负 0 分；Elo 初始 1500，每局 K=24，同对两局共用赛前期望。奇数队伍轮空得 2 分，不计对局、不改 Elo。");
                     Console.WriteLine("主播加权 Elo = Σ(所在阵容最终 Elo × 实际上场局数) / 总上场局数；从未上场的 Elo 留空，后排仅入队不算上场。");
                     Console.WriteLine("输出 UTF-8 teams.csv 和 streamers.csv，控制台打印两榜前十；同版本、内容和参数可复现。统计定义见 Tools/Ladder/README.md。");
+                    Console.WriteLine();
+                    Console.WriteLine("电脑强度回归：dotnet run --project Tools/Ladder -- --ai-regression [--pack original] [--games 100] [--seed 1] [--baseline 文件]");
+                    Console.WriteLine("生成候选基准：dotnet run --project Tools/Ladder -- --ai-regression --write-baseline 输出文件 [--games 100] [--seed 1]");
+                    Console.WriteLine("每对难度对战 games 局，games 必须为正偶数；默认读取随工具打包的 ai-baseline.json，比较时局数、种子与采样方案必须一致。");
+                    Console.WriteLine("输出四档难度胜率表和六组胜负统计；高难度胜率须大于 50%，且不能比基准下降超过允许幅度，否则退出码为 1。");
+                    Console.WriteLine("--write-baseline 显式覆盖指定输出文件；即使难度顺序未达标也保存实际结果，并返回失败，候选结果需审查后再启用。");
+                    Console.WriteLine("回归模式不能使用 --teams、--rounds、--level、--season、--out；--baseline 与 --write-baseline 互斥。完整回归耗时较长，不接入 CI。");
                     return 0;
                 }
 
                 var db = LoadPack(options.Pack);
+                if (options.AiRegression) return AiRegressionCommand.Run(db, options);
                 var rosters = TeamGenerator.Generate(db, options.Season, options.Teams, options.Seed);
                 var tournament = new Tournament(db, options, rosters);
                 tournament.Run();
@@ -73,7 +81,7 @@ namespace StreamDuel.Ladder
                 Console.WriteLine("已输出 teams.csv、streamers.csv。");
                 return 0;
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException || ex is UnauthorizedAccessException || ex is KeyError)
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException || ex is UnauthorizedAccessException || ex is KeyError || ex is FormatException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
