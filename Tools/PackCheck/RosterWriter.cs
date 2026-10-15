@@ -35,9 +35,11 @@ namespace StreamDuel.PackCheck
                     Line(text, "## " + Escape(streamer.Name) + "（" + Escape(streamer.Id) + "）");
                     Line(text);
                     Line(text, "- 所属：" + Escape(string.IsNullOrWhiteSpace(streamer.Org) ? "未填写" : streamer.Org));
-                    Line(text, "- 赛道：" + Escape(db.Types[streamer.Type].Name) + "（" + Escape(streamer.Type) + "）");
+                    string trackIds = streamer.Type + (streamer.Type2 == null ? "" : "/" + streamer.Type2);
+                    Line(text, "- 赛道：" + Escape(Describe.Tracks(db, streamer)) + "（" + Escape(trackIds) + "）");
                     Line(text, "- 简介：" + Escape(string.IsNullOrWhiteSpace(streamer.Blurb) ? "未填写" : streamer.Blurb));
-                    Line(text, "- 人设：" + Escape(persona.Name) + "（" + Escape(persona.Id) + "）");
+                    Line(text, "- 人设：" + Escape(persona.Name) + (persona.PackDefined ? "〔本包独有〕" : "")
+                        + "（" + Escape(persona.Id) + "）");
                     Line(text, "- 人设判定时机：" + Escape(persona.Node));
                     Line(text, "- 人设说明：" + Escape(persona.Desc));
                     Line(text, "- 人设消除规则：人设永久生效，不能消除；其产生的状态或直播间效果遵守各自的消除规则。");
@@ -57,7 +59,8 @@ namespace StreamDuel.PackCheck
 
         private static void WriteSkill(StringBuilder text, ContentDb db, SkillDef skill, string label)
         {
-            Line(text, "### " + label + "：" + Escape(skill.Name) + "（" + Escape(skill.Id) + "）");
+            Line(text, "### " + label + "：" + Escape(skill.Name) + (skill.PackDefined ? "〔本包独有〕" : "")
+                + "（" + Escape(skill.Id) + "）");
             Line(text);
             string category;
             if (!db.CatNames.TryGetValue(skill.Cat, out category)) category = skill.Cat;

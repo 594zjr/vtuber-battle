@@ -7,6 +7,11 @@ namespace StreamDuel.Core
 
     public static class Describe
     {
+        public static string Tracks(ContentDb db, StreamerDef streamer)
+        {
+            return db.Types[streamer.Type].Name + (streamer.Type2 == null ? "" : "/" + db.Types[streamer.Type2].Name);
+        }
+
         public static string Frac(double f)
         {
             if (System.Math.Abs(f - 0.5) < 1e-6) return "1/2";
@@ -78,6 +83,42 @@ namespace StreamDuel.Core
                 default: what = e.Code; break;
             }
             return new EffectText { At = e.At == "pre" ? "命中前判定" : "命中后判定", Text = Cond(e.Cond) + what, Dispel = dispel };
+        }
+
+        public static EffectText Persona(ContentDb db, PersonaDef persona)
+        {
+            string at = persona.Node, text = persona.Desc ?? "", dispel = "人设不可消除";
+            switch (persona.Code)
+            {
+                case "T_KO_HEAL":
+                    at = "击倒对手后";
+                    text = "本方技能直接击倒对手后（含固定伤害，且对战未结束），自身回复最大人气的 " + Frac(persona.P("frac")) + "（向下取整，不超过最大人气）";
+                    dispel += "；回复即时结算";
+                    break;
+                case "T_FIRST_CONTROL_IMMUNE":
+                    at = "被施加控制类状态时";
+                    text = "每次登场后，第一次本来可施加的控制类状态无效；下场再登场时重新计算。已因重连保护或已有控制而无效的施加不消耗本次免疫";
+                    break;
+                case "T_ENDURE":
+                    at = "受到伤害时";
+                    text = "每场对战仅一次：受到会使人气归零的伤害时，保留 1 点人气；下场不重置，反弹伤害不触发";
+                    break;
+                case "T_ALLY_PP_ON_ENTER":
+                    at = "登场时";
+                    text = "登场时，己方后排所有还在播的队友，每个技能 PP +" + (int)persona.P("n") + "，不超过各技能上限";
+                    dispel += "；PP 回复即时结算";
+                    break;
+                case "T_STAGE_ON_HIT":
+                {
+                    at = "被击中后";
+                    var changes = ContentDb.StatKeys.Where(k => (int)persona.P(k) > 0)
+                        .Select(k => db.StatName(k) + "+" + (int)persona.P(k));
+                    text = "每次受到普通技能直接伤害，实际扣除人气且没有下播时，自身" + string.Join("、", changes) + "（能力等级最高 +6）；固定伤害、持续伤害、反噬和反弹不触发。反弹使行动方下播后，不再触发";
+                    dispel += "；能力提升可被消强化，下场清零";
+                    break;
+                }
+            }
+            return new EffectText { At = at, Text = text, Dispel = dispel };
         }
 
         public static string FieldKind(FieldDef f)
