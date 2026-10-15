@@ -207,6 +207,25 @@ try {
     Assert-NoSave 'replay-file'; Assert-NoSave 'replay-code'
     $checks.Add('手动混合12人完整对局、逐人及聚合声明、队伍码导入、文件/分享码回看、战报一致且回看不保存')
 
+    $singlePreset = [StreamDuel.Core.TeamPreset]::new()
+    $singlePreset.PackId = $original.PackId
+    $singlePreset.Ids = [Collections.Generic.List[string]]::new([string[]]@($original.Streamers | Select-Object -First 6 -ExpandProperty Id))
+    $ordinaryCode = [StreamDuel.Core.TeamCode]::Encode($singlePreset)
+    for ($order = 0; $order -lt 2; $order++) {
+        $arguments = if ($order -eq 0) { @('--team-code', $teamCode, '--team-b', $teamB) }
+            else { @('--team-b', $teamB, '--team-code', $teamCode) }
+        $name = 'mixed-code-opponent-' + $order
+        $importedMatch = Run-Cli $name ($arguments + @('--auto', '--seed', '7'))
+        $importedRecord = (Read-Record $name).Record
+        Assert-Check ($importedMatch.Err.Length -eq 0 -and $importedRecord.PackId -ceq $db.PackId -and
+            ($importedRecord.Teams[0] -join ',') -ceq $teamA -and ($importedRecord.Teams[1] -join ',') -ceq $teamB) '混合队伍码自动选包后未保留双方手动阵容。'
+        Assert-Check ($importedRecord.ToJson() -ceq $saved.Record.ToJson()) '混合队伍码与显式混合组队的相同种子录像不一致。'
+        $invalidArguments = if ($order -eq 0) { @('--team-code', $ordinaryCode, '--team-b', $teamB) }
+            else { @('--team-b', $teamB, '--team-code', $ordinaryCode) }
+        Reject ('single-code-opponent-' + $order) ($invalidArguments + @('--auto'))
+    }
+    $checks.Add('混合队伍码自动选包可同时指定电脑队伍，两种参数顺序与显式组队录像一致；普通单包码仍拒绝且不存档')
+
     $single = Run-Cli 'single-mix' @('--pack', 'mix:original', '--random-teams', '--seed', '13', '--auto', '--export-team')
     Assert-Check ($single.Err.Length -eq 0) '单源 mix:original 不能新建随机对局。'
     $singleSaved = Read-Record 'single-mix'
@@ -230,6 +249,94 @@ try {
     }
     Assert-Check (@(@($recordA.Teams[0]) + @($recordA.Teams[1]) | Sort-Object -Unique).Count -eq 12) '随机双方存在重复主播。'
     $checks.Add('随机双方与 Core 相同、十二人互不重复、反转包顺序后完整录像逐字相同')
+
+    $hsSeed = [uint32]17
+    $hsTeams = [StreamDuel.Core.MixedBattle]::RandomTeams($db, $hsSeed)
+    $hsIds = @($hsTeams[0]) + @($hsTeams[1])
+    Assert-Check ($hsTeams.Count -eq 2 -and $hsTeams[0].Length -eq 6 -and $hsTeams[1].Length -eq 6 -and
+        @($hsIds | Sort-Object -Unique).Count -eq 12) '同屏夹具必须是双方各六位且十二人不重复。'
+    $hsOriginalIds = @($original.Streamers | ForEach-Object Id)
+    $hsFanIds = @($fan.Streamers | ForEach-Object Id)
+    Assert-Check (@($hsIds | Where-Object { $hsOriginalIds -ccontains $_ }).Count -gt 0 -and
+        @($hsIds | Where-Object { $hsFanIds -ccontains $_ }).Count -gt 0) '同屏夹具必须实际选到原创与同人两个来源。'
+    $hsOptions = [StreamDuel.Core.BattleOptions]::new()
+    $hsOptions.Seed = $hsSeed
+    $hsOptions.BanOne = $true
+    $hsSession = [StreamDuel.Core.HotseatSession]::new($db, $hsTeams[0], $hsTeams[1], '混合甲', '混合乙', $hsOptions)
+    $hsSession.SubmitBan(0)
+    Assert-Check ($hsSession.NeedsHandover -and $hsSession.WhoseTurn -eq 1) '夹具未进入 B 方交接。'
+    $hsSession.ConfirmHandover()
+    $hsSession.Surrender()
+    $hsBattle = $hsSession.CloneCompletedBattle()
+    Assert-Check ($hsBattle.Phase -eq [StreamDuel.Core.Phase]::Over -and $hsBattle.Winner -eq 0) '夹具必须由 B 方投降、A 方获胜。'
+    $hsExpectedRecord = $hsSession.Record.ToJson()
+    $hsSave = Join-Path $runDirectory 'mixed-hotseat-saves'
+    $hsReport = Join-Path $runDirectory 'mixed-hotseat.md'
+    Assert-Check (-not (Test-Path -LiteralPath $hsSave)) '同屏验收必须从全新存档目录开始。'
+    $hsGame = Run-Cli 'mixed-hotseat' @('--hotseat', '--packs', 'original,fan_asoul_vr', '--random-teams',
+        '--seed', '17', '--ban', '--name-a', '混合甲', '--name-b', '混合乙', '--share', '--report', $hsReport) "1`n`n/surrender`n"
+    Assert-Check ($hsGame.Err.Length -eq 0 -and $hsGame.Out.Contains('同屏双人对战') -and
+        $hsGame.Out.Contains('对局结束：混合甲 获胜') -and
+        [regex]::Matches($hsGame.Out, '请把电脑交给「混合乙」').Count -eq 1 -and
+        [regex]::Matches($hsGame.Out, '\x1b\[2J\x1b\[H\x1b\[3J').Count -eq 1) '混合同屏未经过一次真实交接、清屏及投降结算。'
+    $hsSaved = Read-Record 'mixed-hotseat'
+    Assert-Check ([IO.File]::ReadAllText($hsSaved.File, $utf8) -ceq $hsExpectedRecord -and
+        $hsSaved.Record.PackId -ceq $db.PackId) '混合同屏原始录像与相同 Core 选择序列不一致。'
+    for ($side = 0; $side -lt 2; $side++) {
+        Assert-Check (($hsSaved.Record.Teams[$side] -join ',') -ceq ($hsTeams[$side] -join ',')) '混合同屏未保留双方随机的原始六人及顺序。'
+    }
+    foreach ($id in $hsIds) {
+        Assert-Check ($hsGame.Out.Contains('（' + $id + '）：' + $db.NoticeFor($id))) "混合同屏缺少 $id 的来源声明。"
+    }
+    $hsShare = Extract-Code $hsGame.Out 'SD1-' '分享码：'
+    Assert-Check ([StreamDuel.Core.ShareCode]::Decode($hsShare).ToJson() -ceq $hsExpectedRecord) '混合同屏分享码改变了原始记录。'
+    $hsReplay = [StreamDuel.Core.Replay]::Run($db, $hsSaved.Record)
+    Assert-Check ($hsReplay.Phase -eq [StreamDuel.Core.Phase]::Over -and $hsReplay.Winner -eq 0 -and
+        $hsReplay.StateHash() -eq $hsBattle.StateHash()) '混合同屏投降记录无法重放至同一终局状态。'
+    $hsExpectedMarkdown = [StreamDuel.Core.BattleReport]::Markdown($hsBattle)
+    Assert-Check ([IO.File]::ReadAllText($hsReport, $utf8) -ceq $hsExpectedMarkdown) '混合同屏战报与 Core 终局不一致。'
+
+    # 直接检查 CLI 保存的文件与原生索引，不先调用 List 修补索引。
+    $hsLibraryDirectory = Join-Path $hsSave 'replay-library'
+    $hsLibraryFiles = @(Get-ChildItem -LiteralPath $hsLibraryDirectory -File -Filter '*.json' |
+        Where-Object { $_.Name -ne 'index.json' -and -not $_.Name.StartsWith('.') })
+    Assert-Check ($hsLibraryFiles.Count -eq 1) '混合同屏新录像库必须恰好保存一份录像。'
+    Assert-Check ([StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($hsLibraryFiles[0].FullName, $utf8)).ToJson() -ceq
+        $hsExpectedRecord) '混合同屏新录像库改变了原始记录。'
+    $hsIndex = [StreamDuel.Core.MiniJson]::Parse([IO.File]::ReadAllText((Join-Path $hsLibraryDirectory 'index.json'), $utf8))
+    Assert-Check ($hsIndex['version'] -eq 1 -and $hsIndex['entries'].Count -eq 1) '混合同屏原生索引缺少唯一条目。'
+    $hsEntry = $hsIndex['entries'][0]
+    Assert-Check ($hsEntry['id'] -ceq [IO.Path]::GetFileNameWithoutExtension($hsLibraryFiles[0].Name) -and
+        $hsEntry['packId'] -ceq $db.PackId -and $hsEntry['winner'] -eq 0 -and
+        $hsEntry['isCorrupt'] -eq $false -and $null -eq $hsEntry['error']) '混合同屏索引未正确记录混合包和胜方。'
+    $hsProfile = [StreamDuel.Core.MiniJson]::Parse([IO.File]::ReadAllText((Join-Path $hsSave 'profile.json'), $utf8))
+    Assert-Check ($hsProfile['packs'].Count -eq 1 -and $hsProfile['packs'].ContainsKey($db.PackId)) '混合同屏档案没有使用唯一混合包编号。'
+    $hsStats = $hsProfile['packs'][$db.PackId]
+    Assert-Check ($hsStats['wins'] -eq 1 -and $hsStats['losses'] -eq 0 -and $hsStats['draws'] -eq 0 -and
+        $hsStats['picks'].Count -eq 6 -and $hsStats['pickWins'].Count -eq 6) '混合同屏必须只按 A 方累计一次胜场和六人选用。'
+    foreach ($id in $hsTeams[0]) {
+        Assert-Check ($hsStats['picks'][$id] -eq 1 -and $hsStats['pickWins'][$id] -eq 1) '混合同屏主播选用或胜场重复累计。'
+    }
+
+    $hsFingerprint = {
+        (@(Get-ChildItem -LiteralPath $hsSave -File -Recurse -Force | Sort-Object FullName | ForEach-Object {
+            $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+        }) -join "`n")
+    }
+    $hsBeforeReplay = & $hsFingerprint
+    foreach ($hsKind in @('file', 'share')) {
+        $hsReplayReport = Join-Path $runDirectory ("mixed-hotseat-replay-$hsKind.md")
+        $hsReplayArgs = if ($hsKind -eq 'file') { @('--replay', $hsSaved.File) } else { @('--replay-code', $hsShare) }
+        $hsReplayChild = Start-Cli ("mixed-hotseat-replay-$hsKind") ($hsReplayArgs +
+            @('--auto', '--share', '--report', $hsReplayReport, '--save-dir', $hsSave))
+        $hsReplayChild.Process.StandardInput.Close()
+        $hsReplayResult = Wait-Cli $hsReplayChild 0
+        Assert-Check ($hsReplayResult.Err.Length -eq 0 -and $hsReplayResult.Out.Contains('回看结束：混合甲 获胜') -and
+            (Extract-Code $hsReplayResult.Out 'SD1-' '分享码：') -ceq $hsShare -and
+            [IO.File]::ReadAllText($hsReplayReport, $utf8) -ceq $hsExpectedMarkdown) '混合同屏文件或分享码回看未恢复同一结果、战报和原始分享码。'
+        Assert-Check ((& $hsFingerprint) -ceq $hsBeforeReplay) '混合同屏回看改写了源录像、索引或档案，或重复保存了对局。'
+    }
+    $checks.Add('混合同屏随机十二人和双来源；真实交接后投降完整结算；原始/新库录像、分享和文件/码回看一致；A方恰一胜且回看无存档副作用')
 
     $externalDirectory = Join-Path $runDirectory 'external-packs'
     [void][IO.Directory]::CreateDirectory($externalDirectory)

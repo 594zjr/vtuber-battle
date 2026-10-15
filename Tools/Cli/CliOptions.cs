@@ -318,7 +318,7 @@ namespace StreamDuel.Cli
             if (!options.Help)
             {
                 if (!options.Hotseat && provided.Any(option => option == "--name-a" || option == "--name-b"
-                    || (option == "--team-b" && !options.MixedPack)))
+                    || (option == "--team-b" && !options.MixedPack && options.TeamCode == null)))
                     throw new ArgumentException("--team-b、--name-a 和 --name-b 仅用于 --hotseat 同屏双人对战。");
                 if (options.Hotseat)
                 {
