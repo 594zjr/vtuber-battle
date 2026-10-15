@@ -27,6 +27,14 @@ namespace StreamDuel.Core
             // 名单是按 id 引用的定义；技能槽和效果的列表顺序则会改变结算。
             hash.List(Streamers == null ? null : Streamers.OrderBy(s => s == null ? null : s.Id, StringComparer.Ordinal).ToList(), hash.Streamer);
             hash.Map(Seasons, hash.Season);
+            // 未设置风格的旧内容保留原指纹，显式风格在独立尾段绑定主播 id。
+            var styled = Streamers == null ? null : Streamers.Where(s => s != null && s.AiStyle != null)
+                .OrderBy(s => s.Id, StringComparer.Ordinal).ToList();
+            if (styled != null && styled.Count > 0)
+            {
+                hash.Text("StreamDuel.Content.AiStyles.v1");
+                hash.List(styled, s => { hash.Text(s.Id); hash.Text(s.AiStyle); });
+            }
             return hash.Value.ToString("x16", CultureInfo.InvariantCulture);
         }
 

@@ -18,8 +18,8 @@ namespace StreamDuel.Game
             public string navigation = "真实 UI Toolkit 按钮通过 NavigationSubmitEvent 提交；悬停通过根节点 PointerMoveEvent 坐标命中或 PointerEnter/LeaveEvent 检查实际浮层；配置和边界夹具经公开 Args 注入，不代表人工鼠标验收。";
             public string logScope = "从 BeforeSceneLoad 收集全部警告和错误；更早的启动诊断另查完整 Editor 日志及退出后 Console 计数。";
             public string layoutScope = "检查渲染控件边界、文字测量和非祖先交叠；滚动行按视口裁剪，截图仍需人工复核。";
-            public bool completed, timelineAvailable;
-            public int warnings, errors, completedMatches, animationBatches;
+            public bool completed, timelineAvailable, timelineVerified;
+            public int warnings, errors, completedMatches, animationBatches, animationCues, timelineSpeedChecks;
             public List<string> steps = new List<string>();
             public List<string> screenshots = new List<string>();
             public List<string> logs = new List<string>();
@@ -34,7 +34,7 @@ namespace StreamDuel.Game
             {
                 Require(!IsPlaying, "前一批动画尚未结束就播放了下一批。");
                 Require(cues != null, "动画收到空提示列表。");
-                Calls.Add(cues.ToArray());
+                Calls.Add(cues.Select(CopyCue).ToArray());
                 IsPlaying = true;
             }
             public void SkipToEnd() { IsPlaying = false; }
@@ -73,7 +73,7 @@ namespace StreamDuel.Game
 
         void Configure(string[] args, int index)
         {
-            report = new Report { unityVersion = Application.unityVersion, timelineAvailable = BattleAnimationTimeline.IsAvailable };
+            report = new Report { unityVersion = Application.unityVersion, timelineAvailable = true };
             running = true;
             deadline = Time.realtimeSinceStartup + 540;
             Application.logMessageReceived += CollectLog;
@@ -164,8 +164,12 @@ namespace StreamDuel.Game
                 yield return CheckUnavailableAndReplacement();
                 yield return CheckRuntimeTooltips();
                 yield return CheckRematchAndTimer();
+                yield return CheckTimelineSpeeds();
             }
             Require(report.completedMatches == 2, "没有在两个分辨率分别完成真实对局。");
+            Require(report.animationCues > 0 && report.timelineSpeedChecks == 6,
+                "真实 Core 动画提示或两个分辨率的三种速度验收没有完成。");
+            report.timelineVerified = true;
             report.completed = true;
         }
 
@@ -253,7 +257,7 @@ namespace StreamDuel.Game
         BattleScreen Current => BattleScreen.ActiveInstance;
         string Size => RequestedWidth + "x" + RequestedHeight;
 
-        void OpenRecorded(Battle battle = null)
+        void OpenRecorded(Battle battle = null, GameSettings settings = null)
         {
             var db = battle?.Db ?? LoadContent();
             recording = new RecordingAnimator();
@@ -263,7 +267,7 @@ namespace StreamDuel.Game
             {
                 Battle = battle, Db = db, Teams = Teams(db), Names = new[] { "你", "电脑" },
                 Seed = 67, BanOne = battle == null, LeadPick = battle == null, Animator = recording,
-                Isolated = true, Settings = new GameSettings { DefaultPack = "original", AiLevel = AiLevel.Normal, Animations = true }
+                Isolated = true, Settings = settings ?? new GameSettings { DefaultPack = "original", AiLevel = AiLevel.Normal, Animations = true }
             });
             Require(Current != null && Current.CurrentBattle != null, "注入配置没有创建对战画面。");
             recordedBattle = Current.CurrentBattle;
@@ -322,6 +326,10 @@ namespace StreamDuel.Game
             }
             yield return DrainPlayback();
             Require(lastEvent == battle.Events.Count, "结束时仍有结构化事件没有交给动画接口。");
+            Require(recording.Calls.SelectMany(batch => batch).Any(cue => cue.Kind == CueKind.Cast)
+                && recording.Calls.SelectMany(batch => batch).Any(cue => cue.Kind == CueKind.HpBar)
+                && recording.Calls.SelectMany(batch => batch).Any(cue => cue.Kind == CueKind.End),
+                "完整对局未向动画接口交付真实的出招、人气变化和终局提示。");
             yield return new WaitForEndOfFrame();
             Require(Shown(document.rootVisualElement.Q("battle-outcome")), "终局弹层没有出现。");
             ValidateHud();
@@ -365,15 +373,14 @@ namespace StreamDuel.Game
                     Require(recording.Calls.Count == checkedCalls + 1, "同一帧未检查就派发了多批动画。");
                     Require(screen.PlaybackFromEvent == lastEvent && screen.PlaybackToEvent > lastEvent
                         && screen.PlaybackToEvent <= battle.Events.Count, "动画事件范围重复、跳过或越界。");
-                    if (BattleAnimationTimeline.IsAvailable)
-                    {
-                        double speed = !screen.Args.Settings.Animations ? 0 : screen.Args.Settings.FastPlay ? 2 : 1;
-                        var expected = BattleAnimationTimeline.Build(battle, lastEvent, screen.PlaybackToEvent, speed);
-                        var actual = recording.Calls[checkedCalls];
-                        Require(actual.Count == expected.Count, "动画提示数量与本批时间线不同。");
-                        for (int index = 0; index < expected.Count; index++)
-                            Require(JsonUtility.ToJson(actual[index]) == JsonUtility.ToJson(expected[index]), "动画提示与新增事件的时间线不同。");
-                    }
+                    double speed = !screen.Args.Settings.Animations ? 0 : screen.Args.Settings.FastPlay ? 2 : 1;
+                    var expected = BattleTimeline.Build(battle.Events, lastEvent, screen.PlaybackToEvent, speed);
+                    var actual = recording.Calls[checkedCalls];
+                    Require(actual.Count == expected.Count, "动画提示数量与本批 Core 时间线不同。");
+                    for (int index = 0; index < expected.Count; index++)
+                        Require(SameCue(actual[index], expected[index], true), "动画提示字段与新增事件的 Core 时间线不同。");
+                    VerifyCueSources(battle, lastEvent, screen.PlaybackToEvent, actual);
+                    report.animationCues += actual.Count;
                     report.eventRanges.Add(Size + ":" + lastEvent + ".." + screen.PlaybackToEvent);
                     lastEvent = screen.PlaybackToEvent;
                     checkedCalls++;
@@ -400,6 +407,103 @@ namespace StreamDuel.Game
                 Submit("battle-skip");
                 yield return null;
             }
+        }
+
+        static AnimCue CopyCue(AnimCue cue)
+        {
+            Require(cue != null, "动画收到空提示。");
+            return new AnimCue
+            {
+                Start = cue.Start, Duration = cue.Duration, Kind = cue.Kind,
+                EventIndex = cue.EventIndex, LogIndex = cue.LogIndex, Side = cue.Side,
+                Slot = cue.Slot, Amount = cue.Amount, Id = cue.Id, Text = cue.Text, Style = cue.Style
+            };
+        }
+
+        static bool SameCue(AnimCue actual, AnimCue expected, bool timing)
+        {
+            return actual != null && expected != null
+                && (!timing || (actual.Start == expected.Start && actual.Duration == expected.Duration))
+                && actual.Kind == expected.Kind && actual.EventIndex == expected.EventIndex
+                && actual.LogIndex == expected.LogIndex && actual.Side == expected.Side
+                && actual.Slot == expected.Slot && actual.Amount == expected.Amount
+                && actual.Id == expected.Id && actual.Text == expected.Text && actual.Style == expected.Style;
+        }
+
+        static void VerifyCueSources(Battle battle, int from, int to, IReadOnlyList<AnimCue> cues)
+        {
+            var covered = new HashSet<int>();
+            foreach (var cue in cues)
+            {
+                Require(cue.EventIndex >= from && cue.EventIndex < to, "提示引用了本批新增事件范围以外的事件。");
+                var source = battle.Events[cue.EventIndex];
+                Require(cue.LogIndex == source.LogIndex && cue.LogIndex >= 0 && cue.LogIndex < battle.Log.Count,
+                    "提示的 LogIndex 没有定位到原始战斗日志。");
+                var log = battle.Log[cue.LogIndex];
+                Require(log.Turn == source.Turn && log.Node == source.Node, "提示定位的日志回合或结算节点不一致。");
+                covered.Add(cue.EventIndex);
+            }
+            for (int index = from; index < to; index++)
+            {
+                var kind = battle.Events[index].Kind;
+                bool visible = kind != BattleEventKind.Info && kind != BattleEventKind.PpChange;
+                Require(covered.Contains(index) == visible,
+                    "新增事件的提示覆盖不正确：" + index + " / " + kind);
+            }
+        }
+
+        IEnumerator CheckTimelineSpeeds()
+        {
+            var db = LoadContent();
+            var fixture = new Battle(db, Teams(db), new[] { "你", "电脑" }, 74);
+            IReadOnlyList<AnimCue> normal = null;
+            ulong normalHash = 0;
+            string normalRecord = null;
+            for (int mode = 0; mode < 3; mode++)
+            {
+                var battle = fixture.Clone();
+                var settings = new GameSettings
+                {
+                    DefaultPack = "original", AiLevel = AiLevel.Normal,
+                    FastPlay = mode != 0, Animations = mode != 2
+                };
+                OpenRecorded(battle, settings);
+                yield return DrainPlayback();
+                Require(recording.Calls.Count == 0, "恢复已有对局时重播了开场历史事件。");
+                int from = battle.Events.Count;
+                int skill = battle.LegalFor(0).Skills.First(option => option.Usable).Index;
+                Submit("battle-skill-" + skill);
+                yield return DrainPlayback();
+                Require(recording.Calls.Count == 1 && Current.PlaybackFromEvent == from
+                    && Current.PlaybackToEvent == battle.Events.Count, "速度夹具没有仅播放该次出招产生的新事件。");
+                var actual = recording.Calls[0];
+                Require(actual.Count > 0 && actual.Any(cue => cue.Kind == CueKind.Cast)
+                    && actual.Any(cue => cue.Kind == CueKind.HpBar), "速度夹具没有交付真实出招及人气变化提示。");
+                if (mode == 0)
+                {
+                    normal = actual;
+                    normalHash = battle.StateHash();
+                    normalRecord = battle.Record.ToJson();
+                    Require(actual.Any(cue => cue.Start > 0) && actual.Any(cue => cue.Duration > 0),
+                        "1 倍速度未保留真实提示时序。");
+                }
+                else
+                {
+                    Require(actual.Count == normal.Count && battle.StateHash() == normalHash
+                        && battle.Record.ToJson() == normalRecord, "改变播放速度或关闭动画改变了规则、随机序列或提示数量。");
+                    for (int index = 0; index < actual.Count; index++)
+                    {
+                        Require(SameCue(actual[index], normal[index], false), "速度设置改变了动画提示的内容或事件/日志定位。");
+                        Require(actual[index].Start == (mode == 1 ? normal[index].Start / 2 : 0)
+                            && actual[index].Duration == (mode == 1 ? normal[index].Duration / 2 : 0),
+                            mode == 1 ? "2 倍速度未将全部提示时序减半。" : "关闭动画未保留全部提示并将时序归零。");
+                    }
+                }
+                report.timelineSpeedChecks++;
+                Submit("battle-menu");
+                yield return null;
+            }
+            report.steps.Add(Size + "：真实 UI 出招的 Core 时间线逐字段一致；新事件全部覆盖、LogIndex 对齐；1 倍/2 倍/关闭动画仅改变时序，关闭动画仍保留完整提示。");
         }
 
         IEnumerator CheckUnavailableAndReplacement()

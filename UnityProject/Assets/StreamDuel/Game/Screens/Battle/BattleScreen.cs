@@ -138,7 +138,7 @@ namespace StreamDuel.Game
             lineElapsed = 0;
             revealed = fromLog;
             if (PlaybackToEvent > from)
-                animator.Play(BattleAnimationTimeline.Build(CurrentBattle, from, PlaybackToEvent, PlaybackSpeed));
+                animator.Play(BattleTimeline.Build(CurrentBattle.Events, from, PlaybackToEvent, PlaybackSpeed));
             wasPlaying = IsBusy;
             if (!wasPlaying) FinishPlayback();
             else Render();

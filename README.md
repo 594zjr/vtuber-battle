@@ -87,6 +87,8 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
 
+队伍分享：`dotnet run --project Tools/Cli -- --pack original --team bell,enka,shiori,lumi,hane,momo --export-team` 在开局前打印 `SDT1-` 队伍码并继续对战；输入 `q` 可退出。用 `dotnet run --project Tools/Cli -- --team-code "SDT1-…" --auto` 导入并开打，省略 `--pack` 时自动加载码内内容包；显式指定的 `--pack` 必须匹配，外部包还需 `--pack-dir`。`--team-code` 与 `--team` 互斥，坏码、包不匹配和非法成员会在开局前报错。`--export-team` 导出的是禁用及首发调整前的本方六人顺序；与导入同用时保留预设名称，可配合手动、自动和联网对战。这两个参数都不能与 `--replay`、`--replay-code` 或 `--list-packs` 同用。
+
 `--level` 支持 `easy`（简单）、`normal`（普通）、`hard`（困难）、`expert`（专家），默认普通；电脑行动和补位使用所选难度。专家对战示例：`dotnet run --project Tools/Cli -- --pack original --level expert --seed 1`；加 `--auto` 可观看双方专家电脑对战。
 
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
@@ -100,7 +102,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 ## 联网对战（命令行）
 
-仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 指定六人阵容，省略时按本端 `--seed` 自动组队。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
+仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 或 `--team-code` 指定六人阵容，省略时按本端 `--seed` 自动组队。导入的队伍在监听或连接前校验，`--export-team` 打印的是本端队伍。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
 
 在两个命令行窗口分别运行：
 
@@ -114,6 +116,18 @@ dotnet run --project Tools/Cli -- --join 127.0.0.1:7777 --pack original --team k
 `--host 0` 由系统分配端口并显示实际值。房主等待连接时可按 Ctrl+C 退出。加入连接或握手等待超过 10 秒会报错；对战中的人工选招没有倒计时。连接建立后仍用原有数字菜单选技能、换人和补位，每次提交显示“等待对手……”。输入 `q` 或输入结束退出；另一端会提示“对方已断开”，未完成的对局不保存回放或战绩，等待输入时也能检测断线。
 
 两端可分别加 `--auto` 让本方 AI 选择，便于回环测试；`--hash` 显示已确认阶段的状态哈希，结束时打印最终哈希。本端最终哈希校验通过后关闭发送方向，继续接收对端最后的错误或关闭通知；双方正常完成这一流程后，各端按自己的胜负保存档案和完整回放。终局收尾超过 10 秒会报错且不保存，也可用 `--report` 导出本局战报、`--share` 打印分享码；同机两个窗口建议使用不同的 `--save-dir`，避免把两位玩家的战绩混到一个档案。联网暂不支持 `--ban`、`--lead`、`--replay`、`--replay-code`、`--list-packs`，不能同时使用 `--host` 和 `--join`。
+
+### 可选对战计时
+
+加 `--timer 10,30` 后，每次选招或补位有 10 秒基本时间，超出部分从本方全局 30 秒余额扣除；提交后停表，下一阶段重置基本时间但不恢复总时间。命令行显示倒计时，超时提交默认跳过，补位超时选择编号最小的可上场队友。默认跳过仍按当前状态结算：受控则跳过，全部技能无 PP 时按既有规则使用硬撑。
+
+```powershell
+dotnet run --project Tools/Cli -- --pack original --seed 1 --timer 10,30
+dotnet run --project Tools/Cli -- --host 7777 --pack original --timer 10,30
+dotnet run --project Tools/Cli -- --join 127.0.0.1:7777 --pack original
+```
+
+联网预算由房主声明，客机采用房主设置；双方都需要支持计时的版本。超时端自行提交默认行动，对方再宽限 10 秒仍未收到提交则报掉线；已承诺但不公开、结算后不确认哈希也会超时报错。计时不覆盖开局禁用和首发选择，不能与 `--replay` 或 `--replay-code` 同用。完整接口与等待规则见[设计文档 10.3 节](docs/design.md#103-对战计时)。
 
 ## 自制内容包
 

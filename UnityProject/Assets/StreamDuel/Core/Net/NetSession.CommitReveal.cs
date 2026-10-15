@@ -25,9 +25,14 @@ namespace StreamDuel.Core
             localNonce = nonce;
             commitments[MySide] = digest;
             HasSubmitted = true;
+            Clock?.Submit(MySide);
             State = NetState.Waiting;
             if (Send("{\"type\":\"commit\",\"turn\":" + Number(turn)
-                + ",\"kind\":" + NetJson.Quote(kind) + ",\"digest\":" + NetJson.Quote(digest) + "}")) Advance();
+                + ",\"kind\":" + NetJson.Quote(kind) + ",\"digest\":" + NetJson.Quote(digest) + "}"))
+            {
+                BeginRevealTimerIfReady();
+                Advance();
+            }
         }
 
         private void ReceiveCommit(Dictionary<string, object> obj)
@@ -38,6 +43,8 @@ namespace StreamDuel.Core
             string digest = NetJson.Text(obj, "digest");
             if (!LowerHex(digest, 64)) throw new FormatException("承诺摘要必须是 64 位小写十六进制字符串。");
             commitments[peer] = digest;
+            Clock?.Submit(peer);
+            BeginRevealTimerIfReady();
         }
 
         private void ReceiveReveal(Dictionary<string, object> obj)
