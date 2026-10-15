@@ -61,9 +61,27 @@ namespace StreamDuel.Cli
                 Console.WriteLine(BattleSummary.From(battle).ToText());
             }
             else Console.WriteLine("记录播放完毕：这是一局未完成的对战。");
-            SaveReport(battle, options);
-            PrintShareCode(record, options);
-            return 0;
+            bool exportFailed = false;
+            try
+            {
+                SaveReport(battle, options);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
+            {
+                // 两种导出各自完成，战报目标不可写时仍可分享已回看的记录。
+                Console.Error.WriteLine("错误：" + ex.Message);
+                exportFailed = true;
+            }
+            try
+            {
+                PrintShareCode(record, options);
+            }
+            catch (FormatException ex)
+            {
+                Console.Error.WriteLine("错误：分享码导出失败：" + ex.Message);
+                exportFailed = true;
+            }
+            return exportFailed ? 1 : 0;
         }
 
         private static void PrintShareCode(BattleRecord record, CliOptions options)

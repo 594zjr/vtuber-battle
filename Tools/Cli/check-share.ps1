@@ -131,6 +131,45 @@ try {
     Assert-Check ($protected.Err.Contains('--report') -and (Fingerprint $save) -ceq $before) '分享码的战报路径可覆盖档案。'
     $checks.Add('分享码回看的战报不能占用档案保留路径')
 
+    foreach ($mode in @('file', 'code')) {
+        $blockedParent = Join-Path $runDirectory ("blocked-report-$mode-parent")
+        $marker = "保留战报父文件：$mode"
+        [IO.File]::WriteAllText($blockedParent, $marker, $utf8)
+        $blockedReport = Join-Path $blockedParent 'report.md'
+        $parameters = if ($mode -eq 'file') { @('--replay', $records[0].FullName) } else { @('--replay-code', $code) }
+        $result = Invoke-Cli ("04-blocked-report-$mode") ($parameters + @('--auto', '--share', '--save-dir', $save,
+            '--report', $blockedReport)) '' 1
+        Assert-Check ($result.Out.Contains('回看结束：') -and $result.Err.Contains('战报保存失败：')) '战报失败回归没有完成回看或缺少保存错误。'
+        Assert-Check ((Share-Code $result.Out) -ceq $code) '战报保存失败阻止了分享码导出。'
+        Assert-Check (-not $result.Out.Contains('战报已保存：') -and -not [IO.File]::Exists($blockedReport)) '失败战报被谎报已保存。'
+        Assert-Check ([IO.File]::ReadAllText($blockedParent) -ceq $marker) '战报保存失败覆盖了原父文件。'
+        Assert-Check ((Fingerprint $save) -ceq $before) '战报保存失败的回看改变了档案或回放文件。'
+    }
+    $checks.Add('文件及分享码回看战报写入失败均退出 1，仍导出同码且保留存档')
+
+    $reservedReports = @(
+        @{ Name = 'settings'; Path = 'settings.json' },
+        @{ Name = 'settings-tmp'; Path = '.settings.json.tmp' },
+        @{ Name = 'settings-lock'; Path = '.settings.lock' },
+        @{ Name = 'ownership'; Path = 'replays/.replay-ownership.json' },
+        @{ Name = 'ownership-tmp'; Path = 'replays/.replay-ownership.json.tmp' }
+    )
+    foreach ($case in $reservedReports) {
+        $reservedSave = Join-Path $runDirectory ("reserved-$($case.Name)-saves")
+        $reservedReport = Join-Path $reservedSave $case.Path
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($reservedReport))
+        $marker = "保留存档文件：$($case.Name)"
+        [IO.File]::WriteAllText($reservedReport, $marker, $utf8)
+        $reservedBefore = Fingerprint $reservedSave
+        $result = Invoke-Cli ("04-protected-$($case.Name)") @('--replay-code', $code, '--auto', '--share',
+            '--save-dir', $reservedSave, '--report', $reservedReport) '' 1
+        Assert-Check ($result.Err.Contains('--report') -and -not $result.Out.Contains('战报已保存：') -and
+            -not $result.Out.Contains('分享码：')) '分享码回看的保留路径没有在导出前拒绝。'
+        Assert-Check ([IO.File]::ReadAllText($reservedReport) -ceq $marker) '分享码回看的战报覆盖了保留标记文件。'
+        Assert-Check ((Fingerprint $reservedSave) -ceq $reservedBefore) '分享码回看的保留路径拒绝改变了存档。'
+    }
+    $checks.Add('分享码回看拒绝设置、设置临时文件及锁、回放归属索引及临时文件，标记内容不变')
+
     $invalidCases = @(
         @{ Name = 'prefix'; Args = @('--replay-code', ('XX1-' + $code.Substring(4)), '--auto', '--share') },
         @{ Name = 'payload'; Args = @('--replay-code', ($code.Substring(0, 8) + $(if ($code[8] -eq 'A') { 'B' } else { 'A' }) + $code.Substring(9)), '--auto', '--share') },

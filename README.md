@@ -27,9 +27,29 @@
 ## 怎么试玩
 
 1. 用 Unity Hub 选「添加 → 从磁盘添加项目」，选中 `UnityProject` 文件夹。
-2. 如果 Hub 提示版本不一致，选你已经装好的 Unity 6 版本打开即可。
-3. 第一次打开会花几分钟导入。打开后直接按顶部的 ▶ Play，不需要打开或摆放任何场景。
+2. 本工程使用 **Unity 6（6000.6.5f1）**；用对应版本打开，Windows 打包需要编辑器具备 Windows 构建支持。
+3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
+
+## Windows 打包
+
+在仓库根目录运行下面的命令；`Unity.exe` 使用 6000.6.5f1 编辑器的可执行文件，可将它所在目录加入 PATH，或替换为完整路径：
+
+```powershell
+Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod BuildScript.BuildWindows -logFile build.log
+```
+
+产物位于 `UnityProject/Build/Windows/StreamDuel.exe`，运行时需保留同目录的全部构建文件。构建目录已加入 Git 忽略；构建日志写入仓库根目录的 `build.log`。
+
+`BuildScript.BuildWindows` 会先调用 `BuildScript.PrepareProject`：缺少主场景时创建合法空场景，并将它设为构建列表第 0 位；已有主场景和其他构建场景会保留。也可以在编辑器菜单「开播对决 → 准备主场景」或「开播对决 → 构建 Windows」执行。构建失败会抛出错误，让批处理命令返回失败状态。
+
+Windows 包的自动冒烟验收（需要正常图形桌面，不加 `-batchmode` / `-nographics`）：
+
+```powershell
+UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./Build/player.log
+```
+
+它通过现有界面入口切换内容包、选择首发并完成一局，截图和回放保存在指定目录新建的 `run-*` 子目录；`result.json` 记录结果，成功退出 0，失败或 180 秒超时退出 1。验收中的内容包切换和自动组队不覆盖玩家已保存的包选择与队伍。运行截图需要检查中文与排版；报告只统计 `BattleScreen.Start` 之后的日志，启动错误还须检查完整 Player 日志。此入口不替代鼠标、滚动和限时操作的人工验收；不传参数时正常进入组队页。
 
 ## 结构
 
@@ -58,7 +78,7 @@
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
 - 结束时打印对战统计和本包累计战绩，并保存 `saves/profile.json`；`--save-dir 目录` 可指定其他本机目录。完整回放写入该目录下的 `replays/<UTC时间>_<packId>.json`，只保留本工具生成的最近 50 份，其他命名文件保留。外部包 id 含特殊字符或超过 80 字符时，文件名用 id 的 SHA256 摘要，JSON 内仍保存原 id。提前退出不记战绩、不保存回放。
 - `dotnet run --project Tools/Cli -- --replay saves/replays/<文件名>.json`：自动加载记录对应的内容包；外部包需加 `--pack-dir 目录`。先显示第一个有日志的回合，再按回车逐回合播放；`q` 或输入结束退出。加 `--auto` 连续播放全部记录。回看不增加战绩，也不保存第二份回放；不完整记录会提示“未完成”。回放需要与原对局相同的规则和内容包版本。
-- `--share`：完成对局后打印以 `SD1-` 开头的回放分享码，可直接复制给其他人；也可与 `--replay` 或 `--replay-code` 一起使用，在播放完毕后重新导出。提前退出不输出分享码。超大记录导出失败会报错并返回退出码 1，已完成对局仍会保存回放及战绩。
+- `--share`：完成对局后打印以 `SD1-` 开头的回放分享码，可直接复制给其他人；也可与 `--replay` 或 `--replay-code` 一起使用，在播放完毕后重新导出。提前退出不输出分享码。超大记录导出失败会报错并返回退出码 1，已完成对局仍会保存回放及战绩。回放时战报与分享分别导出，战报写入失败仍会输出可用的分享码。
 - `dotnet run --project Tools/Cli -- --replay-code "SD1-这里粘贴分享码" --auto`：从分享码回看，允许码中带空白和换行；外部包仍需提供 `--pack-dir`。不能与 `--replay` 同用；不会新增战绩或回放文件，内容指纹校验与文件回放相同。
 - `--report reports/battle.md`：对局结束或回放完整播放后导出 UTF-8 Markdown 战报，自动创建父目录；提前退出不导出，未结束记录完整播放后可导出未结束战报。输出路径不能与 `--replay` 输入相同，也不能占用新局的存档目录、档案、临时文件或锁路径；Windows 扩展前缀别名同样检查。
 - `--hash` 可输出新对战每回合结算后的状态哈希，不能与 `--replay` 或 `--replay-code` 同用。回放中的阵容、种子及禁用/首发选项以记录为准；新对战参数不会修改它们。所有参数的中文说明见 `--help`。
@@ -82,6 +102,8 @@ dotnet run --project Tools/Cli -- --join 127.0.0.1:7777 --pack original --team k
 两端可分别加 `--auto` 让本方 AI 选择，便于回环测试；`--hash` 显示已确认阶段的状态哈希，结束时打印最终哈希。本端最终哈希校验通过后关闭发送方向，继续接收对端最后的错误或关闭通知；双方正常完成这一流程后，各端按自己的胜负保存档案和完整回放。终局收尾超过 10 秒会报错且不保存，也可用 `--report` 导出本局战报、`--share` 打印分享码；同机两个窗口建议使用不同的 `--save-dir`，避免把两位玩家的战绩混到一个档案。联网暂不支持 `--ban`、`--lead`、`--replay`、`--replay-code`、`--list-packs`，不能同时使用 `--host` 和 `--join`。
 
 ## 自制内容包
+
+第一次制作请从[自制内容包教程](docs/modding.md)和[完整示例包](docs/examples/example_pack.json)开始，按步骤检查、运行并试测平衡。
 
 将自制内容包保存为 UTF-8 编码的 `.json` 文件，每个文件对应一个包。完整格式见[设计文档 6.3 节](docs/design.md)：设置唯一的 `id`、包名和主播名单；至少包含 6 位主播，每位有 4 个普通技能和 1 个第五技能。可以在包内的 `skills`、`personas`、`fields`、`statuses` 中定义专属内容，沿用已有的效果码、人设码和赛道；同类别定义的 id 不得与共用规则重复。
 
