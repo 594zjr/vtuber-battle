@@ -65,6 +65,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--bug-report")
+                {
+                    if (options.BugReportAtEnd) throw new ArgumentException("--bug-report 不能重复指定。");
+                    options.BugReportAtEnd = true;
+                    continue;
+                }
                 if (option == "--hotseat")
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
@@ -175,7 +181,7 @@ namespace StreamDuel.Cli
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
-                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
+                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host" && option != "--reproduce")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -183,6 +189,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--reproduce":
+                        if (options.ReproduceCode != null) throw new ArgumentException("--reproduce 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--reproduce 需要非空的 SDBUG1- 问题报告码。");
+                        options.ReproduceCode = value;
+                        break;
                     case "--tournament":
                         if (options.TournamentFile != null) throw new ArgumentException("--tournament 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament 需要非空的赛事 JSON 文件路径。");
@@ -298,7 +309,7 @@ namespace StreamDuel.Cli
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
                     "--advice", "--ban", "--lead", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
-                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
+                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report", "--bug-report"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
@@ -324,7 +335,7 @@ namespace StreamDuel.Cli
                 {
                     var allowed = new HashSet<string>(new[] { "--hotseat", "--packs", "--random-teams", "--pack", "--pack-dir", "--seed", "--team",
                         "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
-                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                        "--report", "--share", "--export-team", "--bug-report", "--help", "-h" }, StringComparer.Ordinal);
                     var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
                     if (unsupported.Length > 0)
                         throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)
@@ -397,6 +408,7 @@ namespace StreamDuel.Cli
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
                     + " 不支持 --timer；回放使用已保存的选择，不重新计时。");
             ValidateMixedOptions(options, provided);
+            ValidateBugReportOptions(options, provided);
             return options;
         }
 

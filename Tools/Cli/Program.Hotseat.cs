@@ -31,6 +31,7 @@ namespace StreamDuel.Cli
             if (nameB.Changed) Console.WriteLine("B 方昵称显示已调整：" + nameB.Message);
             Console.WriteLine("轮流私密选招，输入不回显；交接后按回车确认，q 或输入结束退出。");
             Console.WriteLine("本机档案按 A 方累计一次。");
+            Console.WriteLine("/bug [备注] 导出问题报告后继续，不含会话中未公开的选择。");
             Console.WriteLine("对战指令：/surrender 投降并结算；同屏模式暂不支持 /draw 求和。");
             int logIndex = 0;
             try
