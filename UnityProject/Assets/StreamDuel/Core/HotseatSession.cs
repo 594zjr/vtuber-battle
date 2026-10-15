@@ -5,7 +5,7 @@ using System.Linq;
 namespace StreamDuel.Core
 {
     /// <summary>同一台设备轮流选择；调用方用交接遮挡保护屏幕，战斗规则仍由 Battle 结算。</summary>
-    public sealed class HotseatSession
+    public sealed partial class HotseatSession
     {
         readonly Battle battle;
         readonly bool[] submitted = new bool[2];
@@ -45,10 +45,12 @@ namespace StreamDuel.Core
         }
 
         public HotseatSession(ContentDb db, IList<string> teamA, IList<string> teamB,
-            string nameA, string nameB, BattleOptions opt)
+            string nameA, string nameB, BattleOptions opt, int turnTimeLimitSeconds = 0)
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            ValidateTurnTimeLimit(turnTimeLimitSeconds);
+            TurnTimeLimitSeconds = turnTimeLimitSeconds;
             ValidateTeam(teamA, nameof(teamA), opt.BanOne);
             ValidateTeam(teamB, nameof(teamB), opt.BanOne);
             if (string.IsNullOrWhiteSpace(nameA)) throw new ArgumentException("玩家名称不能为空", nameof(nameA));
@@ -182,6 +184,7 @@ namespace StreamDuel.Core
         void FinishSubmission()
         {
             int holder = WhoseTurn;
+            ResetChoiceTimer();
             submitted[holder] = true;
             int other = 1 - holder;
             if (!submitted[other] && (battle.Phase != Phase.Replace || battle.Need[other]))
@@ -197,7 +200,9 @@ namespace StreamDuel.Core
             switch (battle.Phase)
             {
                 case Phase.Choose:
+                    var skillUsers = new[] { battle.Active(0), battle.Active(1) };
                     battle.ResolveTurn(actions[0], actions[1]);
+                    RememberTurnSkills(skillUsers);
                     break;
                 case Phase.Ban:
                     battle.ChooseBan(0, choices[0]);
@@ -217,6 +222,7 @@ namespace StreamDuel.Core
 
         void StartStage(int holder)
         {
+            ResetChoiceTimer();
             Array.Clear(submitted, 0, submitted.Length);
             Array.Clear(actions, 0, actions.Length);
             Array.Clear(choices, 0, choices.Length);

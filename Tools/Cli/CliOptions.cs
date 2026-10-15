@@ -183,7 +183,7 @@ namespace StreamDuel.Cli
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament" && option != "--tournament-report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
-                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
+                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host" && option != "--turn-limit")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -191,6 +191,9 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--turn-limit":
+                        options.SetHotseatTurnLimit(value);
+                        break;
                     case "--tournament-report":
                         if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament-report 需要非空的赛事 JSON 文件路径。");
@@ -350,7 +353,7 @@ namespace StreamDuel.Cli
                 {
                     var allowed = new HashSet<string>(new[] { "--hotseat", "--packs", "--random-teams", "--pack", "--pack-dir", "--seed", "--team",
                         "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
-                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                        "--report", "--share", "--export-team", "--turn-limit", "--help", "-h" }, StringComparer.Ordinal);
                     var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
                     if (unsupported.Length > 0)
                         throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)
@@ -423,6 +426,8 @@ namespace StreamDuel.Cli
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
                     + " 不支持 --timer；回放使用已保存的选择，不重新计时。");
             ValidateMixedOptions(options, provided);
+            if (options.TurnTimeLimitSpecified && !options.Hotseat && !options.Help)
+                throw new ArgumentException("--turn-limit 仅用于 --hotseat 同屏双人对战。");
             return options;
         }
 

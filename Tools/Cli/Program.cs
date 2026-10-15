@@ -203,6 +203,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
             Console.WriteLine("  --hotseat         同屏双人轮流手动操作；交接时清屏并按回车确认，私密选择输入不回显。");
+            Console.WriteLine("  --turn-limit 秒   仅用于 --hotseat；0（默认不限时）、10、20、30、60。只计当前操作者选招时间，交接、禁用、首发与补位暂停。");
+            Console.WriteLine("                    超时由引擎自动选招并提示；超时后须输入“继续”清理旧输入，再按提示交接或选招，旧空回车不能确认下一位。");
             Console.WriteLine("  --team-b 六个编号 同屏 B 方或混合包本地电脑队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
             Console.WriteLine("  --name-a 名称 / --name-b 名称  同屏双方显示名，默认玩家 A / 玩家 B；仅与 --hotseat 同用。");
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack/--packs 必须匹配，外部包另加 --pack-dir。");
@@ -239,7 +241,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("联网收到求和后输入 /draw accept 同意或 /draw reject 拒绝，等待对手时也可输入指令；同屏模式暂不支持求和。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
             Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack/--packs、--pack-dir 和 --help。");
-            Console.WriteLine("同屏支持 --seed、--ban、--lead、队伍导入导出、--share、--report 和 --save-dir；禁用自动/难度/计时/哈希/联网/回看/录像列表/列包/分析/图鉴参数。完整对局按 A 方累计一次档案，提前退出不存档。");
+            Console.WriteLine("同屏支持 --seed、--ban、--lead、--turn-limit、队伍导入导出、--share、--report 和 --save-dir；禁用自动/难度/--timer/哈希/联网/回看/录像列表/列包/分析/图鉴参数。完整对局按 A 方累计一次档案，提前退出不存档。");
             Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code、--replays 或 --list-packs 同用。");
             Console.WriteLine("回放均支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用。--save-dir 决定录像库位置，其他对战参数不改变记录；回看不新增战绩或录像。");
             Console.WriteLine("--replays 与回看、联网、--list-packs、--report、--share、--timer、队伍码导入导出及分析/图鉴入口互斥；其他对战参数对列表无影响。战报不能写入 replay-library 目录。现有文件路径优先于同名录像编号。");
