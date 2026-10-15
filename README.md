@@ -42,9 +42,15 @@
 
 平衡模拟：`dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1`，标准输出为主播胜率及技能使用次数两段 CSV；胜率按入选队伍统计，详情见 `--help`。
 
+模拟器可加 `--level easy|normal|hard|expert` 指定双方行动和补位的难度，默认 `normal`（普通）。例如 `dotnet run --project Tools/Sim -- --pack original --level expert --games 100 --seed 1` 使用专家难度。`--tune` 固定搜索普通难度的评分权重，不能与 `--level` 同用。
+
+专家难度在独立对战副本上试算行动与补位，真实对局只在最高分相同时抽签。策略和实测见 [专家 AI 验证](docs/ai_expert.md)；`pwsh -File Tools/Sim/check-expert.ps1 -Mode acceptance -Games 200` 可复现对困难 AI 的验收分队，并统计专家决策耗时。
+
 内容包检查及名单文档：`dotnet run --project Tools/PackCheck -- --write-docs`；可加 `--pack original` 只检查一个包，详情见 [工具用法](Tools/PackCheck/README.md)。
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
+
+`--level` 支持 `easy`（简单）、`normal`（普通）、`hard`（困难）、`expert`（专家），默认普通；电脑行动和补位使用所选难度。专家对战示例：`dotnet run --project Tools/Cli -- --pack original --level expert --seed 1`；加 `--auto` 可观看双方专家电脑对战。
 
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
 - 结束时打印对战统计和本包累计战绩，并保存 `saves/profile.json`；`--save-dir 目录` 可指定其他本机目录。完整回放写入该目录下的 `replays/<UTC时间>_<packId>.json`，只保留本工具生成的最近 50 份，其他命名文件保留。外部包 id 含特殊字符或超过 80 字符时，文件名用 id 的 SHA256 摘要，JSON 内仍保存原 id。提前退出不记战绩、不保存回放。

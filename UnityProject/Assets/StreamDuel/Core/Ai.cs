@@ -9,7 +9,8 @@ namespace StreamDuel.Core
     {
         Easy,
         Normal,
-        Hard
+        Hard,
+        Expert
     }
 
     public static partial class Ai
@@ -240,6 +241,7 @@ namespace StreamDuel.Core
         {
             if (level == AiLevel.Normal) return Choose(b, s);
             if (level == AiLevel.Hard) return ChooseHard(b, s);
+            if (level == AiLevel.Expert) return ChooseExpert(b, s);
 
             var legal = b.LegalFor(s);
             if (legal.Controlled != null) return BattleAction.Pass();
@@ -269,6 +271,7 @@ namespace StreamDuel.Core
 
         public static int ChooseReplacement(Battle b, int s, AiLevel level)
         {
+            if (level == AiLevel.Expert) return ChooseExpertReplacement(b, s);
             return level == AiLevel.Hard ? ChooseHardReplacement(b, s) : ChooseReplacement(b, s);
         }
     }
