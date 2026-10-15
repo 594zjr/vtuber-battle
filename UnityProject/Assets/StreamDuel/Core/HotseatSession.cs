@@ -141,7 +141,12 @@ namespace StreamDuel.Core
 
         public BattleViewModel ViewFor(int side)
         {
-            var view = BattleViewModel.From(battle, side);
+            return ViewFor(side, null);
+        }
+
+        public BattleViewModel ViewFor(int side, GameSettings settings)
+        {
+            var view = BattleViewModel.From(battle, side, settings);
             if (battle.Phase != Phase.Choose)
             {
                 view.Skills.Clear();

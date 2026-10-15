@@ -18,6 +18,13 @@ function Assert-Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "$Message；证据：$run" }
 }
 
+function Read-ColorblindMode($Settings) {
+    $property = $Settings.PSObject.Properties['colorblindMode']
+    if ($null -eq $property) { return $false }
+    Assert-Check ($property.Value -is [bool]) '色盲模式字段存在时必须是布尔值'
+    return $property.Value
+}
+
 function Invoke-Check([string]$Name, [string[]]$Arguments, [int]$Exit = 0, [string]$ErrorText = '') {
     $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
     $start.ArgumentList.Add($cli)
@@ -76,7 +83,7 @@ try {
     $legacy = @(Get-ChildItem -LiteralPath (Join-Path $source 'replays') -Filter '*.json' -File | Where-Object { -not $_.Name.StartsWith('.') })
     Assert-Check ($legacy.Count -eq 1) '实际 CLI 对局应保存一份旧回放'
     $record = [IO.File]::ReadAllText($legacy[0].FullName) | ConvertFrom-Json
-    $settings = '{"aiLevel":"Hard","animations":false,"defaultPack":"original","fastPlay":true,"language":"zh-CN","turnTimer":true,"version":1}'
+    $settings = '{"aiLevel":"Hard","animations":false,"colorblindMode":true,"defaultPack":"original","fastPlay":true,"language":"zh-CN","turnTimer":true,"version":1}'
     [IO.File]::WriteAllText((Join-Path $source 'settings.json'), $settings, $utf8)
     $teams = [ordered]@{ items = @([ordered]@{ name = '迁移队伍'; packId = 'original'; ids = @($record.teams[0]) }) }
     [IO.File]::WriteAllText((Join-Path $source 'teams.json'), ($teams | ConvertTo-Json -Depth 12 -Compress), $utf8)
@@ -85,13 +92,16 @@ try {
     Assert-Check ((Snapshot $source) -ceq $sourceBefore) '导出不能改变源存档文件'
     $backup = [IO.File]::ReadAllText($archive) | ConvertFrom-Json
     Assert-Check ($backup.format -eq 'StreamDuelBackup' -and $backup.version -eq 1 -and $backup.includeReplays) '应产生版本 1、含录像的单文件备份'
+    Assert-Check ($backup.settings.colorblindMode -eq $true) '导出须保留开启的色盲模式'
     Assert-Check (@($backup.replays).Count -eq 1 -and @($backup.library).Count -eq 1) '旧回放与录像库均应包含一份真实录像'
     $null = Invoke-Check '03-restore-empty' @('--restore', $archive, '--save-dir', $target)
     $roundtrip = Join-Path $run 'roundtrip.json'
     $null = Invoke-Check '04-export-restored' @('--backup', $roundtrip, '--save-dir', $target)
     Assert-Check ((ComparableArchive $archive) -ceq (ComparableArchive $roundtrip)) '空目录恢复后再次导出除调用方时间外须完全一致'
+    $restoredSettings = [IO.File]::ReadAllText((Join-Path $target 'settings.json')) | ConvertFrom-Json
+    Assert-Check ($restoredSettings.colorblindMode -eq $true) '空目录恢复须保留开启的色盲模式'
 
-    $targetSettings = $settings.Replace('"Hard"', '"Easy"')
+    $targetSettings = $settings.Replace('"Hard"', '"Easy"').Replace('"colorblindMode":true', '"colorblindMode":false')
     [IO.File]::WriteAllText((Join-Path $target 'settings.json'), $targetSettings, $utf8)
     $profile = [IO.File]::ReadAllText((Join-Path $target 'profile.json')) | ConvertFrom-Json
     $profile.packs.original.wins = 42
@@ -100,6 +110,8 @@ try {
     $mergedTeams = [IO.File]::ReadAllText((Join-Path $target 'teams.json')) | ConvertFrom-Json
     Assert-Check (@($mergedTeams.items).Count -eq 2 -and $mergedTeams.items[1].name -ceq '迁移队伍 (2)') '同名队伍应加序号'
     Assert-Check ([IO.File]::ReadAllText((Join-Path $target 'settings.json')) -ceq $targetSettings) '合并应保留现有设置'
+    $mergedSettings = [IO.File]::ReadAllText((Join-Path $target 'settings.json')) | ConvertFrom-Json
+    Assert-Check ((Read-ColorblindMode $mergedSettings) -eq $false) '合并须保留目标已关闭的色盲模式'
     $mergedProfile = [IO.File]::ReadAllText((Join-Path $target 'profile.json')) | ConvertFrom-Json
     Assert-Check ($mergedProfile.packs.original.wins -eq 42) '合并应保留同包统计而不累加'
     Assert-Check ($mergedText.Contains('回放：0；录像库录像：0')) '合并重复录像 id 不应再次导入'
@@ -109,13 +121,19 @@ try {
     $automatic = @(Get-ChildItem -LiteralPath (Join-Path $target 'backups') -File -Filter 'before-restore-*.json')
     Assert-Check ($automatic.Count -eq 1 -and $overwriteText.Contains($automatic[0].FullName)) '覆盖前自动备份须落盘且打印路径'
     Assert-Check ((ComparableArchive $automatic[0].FullName) -ceq (ComparableArchive $beforeOverwrite)) '自动备份须保存覆盖前内容'
+    $automaticBackup = [IO.File]::ReadAllText($automatic[0].FullName) | ConvertFrom-Json
+    Assert-Check ((Read-ColorblindMode $automaticBackup.settings) -eq $false) '自动备份须保留覆盖前关闭的色盲模式'
     $overwritten = Join-Path $run 'overwritten.json'
     $null = Invoke-Check '08-export-overwritten' @('--backup', $overwritten, '--save-dir', $target)
     Assert-Check ((ComparableArchive $overwritten) -ceq (ComparableArchive $archive)) '覆盖后内容须与原归档一致'
+    $overwrittenSettings = [IO.File]::ReadAllText((Join-Path $target 'settings.json')) | ConvertFrom-Json
+    Assert-Check ($overwrittenSettings.colorblindMode -eq $true) '覆盖须采用源归档开启的色盲模式'
     $null = Invoke-Check '08a-restore-automatic-backup' @('--restore', $automatic[0].FullName, '--overwrite', '--save-dir', $target)
     $rolledBack = Join-Path $run 'restored-automatic.json'
     $null = Invoke-Check '08b-export-restored-automatic' @('--backup', $rolledBack, '--save-dir', $target)
     Assert-Check ((ComparableArchive $rolledBack) -ceq (ComparableArchive $beforeOverwrite)) '须能直接从本目标 backups 自动备份恢复覆盖前内容'
+    $rolledBackSettings = [IO.File]::ReadAllText((Join-Path $target 'settings.json')) | ConvertFrom-Json
+    Assert-Check ((Read-ColorblindMode $rolledBackSettings) -eq $false) '恢复自动备份须还原原目标关闭的色盲模式'
 
     $bad = Join-Path $run 'bad.json'
     [IO.File]::WriteAllText($bad, '{broken', $utf8)

@@ -104,7 +104,12 @@ namespace StreamDuel.Core
 
         public BattleViewModel View(int viewerSide)
         {
-            return BattleViewModel.From(Current, viewerSide);
+            return View(viewerSide, null);
+        }
+
+        public BattleViewModel View(int viewerSide, GameSettings settings)
+        {
+            return BattleViewModel.From(Current, viewerSide, settings);
         }
 
         void Apply(Battle battle, int start, int end)

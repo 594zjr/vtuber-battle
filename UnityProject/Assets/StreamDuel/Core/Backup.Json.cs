@@ -77,9 +77,9 @@ namespace StreamDuel.Core
         internal static string ValidateSettings(string json)
         {
             var settings = BackupJsonObject(BackupJsonParse(json), "设置");
-            BackupJsonFields(settings, "设置", "aiLevel", "animations", "defaultPack", "fastPlay", "language", "turnTimer", "version");
+            BackupJsonFields(settings, "设置", "aiLevel", "animations", "colorblindMode", "defaultPack", "fastPlay", "language", "turnTimer", "version");
             BackupJsonVersion(settings, "设置", GameSettings.CurrentVersion, false);
-            foreach (string field in new[] { "fastPlay", "turnTimer", "animations" })
+            foreach (string field in new[] { "fastPlay", "turnTimer", "animations", "colorblindMode" })
                 if (settings.ContainsKey(field)) BackupJsonBool(settings, field);
             foreach (string field in new[] { "defaultPack", "language" })
                 if (settings.ContainsKey(field) && string.IsNullOrWhiteSpace(BackupJsonText(settings, field)))

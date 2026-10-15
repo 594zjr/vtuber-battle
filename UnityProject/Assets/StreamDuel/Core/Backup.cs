@@ -163,7 +163,7 @@ namespace StreamDuel.Core
             {
                 ExportedAt = incoming.ExportedAt,
                 IncludeReplays = incoming.IncludeReplays,
-                Settings = overwrite || !File.Exists(paths.Settings) ? incoming.Settings : current.Settings,
+                Settings = overwrite ? incoming.Settings : paths.ReadOptional(paths.Settings) ?? incoming.Settings,
                 Profile = incoming.Profile,
                 Teams = incoming.Teams
             };

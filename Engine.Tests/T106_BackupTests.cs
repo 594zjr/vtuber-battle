@@ -113,7 +113,7 @@ public class T106_BackupTests
         var data = new SavedData { Root = root, LibraryDirectory = Path.Combine(root, "replay-library"), Store = new FileSaveStore(root) };
         data.Store.SaveSettings(new GameSettings
         {
-            FastPlay = true, TurnTimer = true, Animations = false, AiLevel = AiLevel.Hard,
+            FastPlay = true, TurnTimer = true, ColorblindMode = true, Animations = false, AiLevel = AiLevel.Hard,
             DefaultPack = "original", Language = "zh-CN"
         });
         data.Store.SaveProfile(Stats(wins));
@@ -205,6 +205,8 @@ public class T106_BackupTests
         using var dir = new TestDirectory();
         var source = Seed(dir.Child("source"));
         string json = Export(source);
+        Assert.True(source.Store.LoadSettings().ColorblindMode);
+        Assert.True(JsonNode.Parse(json)["settings"]["colorblindMode"].GetValue<bool>());
         Backup.Validate(json);
         var destination = new FileSaveStore(dir.Child("target"));
         string library = dir.Child("target/replay-library");
@@ -216,6 +218,7 @@ public class T106_BackupTests
         Assert.Equal(2, result.ImportedLibraryReplays);
         Assert.Null(result.AutomaticBackupPath);
         AssertSavedEqual(source, new FileSaveStore(dir.Child("target")), library);
+        Assert.True(new FileSaveStore(dir.Child("target")).LoadSettings().ColorblindMode);
     }
 
     [Fact]
@@ -252,7 +255,7 @@ public class T106_BackupTests
         incoming.Packs["imported_pack"] = new PackStats { Wins = 8, Picks = new Dictionary<string, int> { { "x", 8 } } };
         source.Store.SaveProfile(incoming);
         var local = Seed(dir.Child("target"), wins: 91, second: false);
-        var settings = new GameSettings { FastPlay = false, TurnTimer = false, DefaultPack = "local_pack", Language = "en-US" };
+        var settings = new GameSettings { FastPlay = false, TurnTimer = false, ColorblindMode = false, DefaultPack = "local_pack", Language = "en-US" };
         local.Store.SaveSettings(settings);
         var profile = local.Store.LoadProfile();
         profile.Packs["local_pack"] = new PackStats { Draws = 7 };
@@ -260,12 +263,34 @@ public class T106_BackupTests
 
         Backup.Import(local.Store, local.LibraryDirectory, Export(source), Epoch.AddDays(3));
 
+        Assert.True(source.Store.LoadSettings().ColorblindMode);
+        Assert.False(local.Store.LoadSettings().ColorblindMode);
         Assert.Equal(settings.ToJson(), local.Store.LoadSettings().ToJson());
         var merged = local.Store.LoadProfile();
         Assert.Equal(91, merged.Packs["original"].Wins);
         Assert.Equal(profile.Packs["original"].Picks, merged.Packs["original"].Picks);
         Assert.Equal(7, merged.Packs["local_pack"].Draws);
         Assert.Equal(8, merged.Packs["imported_pack"].Wins);
+    }
+
+    [Fact]
+    public void MergePreservesExistingSettingsBytesIncludingWhitespaceAndExplicitFalseColorblindMode()
+    {
+        using var dir = new TestDirectory();
+        var source = Seed(dir.Child("source"), second: false);
+        Assert.True(source.Store.LoadSettings().ColorblindMode);
+        var target = new FileSaveStore(dir.Child("target"));
+        string path = dir.Child("target/settings.json");
+        const string original = "{\r\n  \"version\" : 1,\r\n  \"colorblindMode\" : false,\r\n" +
+            "  \"fastPlay\" : false, \"turnTimer\" : false,\r\n  \"animations\" : true,\r\n" +
+            "  \"defaultPack\" : \"original\", \"language\" : \"zh-CN\", \"aiLevel\" : \"Normal\"\r\n}\r\n";
+        File.WriteAllText(path, original);
+        byte[] before = File.ReadAllBytes(path);
+
+        Backup.Import(target, dir.Child("target/replay-library"), Export(source), Epoch, BackupImportMode.Merge);
+
+        Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.False(new FileSaveStore(dir.Child("target")).LoadSettings().ColorblindMode);
     }
 
     [Fact]
@@ -333,11 +358,13 @@ public class T106_BackupTests
         using var dir = new TestDirectory();
         var source = Seed(dir.Child("source"));
         var target = Seed(dir.Child("target"), wins: 91, second: false);
-        target.Store.SaveSettings(new GameSettings { DefaultPack = "old_pack", FastPlay = false });
+        target.Store.SaveSettings(new GameSettings { DefaultPack = "old_pack", FastPlay = false, ColorblindMode = false });
         target.Store.SaveTeams(Teams("旧队伍"));
         target.Store.SaveReplay("old_only", "只能在自动备份中找回");
         new ReplayLibrary(target.LibraryDirectory).SetNote(target.FirstId, "旧备注");
         string oldSnapshot = Export(target);
+        Assert.True(source.Store.LoadSettings().ColorblindMode);
+        Assert.False(target.Store.LoadSettings().ColorblindMode);
 
         var result = Backup.Import(target.Store, target.LibraryDirectory, Export(source), Epoch.AddDays(3), BackupImportMode.Overwrite);
 
@@ -351,10 +378,12 @@ public class T106_BackupTests
         foreach (string key in new[] { "settings", "profile", "teams", "replays", "library", "libraryIndex" })
             Assert.True(JsonNode.DeepEquals(JsonNode.Parse(oldSnapshot)[key], JsonNode.Parse(automatic)[key]), key);
         AssertSavedEqual(source, target.Store, target.LibraryDirectory);
+        Assert.True(target.Store.LoadSettings().ColorblindMode);
         Assert.DoesNotContain("old_only", target.Store.ListReplays());
 
         var recovered = new FileSaveStore(dir.Child("recovered"));
         Backup.Import(recovered, dir.Child("recovered/replay-library"), automatic, Epoch.AddDays(4));
+        Assert.False(recovered.LoadSettings().ColorblindMode);
         Assert.Equal(91, recovered.LoadProfile().Packs["original"].Wins);
         Assert.Equal("旧队伍", Assert.Single(recovered.LoadTeams().Items).Name);
         Assert.Equal("只能在自动备份中找回", recovered.LoadReplay("old_only"));
@@ -407,6 +436,7 @@ public class T106_BackupTests
     [InlineData("wrong-format")]
     [InlineData("missing-settings")]
     [InlineData("bad-settings-bool")]
+    [InlineData("bad-colorblind-mode")]
     [InlineData("negative-profile")]
     [InlineData("fractional-profile")]
     [InlineData("bad-last-team")]
@@ -429,6 +459,7 @@ public class T106_BackupTests
                 case "wrong-format": root["format"] = "OtherBackup"; break;
                 case "missing-settings": root.Remove("settings"); break;
                 case "bad-settings-bool": root["settings"]["fastPlay"] = "true"; break;
+                case "bad-colorblind-mode": root["settings"]["colorblindMode"] = "true"; break;
                 case "negative-profile": root["profile"]["packs"]["original"]["wins"] = -1; break;
                 case "fractional-profile": root["profile"]["packs"]["original"]["wins"] = 1.5; break;
                 case "bad-last-team": root["teams"]["items"].AsArray().Add(new JsonObject { ["name"] = "前半份有效，最后一项损坏" }); break;
