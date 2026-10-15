@@ -220,12 +220,13 @@ namespace StreamDuel.Core
             return real;
         }
 
-        int Damage(Fighter p, int amt, string node, string text, bool fromHit, bool triggerFaintPersona = true, Ctx action = null)
+        int Damage(Fighter p, int amt, string node, string text, bool fromHit, bool triggerFaintPersona = true, Ctx action = null, Fighter source = null)
         {
             if (p.Fainted) return 0;
             int real = Math.Min(amt, p.Hp);
             bool endured = triggerFaintPersona && PersonaEndure(p, ref real);
             p.Hp -= real;
+            RecordDamage(p, source, real);
             Add(node, text.Replace("{n}", real.ToString()), "dmg", p.Side);
             if (endured) Add(node, "【人设·" + PersonaOf(p).Name + "】" + p.Name + " 保留 1 点人气（本场对战唯一一次保命已用完）", "trait", p.Side);
             var afk = p.Statuses.FirstOrDefault(x => Db.Statuses[x.Id].WakeOnHit);
@@ -237,6 +238,7 @@ namespace StreamDuel.Core
         void Faint(Fighter p, string node, bool triggerPersona = true, Ctx action = null)
         {
             p.Fainted = true; p.Hp = 0;
+            StatsFor(Active(1 - p.Side)).Kos++;
             Add(node, p.Name + " 下播了", "faint", p.Side);
             if (action != null && action.P == p && !action.Interrupted)
             {
@@ -503,6 +505,7 @@ namespace StreamDuel.Core
                 p.LastSkillIndex = act.Index;
             }
             Add(node, p.Name + " 使用「" + skill.Name + "」", "act", s);
+            RecordSkillUse(p, skill.Id);
             if (f.Fainted) { Add(node, "没有目标", "info", s); return; }
             if (skill.Acc < 100 && rng.Next() * 100 >= skill.Acc) { Add(node, "没有命中（命中率 " + skill.Acc + "%）", "miss", s); return; }
 
@@ -584,7 +587,11 @@ namespace StreamDuel.Core
             for (int i = 0; i < actors.Count && Phase != Phase.Over; i++) DoAction(actors[i], acts[actors[i]], i == 0 ? Node.First : Node.Second);
 
             // 4 回合结束
-            if (Phase != Phase.Over) foreach (int s in SpeedOrder()) TurnEndFor(s);
+            if (Phase != Phase.Over)
+            {
+                RecordTurnEnd();
+                foreach (int s in SpeedOrder()) TurnEndFor(s);
+            }
 
             if (Phase != Phase.Over && Turn >= TurnCap)
             {
