@@ -65,11 +65,13 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 
 `Describe.Persona` 对 `T_KO_HEAL/T_FIRST_CONTROL_IMMUNE/T_ENDURE/T_ALLY_PP_ON_ENTER/T_STAGE_ON_HIT` 会按代码和参数生成标准时机与说明；这些标准说明不会被 `personaDesc` 覆盖。填写自定义文字时仍须与真实行为一致。
 
+战斗显示可调用三参数版本 `Describe.Persona(db, persona, battle)`，让说明读取本局规则。启用 `stage_cap_3` 时，`T_STAGE_ON_HIT` 的上限显示为 +3，`T_SPEED_IF_FIRST` 也按实际参数生成回合结束时机、反应提升和 +3 上限说明。双参数版本以及未启用特殊上限的对战保留原有说明行为；这些显示处理不改写内容包中的 `personaDesc`。
+
 现有赛道 id 为：`song` 歌回、`game` 游戏、`talk` 杂谈、`art` 绘画、`meme` 整活、`asmr` 助眠、`horror` 恐怖、`tech` 硬核。不要把中文显示名当成 id。
 
 双赛道写成 `"type": "song", "type2": "talk"`。受到技能伤害时，两条防守赛道的克制倍率相乘；攻击技能匹配自身任意一条赛道就得到一次 ×1.5 的同赛道加成。技能本身只有一个 `type`，固定伤害不吃这些倍率。
 
-属性填写正整数，并参照共用原创包的量级做测试；加载成功不代表任意负数、极大数都合理。能力等级与基础属性分开：技能里的 `changes` 只接受 `atk/def/spa/sdef/spd`，不能写 `hp`，等级范围为 −6～+6。
+属性填写正整数，并参照共用原创包的量级做测试；加载成功不代表任意负数、极大数都合理。能力等级与基础属性分开：技能里的 `changes` 只接受 `atk/def/spa/sdef/spd`，不能写 `hp`，默认等级范围为 −6～+6；对战启用 `stage_cap_3` 修饰器时改为 −3～+3，见第 8 节。
 
 ## 4. 技能与效果公共字段
 
@@ -151,7 +153,7 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 | `{"at":"pre","code":"POWER_PER_MARK","field":"hype","per":0.2,"consume":true}` | 仅限 pre，本次威力 ×(1+0.2×自身层数)，再耗尽该印记；没有层数则 ×1 | 倍率只影响本次，印记已按参数消耗 |
 | `{"at":"pre","code":"DISPEL_TURNS","target":"foe"}` | 伤害前清除对手所有 `dispel=true` 的直播间效果 | 不清印记、保护类、状态或能力等级 |
 | `{"at":"pre","code":"DISPEL_BOOST","target":"foe"}` | 伤害前把对手所有正能力等级归零 | 负等级与直播间效果保留 |
-| `{"at":"pre","code":"STEAL_BOOST","target":"foe"}` | 伤害前取走对手正能力等级并加到自身，每项上限 +6；对手负等级保留 | 转移后的正等级仍可消强化，下场清零；以自身为目标无效 |
+| `{"at":"pre","code":"STEAL_BOOST","target":"foe"}` | 伤害前取走对手正能力等级并加到自身，每项默认上限 +6，启用 `stage_cap_3` 时为 +3；对手负等级保留 | 转移后的正等级仍可消强化，下场清零；以自身为目标无效 |
 | `{"at":"post","code":"CLEANSE"}` | 伤害后净化自身全部 `cleanse=true` 的弱化状态 | 即时移除；不清控制、直播间效果或能力等级 |
 
 固定伤害可以解除受伤即醒的控制、导致下播，并可能触发反弹；不触发“被普通技能击中后”的人设。`T_ENDURE` 的一次性保命仍可生效。PP 削减不会恢复目标本回合已选但行动前被削到 0 的技能：该次行动会失败（满足免扣 PP 的人设条件时例外），具体顺序见 [设计文档 3.4 节](design.md#34-一次行动内部)。
@@ -247,7 +249,7 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 
 人设本体永久且不可消除；它产生的能力强化仍可被消强化，赋予的直播间效果仍看 `dispel`。直接回复为即时结算。`T_STAGE_ON_HIT` 不由固定、持续、反噬或反弹伤害触发；`T_KO_HEAL` 不由持续、反噬或反弹归因触发。第一回合先制的“首个回合”计算及其余细节见 [设计文档 6.2 节](design.md#62-人设-personasid)。
 
-## 8. 赛季与赛制边界
+## 8. 赛季、规则修饰器与赛制边界
 
 赛季描述**组队限制**，可选地写在内容包顶层：
 
@@ -269,7 +271,31 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 
 组队代码使用 `TeamCheck.Validate(db, seasonId, team)` 检查正好六人、不重复、引用有效和赛季限制；`seasonId=null` 仅做基础组队检查。内容包加载只检查赛季引用，不能代替具体队伍的合法性检查。CLI/Sim 目前没有 `--season` 选项，不会因 JSON 里有赛季便自动套用它。
 
-本教程对应版本尚未合并 T-46 自定义规则修饰器和 T-54 多局制，没有可教程化的内容包赛制字段。不要把自造的 `formats`、`rules` 写进包并期待生效。后续正式合并后，以 [设计文档](design.md) 和工具实际支持的参数为准。
+T-46 规则修饰器已实现，入口是构造对战时的 `BattleOptions.Modifiers`，**不是内容包 JSON 字段**。接入 Core 的代码在已有 `db` 和合法的两队 `teams` 上可以这样启用：
+
+```csharp
+var options = new BattleOptions
+{
+    Seed = 1,
+    Modifiers = new System.Collections.Generic.List<string> { "half_pp", "stage_cap_3" }
+};
+var battle = new Battle(db, teams, new[] { "甲方", "乙方" }, options);
+```
+
+`BattleModifiers.All` 提供 id、中文名称和说明；省略、`null` 或空列表沿用默认规则。id 区分大小写，未知 id 在构造时抛出 `KeyError`；列表会复制、去重并排序。可同时启用多项，规则整场有效且不可驱散，只影响本局实例，不改共享内容包。
+
+| id | 本局作用 |
+|---|---|
+| `half_pp` | 开局双方全队普通和第五技能的 PP 上限减半、向上取整，当前 PP 同步；后续回复遵守新上限。 |
+| `stage_cap_3` | 技能、人设和偷强化等能力变化统一限制在 −3～+3；消强化与下场清零规则不变。 |
+| `sudden_death` | 从第 10 回合（含）起，按原回合结束顺序，在各自状态、直播间效果和人设结算后，场上未下播者失去最大人气的 1/16，向下取整且至少 1；一方全灭立即结束后续步骤。 |
+| `hype_start` | 禁用、首发选择及开场登场人设结算后，双方实际首发各获 1 层热度；换人或补位不再授予，印记下场清除。 |
+| `no_switch` | 禁止主动换人，禁用、首发选择和下播后的补位不受影响。 |
+| `hp_x2` | 开局双方全队最大人气和当前人气翻倍；比例回复、持续伤害和骤降使用新上限，普通伤害公式与固定伤害数值不变。 |
+
+修饰器写入对战记录，回放会还原；开场日志列出启用项，状态哈希也包含规则列表。骤降的人设响应、翻倍溢出检查等细节见 [设计文档“规则修饰器”](design.md#11-规则修饰器)。CLI/Sim 目前没有设置修饰器的命令行参数，本教程的工具命令均使用默认规则；在包内添加 `modifiers` 不会启用它们。
+
+T-54 赛制与多局制仍待合并，目前没有内容包赛制字段。不要把自造的 `formats`、`rules` 写进包并期待生效。后续正式合并后，以 [设计文档](design.md) 和工具实际支持的参数为准。
 
 ## 9. 检查与平衡试跑
 

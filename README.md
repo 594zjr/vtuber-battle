@@ -27,9 +27,29 @@
 ## 怎么试玩
 
 1. 用 Unity Hub 选「添加 → 从磁盘添加项目」，选中 `UnityProject` 文件夹。
-2. 如果 Hub 提示版本不一致，选你已经装好的 Unity 6 版本打开即可。
-3. 第一次打开会花几分钟导入。打开后直接按顶部的 ▶ Play，不需要打开或摆放任何场景。
+2. 本工程使用 **Unity 6（6000.6.5f1）**；用对应版本打开，Windows 打包需要编辑器具备 Windows 构建支持。
+3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
+
+## Windows 打包
+
+在仓库根目录运行下面的命令；`Unity.exe` 使用 6000.6.5f1 编辑器的可执行文件，可将它所在目录加入 PATH，或替换为完整路径：
+
+```powershell
+Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod BuildScript.BuildWindows -logFile build.log
+```
+
+产物位于 `UnityProject/Build/Windows/StreamDuel.exe`，运行时需保留同目录的全部构建文件。构建目录已加入 Git 忽略；构建日志写入仓库根目录的 `build.log`。
+
+`BuildScript.BuildWindows` 会先调用 `BuildScript.PrepareProject`：缺少主场景时创建合法空场景，并将它设为构建列表第 0 位；已有主场景和其他构建场景会保留。也可以在编辑器菜单「开播对决 → 准备主场景」或「开播对决 → 构建 Windows」执行。构建失败会抛出错误，让批处理命令返回失败状态。
+
+Windows 包的自动冒烟验收（需要正常图形桌面，不加 `-batchmode` / `-nographics`）：
+
+```powershell
+UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./Build/player.log
+```
+
+它通过现有界面入口切换内容包、选择首发并完成一局，截图和回放保存在指定目录新建的 `run-*` 子目录；`result.json` 记录结果，成功退出 0，失败或 180 秒超时退出 1。验收中的内容包切换和自动组队不覆盖玩家已保存的包选择与队伍。运行截图需要检查中文与排版；报告只统计 `BattleScreen.Start` 之后的日志，启动错误还须检查完整 Player 日志。此入口不替代鼠标、滚动和限时操作的人工验收；不传参数时正常进入组队页。
 
 ## 结构
 
