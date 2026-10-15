@@ -175,9 +175,11 @@ function Assert-Profile([string]$SaveDirectory, [int]$MySide, [string[]]$Team, [
     }
 }
 
-function Assert-ReportsEqual([string]$HostReport, [string]$GuestReport) {
+function Assert-Reports([string]$HostReport, [string]$GuestReport, $Battle) {
     $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
-    $firstHash = $null
+    $firstBody = $null
+    $hashes = [ordered]@{ host = $null; guest = $null; body = $null }
+    $side = 0
     foreach ($path in @($HostReport, $GuestReport)) {
         Assert-Check (Test-Path -LiteralPath $path -PathType Leaf) '完成的联网对局未导出战报。'
         # 严格解码会拒绝无效 UTF-8；结构校验允许 UTF-8 BOM，不依赖系统默认编码。
@@ -199,11 +201,41 @@ function Assert-ReportsEqual([string]$HostReport, [string]$GuestReport) {
         foreach ($id in @($hostTeam + $guestTeam)) {
             Assert-Check ($text.Contains('（' + $id + '）')) "战报首发阵容缺少主播 $id。"
         }
-        $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
-        if ($null -eq $firstHash) { $firstHash = $hash }
-        Assert-Check ($hash -ceq $firstHash) '主客战报的文件内容不一致。'
+        $headings = [regex]::Matches($text, '(?m)^## 关键回合\r?$')
+        Assert-Check ($headings.Count -eq 1) '战报应恰好包含一个关键回合节。'
+        $body = $text.Substring(0, $headings[0].Index)
+        $review = $text.Substring($headings[0].Index)
+        # 正文仍须完全相同；只有复盘按各端 MySide 描述归属和人气差。
+        if ($null -eq $firstBody) { $firstBody = $body }
+        Assert-Check ($body -ceq $firstBody) '主客战报的共同战斗正文不一致。'
+        $perspective = [StreamDuel.Core.Loc]::Current.T('review.perspective', $Battle.Sides[$side].Name)
+        Assert-Check ([regex]::IsMatch($review, '(?m)^' + [regex]::Escape($perspective) + '\r?$')) "MySide=$side 的战报复盘视角不正确。"
+        $moments = @([StreamDuel.Core.BattleReview]::KeyMoments($Battle, $side, 5))
+        $rows = @([regex]::Matches($review, '(?m)^- (.*)\r?$') | ForEach-Object {
+            [regex]::Replace($_.Groups[1].Value.TrimEnd([char]13), '\\([\\`*_{}\[\]()#+.!|<>&-])', '$1')
+        })
+        Assert-Check ($moments.Count -gt 0 -and $moments.Count -le 5 -and $rows.Count -eq $moments.Count) "MySide=$side 的战报复盘提示数量不正确。"
+        for ($index = 0; $index -lt $moments.Count; $index++) {
+            $expected = $moments[$index].Text.Replace("`r", ' ').Replace("`n", ' ')
+            Assert-Check ($rows[$index] -ceq $expected) "MySide=$side 的第 $($index + 1) 条复盘与 BattleReview 输出不一致。"
+        }
+        $hashes[@('host', 'guest')[$side]] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+        $side++
     }
-    return $firstHash
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hashes.body = [Convert]::ToHexString($sha.ComputeHash($strictUtf8.GetBytes($firstBody))) }
+    finally { $sha.Dispose() }
+    return [pscustomobject]$hashes
+}
+
+function Assert-PrintedReviews([string]$HostOutput, [string]$GuestOutput) {
+    $outputs = @($HostOutput, $GuestOutput)
+    for ($side = 0; $side -lt 2; $side++) {
+        $name = @('房主', '客机')[$side]
+        $views = [regex]::Matches($outputs[$side], '(?m)^复盘视角：([^\r\n]+)\r?$')
+        Assert-Check ($views.Count -eq 1 -and $views[0].Groups[1].Value -ceq $name) "MySide=$side 的 CLI 复盘视角未恰好显示为 $name。"
+        Assert-Check ([regex]::Matches($outputs[$side], '(?m)^关键回合\r?$').Count -eq 1) "MySide=$side 的 CLI 未恰好打印一次关键回合。"
+    }
 }
 
 try {
@@ -224,8 +256,6 @@ try {
         Assert-Check ($result.Out.Contains('战报已保存：')) '完成的联网对局未报告战报保存成功。'
     }
     $checks.Add('双进程自动对战：动态端口、双方 exit 0、主机种子 7 覆盖客机 99、最终哈希一致')
-    $reportHashes.ipv4 = Assert-ReportsEqual $hostReport $guestReport
-    $checks.Add('双方独立战报：内容字节一致、严格 UTF-8、首发阵容/胜负/回合节点/双方统计表完整')
 
     # 回看 CLI 不接受 --hash；使用同一构建的公开 Replay API 重新结算后核对哈希。
     [void][Reflection.Assembly]::LoadFrom($coreDll)
@@ -248,6 +278,10 @@ try {
         if ($null -eq $winner) { $winner = $replayed.Winner }
         Assert-Check ($winner -eq $replayed.Winner) '两份回放的胜者不同。'
     }
+    $normalReplayed = $replayed
+    $reportHashes.ipv4 = Assert-Reports $hostReport $guestReport $normalReplayed
+    Assert-PrintedReviews $hostResult.Out $guestResult.Out
+    $checks.Add('双方独立战报：共同正文逐字一致、严格 UTF-8、完整阵容/节点/统计；复盘逐条等于各自 MySide 的 BattleReview 输出')
     Assert-Profile $hostSave 0 $hostTeam $winner
     Assert-Profile $guestSave 1 $guestTeam $winner
     $checks.Add('两端各一份回放：Replay.Run 复现终局哈希；主客分别按 MySide 记录胜负及本方六人')
@@ -256,13 +290,16 @@ try {
     $guestFingerprint = Save-Fingerprint $guestSave
     for ($side = 0; $side -lt 2; $side++) {
         $save = @($hostSave, $guestSave)[$side]
-        $replayChild = Start-Cli "02-replay-$side" @('--replay', $replayPaths[$side], '--auto', '--save-dir', $save)
+        $replayReport = Join-Path $runDirectory "02-replay-$side-report.md"
+        $replayChild = Start-Cli "02-replay-$side" @('--replay', $replayPaths[$side], '--auto', '--save-dir', $save, '--report', $replayReport)
         $replayResult = Wait-Cli $replayChild 0
         Assert-Check ($replayResult.Out.Contains('回看结束：') -and $replayResult.Err.Length -eq 0) '联网回放不能通过 CLI 正常回看。'
+        Assert-Check ([regex]::IsMatch($replayResult.Out, '(?m)^复盘视角：房主\r?$')) '完整 CLI 回看未显示默认 0 方复盘视角。'
+        Assert-Check ((Get-FileHash -LiteralPath $replayReport -Algorithm SHA256).Hash -ceq $reportHashes.ipv4.host) '回看默认 0 方战报与主机战报字节不一致。'
     }
     Assert-Check ((Save-Fingerprint $hostSave) -ceq $hostFingerprint -and
         (Save-Fingerprint $guestSave) -ceq $guestFingerprint) '回看改动了档案或回放。'
-    $checks.Add('两端回放均能通过 CLI 自动回看，且不改写原档案和回放')
+    $checks.Add('两端回放均能通过 CLI 自动回看，默认 0 方战报与主机战报字节一致，且不改写原档案和回放')
 
     foreach ($quitSide in @('guest', 'host')) {
         $prefix = "03-disconnect-$quitSide"
@@ -380,8 +417,11 @@ try {
             Assert-Check ($result.Out.Contains('房主种子：7') -and $result.Out.Contains('战报已保存：')) 'IPv6 自动回环未采用主机种子或保存战报。'
             Assert-Check ((Final-Hash $result.Out) -ceq $finalHash) 'IPv6 终局哈希与相同队伍、种子的 IPv4 对局不同。'
         }
-        $reportHashes.ipv6 = Assert-ReportsEqual $ipv6HostReport $ipv6GuestReport
-        Assert-Check ($reportHashes.ipv6 -ceq $reportHashes.ipv4) 'IPv6 与相同队伍、种子的 IPv4 战报不同。'
+        $reportHashes.ipv6 = Assert-Reports $ipv6HostReport $ipv6GuestReport $normalReplayed
+        Assert-PrintedReviews $ipv6HostResult.Out $ipv6GuestResult.Out
+        foreach ($part in @('host', 'guest', 'body')) {
+            Assert-Check ($reportHashes.ipv6.$part -ceq $reportHashes.ipv4.$part) "IPv6 与相同队伍、种子的 IPv4 战报 $part 不同。"
+        }
         Assert-Profile $ipv6HostSave 0 $hostTeam $winner
         Assert-Profile $ipv6GuestSave 1 $guestTeam $winner
         Assert-Check (@(Replay-Files $ipv6HostSave).Count -eq 1 -and
@@ -425,8 +465,9 @@ try {
     }
     Assert-Profile $expertHostSave 0 $hostTeam $expertWinner
     Assert-Profile $expertGuestSave 1 $guestTeam $expertWinner
-    $null = Assert-ReportsEqual $expertHostReport $expertGuestReport
-    $checks.Add('双方 --level expert 真实双进程：exit 0、终局哈希一致、各一份回放可复现、按本局胜者记录 MySide 档案、两端战报相同')
+    $null = Assert-Reports $expertHostReport $expertGuestReport $replayed
+    Assert-PrintedReviews $expertHostResult.Out $expertGuestResult.Out
+    $checks.Add('双方 --level expert 真实双进程：exit 0、终局哈希一致、各一份回放可复现、MySide 档案正确、战报正文一致且各自复盘逐条准确')
 
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $runDirectory 'saves'))) '验收进程误写了默认存档目录。'
 }
