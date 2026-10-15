@@ -53,6 +53,7 @@ public class T31_TcpTransportEdgeTests
         readonly TcpTransport inner;
         public bool HoldHashes;
         public int HeldHashes;
+        public long LastSentSequence;
         public bool HoldIncomingHashes;
         public string HeldIncomingHash;
         public IOException ReceiveFailure;
@@ -65,6 +66,7 @@ public class T31_TcpTransportEdgeTests
 
         public void Send(string message)
         {
+            LastSentSequence = Math.Max(LastSentSequence, NetWireTestTransport.Sequence(message));
             if (HoldHashes)
             {
                 using (var json = JsonDocument.Parse(message))
@@ -171,7 +173,8 @@ public class T31_TcpTransportEdgeTests
         public void Finish()
         {
             SubmitFinalTurn();
-            Until(() => Host.State == NetState.Over && Guest.State == NetState.Over, Pump);
+            Until(() => Host.State == NetState.Over && Guest.State == NetState.Over
+                && !Host.HasPendingReliableMessages && !Guest.HasPendingReliableMessages, Pump);
             Assert.Equal(Host.Battle.StateHash(), Guest.Battle.StateHash());
         }
 
@@ -409,7 +412,7 @@ public class T31_TcpTransportEdgeTests
         using (var pair = new SessionPair())
         {
             pair.Finish();
-            pair.Tcp.Guest.Send("{\"type\":\"error\",\"message\":\"终局校验失败\"}");
+            pair.Tcp.Guest.Send(NetWireTestTransport.WithSequence("{\"type\":\"error\",\"message\":\"终局校验失败\"}", pair.GuestTransport.LastSentSequence + 1));
             pair.Tcp.Guest.Dispose();
 
             Until(() => pair.Host.State == NetState.Error, pair.Host.Poll);

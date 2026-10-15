@@ -73,7 +73,7 @@ public class T79_NetProtocolGoldenTests
         public void Send(string message)
         {
             Sent.Add(message);
-            if (!HoldAll && !(HoldHashes && Text(message, "type") == "hash")) Peer.Incoming.Enqueue(message);
+            if (NetWireTestTransport.IsAck(message) || (!HoldAll && !(HoldHashes && Text(message, "type") == "hash"))) Peer.Incoming.Enqueue(message);
         }
 
         public bool TryReceive(out string message)
@@ -83,8 +83,8 @@ public class T79_NetProtocolGoldenTests
             return true;
         }
 
-        public string Single(string type) { return Sent.Single(message => Text(message, "type") == type); }
-        public string[] All(string type) { return Sent.Where(message => Text(message, "type") == type).ToArray(); }
+        public string Single(string type) { return All(type).Single(); }
+        public string[] All(string type) { return NetWireTestTransport.Business(Sent).Where(message => Text(message, "type") == type).ToArray(); }
     }
 
     sealed class Pair
@@ -207,10 +207,10 @@ public class T79_NetProtocolGoldenTests
         Assert.Equal(NetState.Over, final.Host.State);
         Assert.Equal(NetState.Over, final.Guest.State);
         messages.Add("hash-final", final.B.Single("hash"));
-        Assert.Equal(new[] { "hello", "commit", "reveal", "hash" }, final.B.Sent.Select(message => Text(message, "type")));
+        Assert.Equal(new[] { "hello", "commit", "reveal", "hash" }, NetWireTestTransport.Business(final.B.Sent).Select(message => Text(message, "type")));
 
         var error = new Pair();
-        error.A.Incoming.Enqueue("{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\"}");
+        error.A.Incoming.Enqueue("{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\",\"seq\":2}");
         error.Host.Poll();
         Assert.Equal(NetState.Error, error.Host.State);
         messages.Add("error", error.A.Single("error"));
@@ -387,7 +387,7 @@ public class T79_NetProtocolGoldenTests
                 : file.StartsWith("reveal-", StringComparison.Ordinal) ? new[] { "type", "turn", "kind", "action", "nonce" }
                 : file.StartsWith("hash-", StringComparison.Ordinal) ? new[] { "type", "turn", "hash" }
                 : new[] { "type", "message" };
-            foreach (string field in fields) yield return new object[] { file, field };
+            foreach (string field in fields.Concat(new[] { "seq" })) yield return new object[] { file, field };
         }
     }
 
@@ -474,6 +474,24 @@ public class T79_NetProtocolGoldenTests
     }
 
     [Fact]
+    public void AcknowledgementGoldenMatchesRealWireAndIsNotItselfAcknowledged()
+    {
+        var pair = new Pair();
+        string ack = pair.A.Sent.First(NetWireTestTransport.IsAck);
+        AssertAdditionalGolden("ack", ack);
+        int hostSent = pair.A.Sent.Count;
+        int guestSent = pair.B.Sent.Count;
+        ulong hash = pair.Guest.Battle.StateHash();
+        pair.B.Incoming.Enqueue(ack);
+        pair.Pump();
+        Assert.Equal(hostSent, pair.A.Sent.Count);
+        Assert.Equal(guestSent, pair.B.Sent.Count);
+        Assert.Equal(hash, pair.Guest.Battle.StateHash());
+        Assert.False(pair.Host.HasPendingReliableMessages);
+        Assert.False(pair.Guest.HasPendingReliableMessages);
+    }
+
+    [Fact]
     public void TimedHostHelloGoldenMatchesEverySentFieldAndNegotiatesBothClocks()
     {
         var pair = new Pair(turnSeconds: 10, bankSeconds: 30);
@@ -500,6 +518,7 @@ public class T79_NetProtocolGoldenTests
         var pair = new Pair();
         var receiver = new Receiver { Session = pair.Guest, Transport = pair.B };
         var message = Object(Golden("chat"));
+        message["seq"] = 2;
         if (change == "extra") message["futureExtension"] = new { label = "额外字段" };
         else Assert.True(message.Remove("index"));
 
@@ -509,7 +528,7 @@ public class T79_NetProtocolGoldenTests
         Assert.Null(receiver.Session.Error);
         Assert.Empty(receiver.Session.ReceivedChats);
         Assert.Empty(receiver.Transport.All("error"));
-        for (int index = 0; index < 6; index++) Deliver(receiver, Golden("chat"));
+        for (int index = 0; index < 6; index++) Deliver(receiver, NetWireTestTransport.WithSequence(Golden("chat"), 3 + index));
         Assert.Equal(6, receiver.Session.ReceivedChats.Count);
         Assert.All(receiver.Session.ReceivedChats, chat =>
         {
@@ -517,7 +536,7 @@ public class T79_NetProtocolGoldenTests
             Assert.Equal(pair.Host.MySide, chat.Side);
             Assert.Equal(pair.Host.Battle.Turn, chat.Turn);
         });
-        Deliver(receiver, Golden("chat"));
+        Deliver(receiver, NetWireTestTransport.WithSequence(Golden("chat"), 9));
         Assert.Equal(6, receiver.Session.ReceivedChats.Count);
         Assert.Equal(NetState.Choose, receiver.Session.State);
         Assert.Null(receiver.Session.Error);
@@ -542,7 +561,7 @@ public class T79_NetProtocolGoldenTests
     }
 
     [Fact]
-    public void VersionThreeWithoutTimerCapabilityRemainsCompatibleWhenBothTimersAreDisabled()
+    public void VersionFourWithoutTimerCapabilityRemainsCompatibleWhenBothTimersAreDisabled()
     {
         var pair = new Pair(handshake: false);
         IsolatedReceiver(pair, true);
@@ -550,7 +569,7 @@ public class T79_NetProtocolGoldenTests
         var guestHello = Object(pair.B.Single("hello"));
         foreach (var message in new[] { hostHello, guestHello })
         {
-            Assert.Equal(3, ((JsonElement)message["version"]).GetInt32());
+            Assert.Equal(4, ((JsonElement)message["version"]).GetInt32());
             Assert.True(message.Remove("timerVersion"));
             Assert.False(message.ContainsKey("timer"));
         }
@@ -607,19 +626,26 @@ public class T79_NetProtocolGoldenTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void VersionTwoHelloIsRejectedByEitherSideBeforeCreatingBattle(bool hostReceives)
+    [InlineData(true, 2, true)]
+    [InlineData(false, 2, true)]
+    [InlineData(true, 3, true)]
+    [InlineData(false, 3, true)]
+    [InlineData(true, 2, false)]
+    [InlineData(false, 2, false)]
+    [InlineData(true, 3, false)]
+    [InlineData(false, 3, false)]
+    public void PreviousProtocolHelloIsRejectedByEitherSideBeforeCreatingBattle(bool hostReceives, int version, bool sequenceField)
     {
         var pair = new Pair(handshake: false);
         var receiver = IsolatedReceiver(pair, hostReceives);
         var message = Object(hostReceives ? pair.B.Single("hello") : pair.A.Single("hello"));
-        message["version"] = 2;
+        message["version"] = version;
+        if (!sequenceField) Assert.True(message.Remove("seq"));
 
         Deliver(receiver, JsonSerializer.Serialize(message));
 
         AssertHelloRejected(receiver, "协议版本");
-        Assert.Contains("2", receiver.Session.Error);
-        Assert.Contains("3", receiver.Session.Error);
+        Assert.Contains(version.ToString(CultureInfo.InvariantCulture), receiver.Session.Error);
+        Assert.Contains("4", receiver.Session.Error);
     }
 }

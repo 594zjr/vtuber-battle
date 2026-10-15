@@ -16,15 +16,28 @@ public class T62_QuickChatEdgeTests
         readonly INetTransport inner;
         readonly Queue<string> injected = new Queue<string>();
         public readonly List<string> Sent = new List<string>();
+        public Func<string, string> RewriteNext;
+        public NetWireTestTransport.PayloadSender Injector;
 
         public Transport(INetTransport inner) { this.inner = inner; }
-        public void Send(string message) { Sent.Add(message); inner.Send(message); }
+        public void Send(string message)
+        {
+            if (RewriteNext != null)
+            {
+                var rewrite = RewriteNext;
+                RewriteNext = null;
+                message = rewrite(message);
+            }
+            Sent.Add(message);
+            inner.Send(message);
+        }
         public bool TryReceive(out string message)
         {
             if (injected.Count > 0) { message = injected.Dequeue(); return true; }
             return inner.TryReceive(out message);
         }
-        public void Inject(string message) { injected.Enqueue(message); }
+        public void Inject(string message) { Injector.Send(message); }
+        public void InjectRaw(string message) { injected.Enqueue(message); }
         public string[] Chats()
         {
             return Sent.Where(message =>
@@ -46,6 +59,8 @@ public class T62_QuickChatEdgeTests
             B = new Transport(b);
             Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 62);
             Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null);
+            A.Injector = new NetWireTestTransport.PayloadSender(Guest, rewrite => B.RewriteNext = rewrite, A.InjectRaw);
+            B.Injector = new NetWireTestTransport.PayloadSender(Host, rewrite => A.RewriteNext = rewrite, B.InjectRaw);
             if (handshake)
             {
                 Pump();
@@ -145,8 +160,9 @@ public class T62_QuickChatEdgeTests
         foreach (string message in pair.A.Chats().Concat(pair.B.Chats()))
         {
             using var parsed = JsonDocument.Parse(message);
-            Assert.Equal(new[] { "index", "type" }, parsed.RootElement.EnumerateObject().Select(p => p.Name).OrderBy(n => n));
+            Assert.Equal(new[] { "index", "seq", "type" }, parsed.RootElement.EnumerateObject().Select(p => p.Name).OrderBy(n => n));
             Assert.InRange(parsed.RootElement.GetProperty("index").GetInt32(), 0, 7);
+            Assert.True(parsed.RootElement.GetProperty("seq").GetInt64() > 0);
         }
         var hostReceived = Assert.Single(pair.Host.ReceivedChats);
         Assert.Equal((1, 6, 1), (hostReceived.Side, hostReceived.Index, hostReceived.Turn));

@@ -55,6 +55,7 @@ function Invoke-CompletionCase([bool]$WithError) {
     $reportPath = Join-Path $caseDirectory 'battle.md'
     $evidence = [ordered]@{
         mode = $name; status = 'RUNNING'; port = $null; chat_messages_sent = 0
+        first_injected_sequence = $null; last_injected_sequence = $null
         peer_closed_before_finish = $false; chats_before_finish = $null; chats_after_finish = $null
         state_before_finish = $null; state_after_finish = $null; final_hash = $null
         finish_returned = $false; save_invoked = $false; save_exit = $null
@@ -80,7 +81,8 @@ function Invoke-CompletionCase([bool]$WithError) {
         $guestSession = [StreamDuel.Core.NetSession]::new($db, $guestTcp, $false, $guestTeam, '客机', $null, $null, $null)
 
         while ($hostSession.State -ne [StreamDuel.Core.NetState]::Over -or
-            $guestSession.State -ne [StreamDuel.Core.NetState]::Over) {
+            $guestSession.State -ne [StreamDuel.Core.NetState]::Over -or
+            $hostSession.HasPendingReliableMessages -or $guestSession.HasPendingReliableMessages) {
             Assert-Check ($elapsed.Elapsed.TotalSeconds -lt $TimeoutSeconds) '真实联网对局未在期限内完成。'
             $hostSession.Poll()
             $guestSession.Poll()
@@ -105,12 +107,24 @@ function Invoke-CompletionCase([bool]$WithError) {
         $evidence.final_hash = $hashBefore.ToString('x16', [Globalization.CultureInfo]::InvariantCulture)
         $evidence.state_before_finish = $hostSession.State.ToString()
 
-        # 只在真实协议终局后注入聊天积压；此前所有握手、承诺、公开及哈希都由同一 Core 执行。
+        # 保留超过单次 Poll 和发送窗口的原始积压，验收接收收尾而非本地发送限频。
+        # 只读取得真实会话已用序号的后一位，不修改会话字段；之后不再驱动该模拟对端。
+        $nextSequence = [long]$nextSequenceField.GetValue($guestSession)
+        Assert-Check ($nextSequence -gt 1 -and -not $hostSession.HasPendingReliableMessages -and
+            -not $guestSession.HasPendingReliableMessages) '终局可靠消息未确认，不能注入聊天积压。'
+        $evidence.first_injected_sequence = $nextSequence
         for ($index = 0; $index -lt $chatCount; $index++) {
-            $guestTcp.Send('{"type":"chat","index":' + ($index % 8) + '}')
+            $guestTcp.Send('{"type":"chat","index":' + ($index % 8) + ',"seq":' + $nextSequence + '}')
+            $nextSequence++
             $evidence.chat_messages_sent++
         }
-        if ($WithError) { $guestTcp.Send('{"type":"error","message":"' + $sentinel + '"}') }
+        if ($WithError) {
+            $guestTcp.Send('{"type":"error","message":"' + $sentinel + '","seq":' + $nextSequence + '}')
+            $nextSequence++
+        }
+        $evidence.last_injected_sequence = $nextSequence - 1
+        Assert-Check (($evidence.last_injected_sequence - $evidence.first_injected_sequence + 1) -eq
+            ($chatCount + [int]$WithError)) '注入包序号没有保持连续递增。'
         $guestTcp.CompleteSending()
         $eofWait = [Diagnostics.Stopwatch]::StartNew()
         # 此处故意不调用 Poll/TryReceive。PeerClosed 说明后台已排入最后一行及其后的 EOF。
@@ -205,7 +219,9 @@ try {
     $cliAssembly = [Reflection.Assembly]::LoadFrom($cliDll)
     Assert-Check ([IO.Path]::GetFullPath($coreAssembly.Location) -eq [IO.Path]::GetFullPath($coreDll) -and
         [IO.Path]::GetFullPath($cliAssembly.Location) -eq [IO.Path]::GetFullPath($cliDll)) '当前 PowerShell 已加载其他构建，请在新进程运行。'
-    Assert-Check ([StreamDuel.Core.NetSession]::ProtocolVersion -gt 2) '当前构建尚未包含 T62 快捷语协议，请先构建整合后的 CLI。'
+    Assert-Check ([StreamDuel.Core.NetSession]::ProtocolVersion -eq 4) '当前验收使用协议 4 的可靠消息序号，请先构建整合后的 CLI。'
+    $nextSequenceField = [StreamDuel.Core.NetSession].GetField('nextSequence', [Reflection.BindingFlags]'Instance, NonPublic')
+    Assert-Check ($null -ne $nextSequenceField -and $nextSequenceField.FieldType -eq [long]) '无法只读取得真实会话的下一线路序号，请更新验收适配。'
     $programType = $cliAssembly.GetType('StreamDuel.Cli.Program', $true)
     $optionsType = $cliAssembly.GetType('StreamDuel.Cli.CliOptions', $true)
     $methodFlags = [Reflection.BindingFlags]'Static, Public, NonPublic'

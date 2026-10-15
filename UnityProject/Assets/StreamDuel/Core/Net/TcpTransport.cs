@@ -14,6 +14,11 @@ namespace StreamDuel.Core
         public TcpDisconnectedException(Exception inner = null) : base("对方已断开。", inner) { }
     }
 
+    internal sealed class TcpSendCompletedException : InvalidOperationException
+    {
+        public TcpSendCompletedException() : base("发送端已经关闭，不能再发送消息。") { }
+    }
+
     public sealed class TcpTransport : INetTransport, IDisposable
     {
         readonly TcpClient client;
@@ -157,7 +162,7 @@ namespace StreamDuel.Core
                 lock (stateGate)
                 {
                     ThrowIfDisposed();
-                    if (sendingCompleted) throw new InvalidOperationException("发送端已经关闭，不能再发送消息。");
+                    if (sendingCompleted) throw new TcpSendCompletedException();
                     // 对方停止发送后仍可能等着本端报告最终哈希错误。
                     if (receiveFailure != null && !(receiveFailure is TcpDisconnectedException)) throw receiveFailure;
                 }
