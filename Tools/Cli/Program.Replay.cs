@@ -27,7 +27,12 @@ namespace StreamDuel.Cli
                 if (errors.Count > 0) throw new ArgumentException("回放原始队伍无效：" + string.Join("；", errors));
             }
             // 让 Core 恢复记录中的随机流，显示层只按日志回合翻页。
-            var battle = Replay.Run(db, record);
+            var battle = TextInput.ForDisplay(Replay.Run(db, record));
+            foreach (string name in record.Names ?? Array.Empty<string>())
+            {
+                var input = TextInput.Clean(name, TextInputKind.PlayerName);
+                if (input.Changed) Console.WriteLine("昵称显示已调整：" + input.Message);
+            }
             Console.WriteLine("开播对决 · 对战回看");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);

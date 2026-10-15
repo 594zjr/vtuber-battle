@@ -91,7 +91,7 @@ namespace StreamDuel.Cli
         {
             string path = ValidateReportPath(options);
             if (path == null) return;
-            string markdown = BattleReport.Markdown(battle, viewerSide);
+            string markdown = BattleReport.Markdown(TextInput.ForDisplay(battle), viewerSide);
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));

@@ -14,11 +14,15 @@ namespace StreamDuel.Cli
     {
         static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options)
         {
+            var nameInput = options.LanHostName == null ? null
+                : TextInput.Clean(options.LanHostName, TextInputKind.RoomName);
+            if (nameInput != null && nameInput.Changed)
+                Console.WriteLine("房间名提示：" + nameInput.Message);
             using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
             {
                 LanRoom room = options.LanHostName == null ? null : new LanRoom
                 {
-                    Name = options.LanHostName,
+                    Name = nameInput.Text,
                     Port = actualPort,
                     Protocol = NetSession.ProtocolVersion,
                     ContentHash = db.ContentHash(),
@@ -30,7 +34,9 @@ namespace StreamDuel.Cli
                     {
                         if (beacon.Error != null) throw new IOException(beacon.Error);
                         var advertised = LanBeacon.Decode(LanBeacon.Encode(room));
-                        Console.WriteLine("局域网房间：" + LanText(advertised.Name));
+                        if (!string.Equals(room.Name, advertised.Name, StringComparison.Ordinal))
+                            Console.WriteLine("房间名提示：局域网广播沿用现有长度限制，房名已进一步缩短。");
+                        Console.WriteLine("局域网房间：" + advertised.DisplayName);
                         Console.WriteLine("广播端口：" + LanBeacon.Port + "（UDP，每秒一次）");
                     }
                     Console.WriteLine("监听端口：" + actualPort);
@@ -88,11 +94,13 @@ namespace StreamDuel.Cli
                     }
                     double finished = timer.Elapsed.TotalSeconds;
                     Console.WriteLine("发现 " + observed.Count + " 个房间（本次 5 秒内的记录）：");
-                    foreach (var room in observed.Values.OrderBy(room => room.Name, StringComparer.Ordinal)
+                    foreach (var room in observed.Values.OrderBy(room => room.DisplayName, StringComparer.Ordinal)
                         .ThenBy(room => room.Address, StringComparer.Ordinal).ThenBy(room => room.Port))
                     {
                         string endpoint = room.Address + ":" + room.Port.ToString(CultureInfo.InvariantCulture);
-                        Console.WriteLine("房间：" + LanText(room.Name));
+                        var nameInput = room.NameInput;
+                        Console.WriteLine("房间：" + nameInput.Text);
+                        if (nameInput.Changed) Console.WriteLine("  房间名提示：" + nameInput.Message);
                         Console.WriteLine("  地址：" + endpoint + "；协议：" + room.Protocol
                             + "；规则：" + LanText(room.Ruleset) + "；内容指纹：" + LanText(room.ContentHash));
                         if (finished - room.LastSeen > 3)

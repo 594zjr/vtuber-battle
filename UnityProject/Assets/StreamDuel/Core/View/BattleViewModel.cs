@@ -39,7 +39,7 @@ namespace StreamDuel.Core
             for (int side = 0; side < b.Sides.Length; side++)
             {
                 var source = b.Sides[side];
-                var sideView = new SideView { Name = source.Name, Active = source.Active };
+                var sideView = new SideView { Name = TextInput.Clean(source.Name, TextInputKind.PlayerName).Text, Active = source.Active };
                 foreach (var fighter in source.Team) sideView.Team.Add(FighterSnapshot(b, fighter));
                 view.Sides[side] = sideView;
             }
