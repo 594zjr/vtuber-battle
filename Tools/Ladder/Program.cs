@@ -27,10 +27,17 @@ namespace StreamDuel.Ladder
                     Console.WriteLine("每局胜 1/平 0.5/负 0 分；Elo 初始 1500，每局 K=24，同对两局共用赛前期望。奇数队伍轮空得 2 分，不计对局、不改 Elo。");
                     Console.WriteLine("主播加权 Elo = Σ(所在阵容最终 Elo × 实际上场局数) / 总上场局数；从未上场的 Elo 留空，后排仅入队不算上场。");
                     Console.WriteLine("输出 UTF-8 teams.csv 和 streamers.csv，控制台打印两榜前十；同版本、内容和参数可复现。统计定义见 Tools/Ladder/README.md。");
+                    Console.WriteLine("开局策略比较：--compare-openers [--blocks 250] [--pack original] [--seed 1] [--season s1] [--out ./ladder_out]；每组同种子、同两阵容换边/互换策略打四局。");
+                    Console.WriteLine("默认共 1000 局，新 Hard 与旧 Normal 仅禁用/首发不同，双方行动和补位均 Hard；输出逐局 CSV、全部回放 JSONL 和胜平负/配置 JSON。");
                     return 0;
                 }
 
                 var db = LoadPack(options.Pack);
+                if (options.CompareOpeners)
+                {
+                    OpenerComparison.Run(db, options);
+                    return 0;
+                }
                 var rosters = TeamGenerator.Generate(db, options.Season, options.Teams, options.Seed);
                 var tournament = new Tournament(db, options, rosters);
                 tournament.Run();

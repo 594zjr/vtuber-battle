@@ -73,7 +73,7 @@ namespace StreamDuel.Cli
                                 if (!choice.HasValue) return Quit();
                                 to = choice.Value;
                             }
-                            else to = Ai.ChooseBan(battle, side);
+                            else to = Ai.ChooseBan(battle, side, options.Level);
                             battle.ChooseBan(side, to);
                             PrintNewLog(battle, ref logIndex);
                         }
@@ -95,7 +95,7 @@ namespace StreamDuel.Cli
                                 if (!choice.HasValue) return Quit();
                                 to = choice.Value;
                             }
-                            else to = Ai.ChooseLead(battle, side);
+                            else to = Ai.ChooseLead(battle, side, options.Level);
                             battle.ChooseLead(side, to);
                             PrintNewLog(battle, ref logIndex);
                         }

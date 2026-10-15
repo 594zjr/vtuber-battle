@@ -35,3 +35,30 @@ dotnet run --project Tools/Ladder -- --pack original --teams 16 --rounds 3 --see
 验收规模为 `--teams 16 --rounds 3`，共 48 局；可将输出写入 `Tools/Ladder/obj/` 下以免生成文件混入提交。
 
 自动验收：`pwsh -NoProfile -File Tools/Ladder/verify.ps1`（PowerShell 7）。脚本构建 Release，检查两次 CSV 与控制台字节一致、耗时、赛季合法性、积分和 Elo 守恒、登场统计、奇数轮空、困难模式和无效参数，并将日志及报告保存在 `Tools/Ladder/obj/verification/` 的独立子目录，不删除已有结果。
+
+## 禁用与首发策略配对比较
+
+```powershell
+dotnet run --project Tools/Ladder -c Release -- --compare-openers --blocks 250 --pack original --seed 1 --out Tools/Ladder/obj/t90-comparison
+```
+
+`--compare-openers` 只改变禁用和首发策略：新策略调用带 `Hard` 的 `Ai.ChooseBan/ChooseLead`，旧策略调用 `Normal`；双方每回合出招与补位始终使用 `Hard`。每场同时开启禁用和首发。可设置 `--pack`、`--season`、`--seed`、`--out`，不能混用普通赛事的 `--teams`、`--rounds`、`--level`；`--blocks` 只用于比较模式，默认 250，至少 1。
+
+先用原有 `TeamGenerator.Generate(db, season, 2 * blocks, seed)` 生成阵容。第 `i` 组从前半取得建议阵容 A，从后半取得随机阵容 B。每组依次运行四局：
+
+| 局内顺序 | 0 方 | 1 方 |
+|---|---|---|
+| 1 | A / 新策略 | B / 旧策略 |
+| 2 | B / 旧策略 | A / 新策略 |
+| 3 | A / 旧策略 | B / 新策略 |
+| 4 | B / 新策略 | A / 旧策略 |
+
+第 `i` 组（从 0 开始）的四场共用 `unchecked(seed + i)`，不改变队内原始顺序。两种策略都使用两套阵容、都处于两侧；默认 1000 局中新策略在 0 方、1 方各 500 局。每个阶段按 0 方、1 方顺序调用 AI；禁用/首发先收集双方决定再提交，不向第二方泄露第一方选择。不新增随机源、不回退或重置 `Battle.Rng`，阵容随机性只来自原有生成器。默认预先固定 `seed=1`，不能按结果挑选种子或删除失败场次。
+
+输出 UTF-8、无 BOM，不含时间：
+
+- `opener-games.csv`：每场的组号、方向、种子、新策略所在方、双方原始有序阵容、双方禁用的对手 id、双方首发 id、胜方、新策略结果、回合和终局哈希。
+- `opener-records.jsonl`：与 CSV 数据行顺序一致，每行是一场完整 `BattleRecord`，含原始阵容、种子和全部决定。每场写入前经过 JSON 往返与 `Replay.Run`，核对终局、哈希及逐行日志。
+- `opener-summary.json`：完整配置、内容指纹、计划/已完成局数、回放验证数，以及新策略处于 0 方、1 方和总体的胜平负、胜率及目标是否达到。
+
+严格胜率为 `胜 / 总局数`，平局仍计入分母；同时单列 `(胜 + 0.5 × 平) / 总局数`，不把两者混用。目标为总体严格胜率至少 50%，结果不足照实输出，不改变战斗规则，不把低胜率当作工具运行异常。Core 按 120 回合上限正常裁决的终局计入结果；超出安全上限但仍未终局则报 `unfinished`、退出失败并保存 `status=failed` 的已完成汇总，未完成对局不算平局或完成场次。

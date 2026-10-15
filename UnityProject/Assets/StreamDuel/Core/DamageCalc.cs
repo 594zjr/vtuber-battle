@@ -44,13 +44,28 @@ namespace StreamDuel.Core
             if (db == null) throw new ArgumentNullException(nameof(db));
             ValidateTeam(db, teamA, nameof(teamA));
             ValidateTeam(db, teamB, nameof(teamB));
+            return BuildMatchup(db, teamA, teamB, null);
+        }
+
+        internal static int[,] MatchupRemaining(ContentDb db, IList<string> teamA, IList<string> teamB,
+            List<string> modifiers)
+        {
+            if (db == null) throw new ArgumentNullException(nameof(db));
+            ValidateRemainingTeam(db, teamA, nameof(teamA));
+            ValidateRemainingTeam(db, teamB, nameof(teamB));
+            return BuildMatchup(db, teamA, teamB, modifiers);
+        }
+
+        static int[,] BuildMatchup(ContentDb db, IList<string> teamA, IList<string> teamB, List<string> modifiers)
+        {
             var result = new int[teamA.Count, teamB.Count];
             for (int i = 0; i < teamA.Count; i++)
             {
                 for (int j = 0; j < teamB.Count; j++)
                 {
                     // 复用首发重排，使号位、后排支援和登场效果与真实对战一致。
-                    var battle = new Battle(db, new[] { teamA, teamB }, new[] { "你", "对手" }, 0, true);
+                    var battle = new Battle(db, new[] { teamA, teamB }, new[] { "你", "对手" },
+                        new BattleOptions { Seed = 0, LeadPick = true, Modifiers = modifiers });
                     battle.ChooseLead(0, i);
                     battle.ChooseLead(1, j);
                     double bestAverage = 0;
@@ -66,6 +81,21 @@ namespace StreamDuel.Core
                 }
             }
             return result;
+        }
+
+        static void ValidateRemainingTeam(ContentDb db, IList<string> team, string parameter)
+        {
+            if (team == null) throw new ArgumentNullException(parameter);
+            if (team.Count < 1 || team.Count > 6)
+                throw new ArgumentException("剩余阵容需要 1 至 6 位主播", parameter);
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string id in team)
+            {
+                if (!ids.Add(id)) throw new ArgumentException("剩余阵容不能包含重复主播", parameter);
+                var streamer = db.Streamer(id);
+                if (streamer.Stats["hp"] <= 0)
+                    throw new ArgumentException(streamer.Name + "的最大人气必须大于 0", parameter);
+            }
         }
 
         static void ValidateTeam(ContentDb db, IList<string> team, string parameter)
