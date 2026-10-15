@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.BackupMode) return RunBackup(options);
                 if (options.TournamentReportFile != null) return PrintTournamentReport(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
@@ -226,6 +227,10 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
             Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");
+            Console.WriteLine("  --backup 文件     将 --save-dir 的设置、队伍预设、统计、回放和录像库导出为单个 JSON；目标须在存档目录之外且尚不存在。");
+            Console.WriteLine("  --restore 文件    将备份 JSON 合并到 --save-dir；保留已有设置和同包统计，同名队伍加后缀，重复录像 id 保留当前文件。");
+            Console.WriteLine("  --overwrite       仅与 --restore 同用；覆盖前自动保存现有数据至存档目录的 backups 子目录，并打印该备份路径。");
+            Console.WriteLine("                    备份与恢复只可搭配 --save-dir 和帮助参数；恢复输入须在存档目录之外或其 backups 子目录内，操作前须关闭其它使用该存档的程序。");
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");

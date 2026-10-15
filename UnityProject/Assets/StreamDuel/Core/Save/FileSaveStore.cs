@@ -21,9 +21,10 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class FileSaveStore : ISaveStore
+    public sealed class FileSaveStore : IBackupFileStore
     {
         readonly string root;
+        public string RootDirectory { get { return root; } }
         readonly string rootPrefix;
         readonly StringComparison pathComparison;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
