@@ -87,6 +87,8 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
 
+本机统计：`dotnet run --project Tools/Cli -- --stats --save-dir ./saves` 查看各主播累计出战/胜率、留存录像的伤害与击倒、常用阵容、各 AI 难度战绩、最近对局和连胜/连败。累计出战指进入最终阵容；伤害均值另列有摘要的样本数，旧录像未记录的本方视角或难度显示未知，不会猜测。此入口不开始对局，也不重放整库或写入战绩；空存档显示空结果。
+
 在出招、补位、首发或禁用提示中输入 `/surrender` 可认输，完整保存本局败绩与录像；`q` 仍是提前退出。输入 `/draw` 可提议和局，每方每 5 回合至多一次；电脑仅在本方全队剩余人气总和超过对方的 130% 时拒绝。同屏双人支持当前操作者认输，暂不支持提议和局。
 
 队伍分享：`dotnet run --project Tools/Cli -- --pack original --team bell,enka,shiori,lumi,hane,momo --export-team` 在开局前打印 `SDT1-` 队伍码并继续对战；输入 `q` 可退出。用 `dotnet run --project Tools/Cli -- --team-code "SDT1-…" --auto` 导入并开打，省略 `--pack` 时自动加载码内内容包；显式指定的 `--pack` 必须匹配，外部包还需 `--pack-dir`。`--team-code` 与 `--team` 互斥，坏码、包不匹配和非法成员会在开局前报错。`--export-team` 导出的是禁用及首发调整前的本方六人顺序；与导入同用时保留预设名称，可配合手动、自动和联网对战。这两个参数都不能与 `--replay`、`--replay-code` 或 `--list-packs` 同用。

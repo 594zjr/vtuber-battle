@@ -232,7 +232,8 @@ namespace StreamDuel.Cli
             bool libraryFailed = false;
             try
             {
-                new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy).Save(battle.Record, summary);
+                new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy).Save(battle.Record, summary, playerSide: mySide,
+                    aiLevel: !options.Network && !options.Hotseat ? options.Level : (AiLevel?)null);
                 Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
             }
             catch (ReplayLibraryMaintenanceException ex)
