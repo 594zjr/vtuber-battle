@@ -20,7 +20,9 @@ namespace StreamDuel.Core
 
     public sealed class BattleRecord
     {
-        public int Version { get; set; } = 2;
+        public const int CurrentVersion = 2;
+
+        public int Version { get; set; } = CurrentVersion;
         public string ContentHash { get; set; }
         public uint Seed { get; set; }
         public string PackId { get; set; }
@@ -107,12 +109,15 @@ namespace StreamDuel.Core
         {
             if (json == null) throw new ArgumentNullException(nameof(json));
             var root = ReadObject(MiniJson.Parse(json), "记录");
+            int recordVersion = root.TryGetValue("version", out var version)
+                ? (int)ReadInteger(version, "version", 1, int.MaxValue) : 1;
+            if (recordVersion > CurrentVersion)
+                throw new FormatException("录像来自更新的版本：版本 " + recordVersion + "，当前支持至版本 " + CurrentVersion);
             var teams = ReadArray(Required(root, "teams"), "teams");
             if (teams.Count != 2) throw new FormatException("对战记录必须包含两支队伍");
             var record = new BattleRecord
             {
-                Version = root.TryGetValue("version", out var version)
-                    ? (int)ReadInteger(version, "version", 1, int.MaxValue) : 1,
+                Version = recordVersion,
                 Seed = (uint)ReadInteger(Required(root, "seed"), "seed", 0, uint.MaxValue),
                 PackId = ReadString(Required(root, "packId"), "packId"),
                 Teams = new IList<string>[2]
@@ -230,12 +235,14 @@ namespace StreamDuel.Core
         }
     }
 
-    public static class Replay
+    public static partial class Replay
     {
         public static Battle Run(ContentDb db, BattleRecord r)
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
+            string versionError = VersionError(r);
+            if (versionError != null) throw new FormatException(versionError);
             if (r.ContentHash != null)
             {
                 string contentHash = db.ContentHash();
@@ -243,6 +250,11 @@ namespace StreamDuel.Core
                     throw new InvalidOperationException("内容不一致：记录指纹 " + r.ContentHash + "，当前指纹 " + contentHash);
             }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
+            return RunEvents(db, r);
+        }
+
+        static Battle RunEvents(ContentDb db, BattleRecord r)
+        {
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
                 new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
             foreach (var e in r.Events)

@@ -195,7 +195,9 @@ namespace StreamDuel.Core
                     {
                         Id = id, Date = DateTimeOffset.MinValue, Winner = -1,
                         Names = new[] { "未知", "未知" }, Teams = new IList<string>[] { new List<string>(), new List<string>() },
-                        IsCorrupt = true, Error = "录像文件损坏或无法读取，已跳过。"
+                        IsCorrupt = true,
+                        Error = ex is FormatException && ex.Message.StartsWith("录像来自更新的版本：", StringComparison.Ordinal)
+                            ? ex.Message : "录像文件损坏或无法读取，已跳过。"
                     });
                 }
             }
