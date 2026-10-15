@@ -25,7 +25,8 @@ namespace StreamDuel.Cli
                     throw new FormatException("赛事存档缺少有效的内容包编号；原文件未修改。");
                 if (!options.PackSpecified) options.Pack = packId;
             }
-            var db = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"), options);
+            var policy = PackPolicy.LoadDefault();
+            var db = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"), options, policy);
             Tournament tournament;
             if (saved != null) tournament = Tournament.FromJson(db, saved);
             else
@@ -48,6 +49,7 @@ namespace StreamDuel.Cli
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
                 return QuitTournament(file);
 
+            bool archiveFailed = false;
             while (!tournament.IsFinished)
             {
                 var pairings = tournament.NextRound();
@@ -71,8 +73,14 @@ namespace StreamDuel.Cli
                         PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已记录：");
                         continue;
                     }
-                    int? winner = options.Auto ? AutoTournamentBattle(db, first, second, pairing.Id)
-                        : ReadTournamentResult(firstName, secondName);
+                    int? winner;
+                    if (options.Auto)
+                    {
+                        var battle = AutoTournamentBattle(db, first, second, pairing.Id);
+                        winner = battle.Winner;
+                        if (!ArchiveTournamentBattle(tournament, pairing, battle, file.Path)) archiveFailed = true;
+                    }
+                    else winner = ReadTournamentResult(firstName, secondName);
                     if (!winner.HasValue) return QuitTournament(file);
                     tournament.ReportResult(pairing, winner.Value);
                     file.Save(tournament);
@@ -82,7 +90,7 @@ namespace StreamDuel.Cli
             }
             Console.WriteLine("赛事已结束。");
             PrintTournamentStandings(tournament);
-            return 0;
+            return archiveFailed ? 1 : 0;
         }
 
         private static string ReadTournamentLine(string prompt)
@@ -164,7 +172,7 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int AutoTournamentBattle(ContentDb db, TournamentPlayer first, TournamentPlayer second, int pairingId)
+        private static Battle AutoTournamentBattle(ContentDb db, TournamentPlayer first, TournamentPlayer second, int pairingId)
         {
             uint seed = unchecked(0x9E3779B9u + (uint)pairingId);
             var battle = new Battle(db, new IList<string>[] { first.Team.ToArray(), second.Team.ToArray() },
@@ -185,7 +193,7 @@ namespace StreamDuel.Cli
             }
             Console.WriteLine("自动对局种子：" + seed + "；回合：" + battle.Turn
                 + "；最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-            return battle.Winner;
+            return battle;
         }
 
         private static void PrintTournamentResult(string first, string second, int winner, string prefix)
@@ -291,16 +299,17 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static string ValidateTournamentPath(CliOptions options)
+        private static string ValidateTournamentPath(CliOptions options, string fileName = null)
         {
+            fileName = fileName ?? options.TournamentFile;
             string path;
-            try { path = System.IO.Path.GetFullPath(options.TournamentFile); }
+            try { path = System.IO.Path.GetFullPath(fileName); }
             catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException)
             {
                 throw new ArgumentException("赛事文件路径无效：" + ex.Message, ex);
             }
             if (path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal)
-                || System.IO.Path.EndsInDirectorySeparator(options.TournamentFile) || Directory.Exists(path)
+                || System.IO.Path.EndsInDirectorySeparator(fileName) || Directory.Exists(path)
                 || !string.Equals(System.IO.Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("赛事存档必须是普通的 .json 文件路径，不能是目录或设备路径。");
             string name = System.IO.Path.GetFileName(path);
