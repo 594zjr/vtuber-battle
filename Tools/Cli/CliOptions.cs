@@ -39,7 +39,10 @@ namespace StreamDuel.Cli
         public bool Hash;
         public bool Help;
         public bool ListPacks;
+        public bool ListReplays;
         public bool Share;
+        public bool Glossary;
+        public string GlossaryKeyword;
         public string CalcAttacker;
         public string CalcDefender;
         public int CalcSkillIndex;
@@ -63,6 +66,15 @@ namespace StreamDuel.Cli
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
                     options.Hotseat = true;
+                    continue;
+                }
+                if (option == "--glossary")
+                {
+                    if (options.Glossary) throw new ArgumentException(Loc.Current.T("glossary.cli.duplicate"));
+                    options.Glossary = true;
+                    if (i + 1 < args.Length && args[i + 1] != null
+                        && !args[i + 1].StartsWith("--", StringComparison.Ordinal) && args[i + 1] != "-h")
+                        options.GlossaryKeyword = args[++i];
                     continue;
                 }
                 if (option == "--calc")
@@ -106,6 +118,11 @@ namespace StreamDuel.Cli
                 if (option == "--list-packs")
                 {
                     options.ListPacks = true;
+                    continue;
+                }
+                if (option == "--replays")
+                {
+                    options.ListReplays = true;
                     continue;
                 }
                 if (option == "--ban")
@@ -193,7 +210,7 @@ namespace StreamDuel.Cli
                         break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
-                            throw new ArgumentException("--replay 需要非空的回放文件路径。");
+                            throw new ArgumentException("--replay 需要非空的录像库编号或回放文件路径。");
                         options.ReplayFile = value;
                         break;
                     case "--replay-code":
@@ -261,6 +278,14 @@ namespace StreamDuel.Cli
             }
             if (options.CalcAttacker != null && options.MatchupTeamA != null)
                 throw new ArgumentException("--calc 与 --matchup 不能同时使用，请选择单次伤害或阵容对位分析。");
+            if (options.Glossary && !options.Help)
+            {
+                var incompatible = provided.Where(option => option != "--glossary"
+                    && option != "--pack" && option != "--pack-dir").ToArray();
+                if (incompatible.Length > 0)
+                    throw new ArgumentException(Loc.Current.T("glossary.cli.conflict",
+                        string.Join(Loc.Current.T("describe.list.separator"), incompatible)));
+            }
             if (options.AnalysisMode && !options.Help)
             {
                 var unsupported = provided.Where(option => option != "--calc" && option != "--matchup"
@@ -291,6 +316,10 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.ListReplays && !options.Help && (options.ReplayMode || options.ListPacks
+                || options.Network || options.ReportFile != null || options.Share
+                || options.TeamCode != null || options.ExportTeam || options.TurnSeconds.HasValue))
+                throw new ArgumentException("--replays 只列出录像库，不能与 --replay、--replay-code、--list-packs、--host、--join、--lan-host、--report、--share、--team-code、--export-team 或 --timer 同用。");
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]

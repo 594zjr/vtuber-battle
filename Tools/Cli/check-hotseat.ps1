@@ -12,16 +12,17 @@ $current = [IO.Path]::GetFullPath((Get-Location).Path)
 if ($current -ne $repository -and -not $current.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw '请在本仓库内运行此脚本。'
 }
-$cliDll = Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Cli.dll"
+$cliDirectory = Join-Path $repository 'Tools/Cli'
+$cliDll = Join-Path $cliDirectory "bin/$Configuration/net8.0/Cli.dll"
 if (-not (Test-Path -LiteralPath $cliDll -PathType Leaf)) {
     throw "请先运行 dotnet build Tools/Cli -c $Configuration。"
 }
-$runDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ('bin/hotseat-check/' + [Guid]::NewGuid().ToString('N'))))
+$runDirectory = [IO.Path]::GetFullPath((Join-Path $cliDirectory ('obj/hotseat-check/' + [Guid]::NewGuid().ToString('N'))))
 if (-not $runDirectory.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw '验收产物目录必须位于本仓库内。'
 }
 [void][IO.Directory]::CreateDirectory($runDirectory)
-$testTemp = Join-Path $PSScriptRoot 'bin/test-temp'
+$testTemp = Join-Path $runDirectory 'test-temp'
 [void][IO.Directory]::CreateDirectory($testTemp)
 $utf8 = [Text.UTF8Encoding]::new($false)
 $children = [Collections.Generic.List[object]]::new()
@@ -169,6 +170,10 @@ function Plan-Game([bool]$Ban, [bool]$Lead) {
 try {
     $coreDll = Join-Path (Split-Path $cliDll) 'StreamDuel.Core.dll'
     [void][Reflection.Assembly]::LoadFrom($coreDll)
+    Assert-Check ([StringComparer]::OrdinalIgnoreCase.Equals(
+        [IO.Path]::GetFullPath([StreamDuel.Core.HotseatSession].Assembly.Location),
+        [IO.Path]::GetFullPath($coreDll))) '请在未加载其他 Core 的新 PowerShell 进程运行。'
+    Assert-Check ($null -ne [StreamDuel.Core.HotseatSession].Assembly.GetType('StreamDuel.Core.ReplayLibrary', $false)) '当前 CLI/Core 二进制尚未包含 T80 ReplayLibrary。'
     $content = Join-Path (Split-Path $cliDll) 'Content'
     $db = [StreamDuel.Core.ContentDb]::FromJson([IO.File]::ReadAllText((Join-Path $content 'StreamDuelRules.json')),
         [IO.File]::ReadAllText((Join-Path $content 'Packs/original.json')))
@@ -192,6 +197,47 @@ try {
         $records = @(Get-ChildItem -LiteralPath (Join-Path $save 'replays') -File -Filter '*.json' | Where-Object { -not $_.Name.StartsWith('.') })
         Assert-Check ($records.Count -eq 1) '每局必须保存恰好一份回放。'
         $expectedRecord = $plan.Session.Record.ToJson()
+        # 先核对 CLI 原始索引，不能先调用 List 重建后再把修复结果当成保存结果。
+        $libraryDirectory = Join-Path $save 'replay-library'
+        Assert-Check (Test-Path -LiteralPath $libraryDirectory -PathType Container) '完整热座对局没有创建录像库。'
+        $libraryFiles = @(Get-ChildItem -LiteralPath $libraryDirectory -File -Filter '*.json' |
+            Where-Object { $_.Name -ne 'index.json' -and -not $_.Name.StartsWith('.') })
+        Assert-Check ($libraryFiles.Count -eq 1) '每场完整热座对局的新录像库必须恰好一份录像。'
+        $libraryId = [IO.Path]::GetFileNameWithoutExtension($libraryFiles[0].Name)
+        $libraryText = [IO.File]::ReadAllText($libraryFiles[0].FullName, $utf8)
+        Assert-Check ([StreamDuel.Core.BattleRecord]::FromJson($libraryText).ToJson() -ceq $expectedRecord) '新库录像改变了完整 BattleRecord。'
+        $libraryMetadata = [StreamDuel.Core.MiniJson]::Parse($libraryText)['library']
+        $indexPath = Join-Path $libraryDirectory 'index.json'
+        Assert-Check (Test-Path -LiteralPath $indexPath -PathType Leaf) 'CLI 保存后缺少录像库索引。'
+        $indexText = [IO.File]::ReadAllText($indexPath, $utf8)
+        $indexRoot = [StreamDuel.Core.MiniJson]::Parse($indexText)
+        Assert-Check ($indexRoot['version'] -eq 1 -and $indexRoot['entries'].Count -eq 1) '新库索引必须只包含本局条目。'
+        $indexEntry = $indexRoot['entries'][0]
+        $expectedSummary = [StreamDuel.Core.BattleSummary]::From($plan.Session.CloneCompletedBattle())
+        foreach ($metadata in @($libraryMetadata, $indexEntry)) {
+            Assert-Check ($metadata['version'] -eq 1 -and $metadata['id'] -ceq $libraryId -and
+                $metadata['winner'] -eq $plan.Session.Winner -and $metadata['turns'] -eq $expectedSummary.Turns -and
+                $null -eq $metadata['note']) '录像文件或索引的版本、编号、胜方、回合数或备注错误。'
+            $date = [DateTimeOffset]::ParseExact($metadata['date'], 'O',
+                [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None)
+            Assert-Check ($date.Offset -eq [TimeSpan]::Zero) '录像库日期没有按 UTC 保存。'
+        }
+        Assert-Check ($indexEntry['date'] -ceq $libraryMetadata['date'] -and
+            $indexEntry['packId'] -ceq $plan.Session.Record.PackId -and $indexEntry['isCorrupt'] -eq $false -and
+            $null -eq $indexEntry['error']) '索引日期、内容包或正常条目标记与本局不一致。'
+        Assert-Check ($indexEntry['names'].Count -eq 2 -and $indexEntry['teams'].Count -eq 2) '索引没有保存双方名字和原始阵容。'
+        for ($side = 0; $side -lt 2; $side++) {
+            Assert-Check ($indexEntry['names'][$side] -ceq $plan.Session.Record.Names[$side]) '索引双方姓名顺序错误。'
+            $expectedTeam = $plan.Session.Record.Teams[$side]
+            Assert-Check ($indexEntry['teams'][$side].Count -eq $expectedTeam.Count) '索引丢失了禁用或首发重排前的原始成员。'
+            for ($slot = 0; $slot -lt $expectedTeam.Count; $slot++) {
+                Assert-Check ($indexEntry['teams'][$side][$slot] -ceq $expectedTeam[$slot]) '索引原始队伍成员或顺序错误。'
+            }
+        }
+        $library = [StreamDuel.Core.ReplayLibrary]::new($libraryDirectory, 200, $null)
+        Assert-Check ($library.Load($libraryId).ToJson() -ceq $expectedRecord) '生产 ReplayLibrary.Load 未恢复本局完整记录。'
+        Assert-Check ([IO.File]::ReadAllText($indexPath, $utf8) -ceq $indexText) '只读加载改写了已保存索引。'
+        $checks.Add("$kind 完整局的新录像库恰一份；原生记录、索引元数据和原始阵容一致，生产 Load 往返正确")
         Assert-Check ([IO.File]::ReadAllText($records[0].FullName) -ceq $expectedRecord) 'CLI 录像与相同选择序列不一致。'
         Assert-Check ([IO.File]::ReadAllText($report) -ceq [StreamDuel.Core.BattleReport]::Markdown($plan.Session.CloneCompletedBattle())) '终局战报与会话快照不一致。'
         $code = [regex]::Match($game.Out, '(?m)^分享码：(SD1-[A-Za-z0-9_-]+)\r?$')
@@ -259,6 +305,25 @@ try {
             -not $rejected.Out.Contains('本方队伍码：') -and -not (Test-Path -LiteralPath $save)) '错误组合未在开始/导出/存档前拒绝。'
     }
     $checks.Add('冲突模式、无效队伍/名称、专属参数误用和重复标记提前中文拒绝')
+
+    foreach ($case in @(
+        @{ Name = 'glossary'; Option = '--glossary'; Args = @('--glossary', '状态') },
+        @{ Name = 'replays'; Option = '--replays'; Args = @('--replays') }
+    )) {
+        foreach ($order in @('hotseat-first', 'hotseat-last')) {
+            $caseName = "09-main-conflict-$($case.Name)-$order"
+            $save = Join-Path $runDirectory ($caseName + '-saves')
+            Assert-Check (-not (Test-Path -LiteralPath $save)) '互斥用例的存档目录已经存在。'
+            $parameters = if ($order -eq 'hotseat-first') { @('--hotseat') + $case.Args }
+                else { $case.Args + @('--hotseat') }
+            $rejected = Invoke-Cli $caseName ($parameters + @('--save-dir', $save)) '' 1
+            Assert-Check ($rejected.Out.Length -eq 0 -and $rejected.Err.StartsWith('错误：') -and
+                $rejected.Err -notmatch '未知参数|缺少参数' -and
+                ($rejected.Err.Contains('--hotseat') -or $rejected.Err.Contains($case.Option))) '新主线入口没有在进入模式前按互斥规则拒绝。'
+            Assert-Check (-not (Test-Path -LiteralPath $save)) '新主线入口互斥失败创建了存档或录像库目录。'
+        }
+    }
+    $checks.Add('glossary/replays 与 hotseat 双顺序互斥：4 例退出 1、无 stdout、无新存档或录像库')
 
     $preset = [StreamDuel.Core.TeamPreset]::new()
     $preset.Name = '热座原始预设'
