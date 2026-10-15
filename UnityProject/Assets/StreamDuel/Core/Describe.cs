@@ -50,6 +50,14 @@ namespace StreamDuel.Core
                 case "HEAL": what = "回复最大人气的 " + Frac(e.Frac); break;
                 case "RECOIL": what = "自身受到造成伤害 " + Frac(e.Frac) + " 的反噬"; break;
                 case "DRAIN": what = "回复造成伤害的 " + Frac(e.Frac); break;
+                case "PP_REDUCE":
+                    what = ch + tgt + "最后使用的技能 PP -" + e.N + "（最低为 0，本次上场还没有用过技能则无效）";
+                    dispel = "即时结算，不可驱散";
+                    break;
+                case "FIXED_DAMAGE":
+                    what = ch + "对" + tgt + "造成固定 " + e.N + " 点伤害（不受伤害倍率影响，可解除挂机，不触发被击中后人设）";
+                    dispel = "即时结算，不可驱散";
+                    break;
                 case "FIELD":
                 {
                     var f = db.Fields[e.Field];
