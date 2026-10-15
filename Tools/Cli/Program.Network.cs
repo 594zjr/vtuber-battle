@@ -18,6 +18,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
+            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value) : null;
             if (host)
             {
                 using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
@@ -25,7 +26,12 @@ namespace StreamDuel.Cli
                     Console.WriteLine("监听端口：" + actualPort);
                     Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
                     Console.Out.Flush();
-                    do { connection = listener.Accept(250); } while (connection == null);
+                    do
+                    {
+                        spectators?.Pump();
+                        connection = listener.Accept(250);
+                    }
+                    while (connection == null);
                 }
             }
             else
@@ -42,12 +48,14 @@ namespace StreamDuel.Cli
                 while (session.State == NetState.Handshake)
                 {
                     session.Poll();
+                    spectators?.Pump();
                     if (session.State != NetState.Handshake) break;
                     if (handshake.ElapsedMilliseconds >= 10000) throw new IOException("等待对手握手超时。");
                     Thread.Sleep(10);
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
+                spectators?.Start(battle);
                 Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
                 PrintTeams(battle);
                 int logIndex = 0;
@@ -57,6 +65,7 @@ namespace StreamDuel.Cli
                 {
                     session.Poll();
                     CheckNetwork(session);
+                    spectators?.Pump();
                     PrintNewLog(battle, ref logIndex);
                     if (options.Hash && session.State != NetState.Waiting && battle.Record.Events.Count != hashEventCount)
                     {
@@ -80,14 +89,14 @@ namespace StreamDuel.Cli
                     if (session.State == NetState.Choose)
                     {
                         BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
-                            : ReadAction(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt));
+                            : ReadAction(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt, spectators));
                         if (!action.HasValue) return Quit();
                         session.Submit(action.Value);
                     }
                     else if (session.State == NetState.Replace)
                     {
                         int? to = options.Auto ? Ai.ChooseReplacement(battle, session.MySide, options.Level)
-                            : ReadReplacement(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt));
+                            : ReadReplacement(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt, spectators));
                         if (!to.HasValue) return Quit();
                         session.SubmitReplace(to.Value);
                     }
@@ -95,7 +104,8 @@ namespace StreamDuel.Cli
                     Console.WriteLine("等待对手……");
                     waitingPrinted = true;
                 }
-                FinishNetwork(session, connection);
+                FinishNetwork(session, connection, spectators);
+                spectators?.Finish();
                 Console.WriteLine("最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                 return SaveCompletedBattle(battle, options, session.MySide);
             }
@@ -107,7 +117,7 @@ namespace StreamDuel.Cli
                 throw new IOException(session.Error);
         }
 
-        static void FinishNetwork(NetSession session, TcpTransport connection)
+        static void FinishNetwork(NetSession session, TcpTransport connection, SpectatorHost spectators)
         {
             Console.WriteLine("等待对手完成终局校验……");
             // 关闭发送方向后仍接收数据，保证对端最终哈希报错先于 EOF 被处理。
@@ -117,6 +127,7 @@ namespace StreamDuel.Cli
             {
                 session.Poll();
                 CheckNetwork(session);
+                spectators?.Pump();
                 if (connection.PeerClosed)
                 {
                     // EOF 可能刚好在前一次 Poll 返回后到达，再排空关闭前的完整消息。
@@ -130,7 +141,7 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int? ReadNetworkNumber(NetSession session, string prompt)
+        static int? ReadNetworkNumber(NetSession session, string prompt, SpectatorHost spectators)
         {
             while (true)
             {
@@ -141,9 +152,11 @@ namespace StreamDuel.Cli
                 {
                     session.Poll();
                     CheckNetwork(session);
+                    spectators?.Pump();
                 }
                 session.Poll();
                 CheckNetwork(session);
+                spectators?.Pump();
                 string line = input.Result;
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
                 int value;

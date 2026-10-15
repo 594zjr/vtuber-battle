@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -20,6 +21,9 @@ namespace StreamDuel.Cli
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
+        public int? SpectatePort;
+        public string WatchHost;
+        public int WatchPort;
         public bool Auto;
         public bool Ban;
         public bool Lead;
@@ -33,9 +37,11 @@ namespace StreamDuel.Cli
             if (args == null) throw new ArgumentException("参数列表不能为空。");
 
             var options = new CliOptions();
+            var specified = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
+                specified.Add(option);
                 if (option == "--auto")
                 {
                     options.Auto = true;
@@ -69,7 +75,7 @@ namespace StreamDuel.Cli
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--pack-dir"
-                    && option != "--host" && option != "--join")
+                    && option != "--host" && option != "--join" && option != "--spectate-port" && option != "--watch")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -88,7 +94,15 @@ namespace StreamDuel.Cli
                         break;
                     case "--join":
                         if (options.JoinHost != null) throw new ArgumentException("--join 不能重复指定。");
-                        ParseJoin(value, out options.JoinHost, out options.JoinPort);
+                        ParseEndpoint(value, "--join", out options.JoinHost, out options.JoinPort);
+                        break;
+                    case "--spectate-port":
+                        if (options.SpectatePort.HasValue) throw new ArgumentException("--spectate-port 不能重复指定。");
+                        options.SpectatePort = ParsePort(value, 0, "--spectate-port");
+                        break;
+                    case "--watch":
+                        if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
+                        ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
                         break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
@@ -134,6 +148,21 @@ namespace StreamDuel.Cli
             }
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
+            if (options.WatchHost != null && !options.Help)
+            {
+                var unsupported = new[] { "--host", "--join", "--spectate-port", "--replay", "--ban", "--lead",
+                    "--auto", "--team", "--seed", "--level", "--report", "--save-dir" }
+                    .Where(specified.Contains).ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("--watch 只读观战，不支持 " + string.Join("、", unsupported) + "。");
+            }
+            if (options.SpectatePort.HasValue && !options.Help)
+            {
+                if (!options.HostPort.HasValue)
+                    throw new ArgumentException("--spectate-port 只能与 --host 一起使用。");
+                if (options.SpectatePort.Value != 0 && options.SpectatePort == options.HostPort)
+                    throw new ArgumentException("--spectate-port 必须与 --host 使用不同端口；0 可分别自动分配。");
+            }
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]
@@ -161,9 +190,9 @@ namespace StreamDuel.Cli
             return port;
         }
 
-        private static void ParseJoin(string value, out string host, out int port)
+        private static void ParseEndpoint(string value, string option, out string host, out int port)
         {
-            const string formatError = "--join 必须是地址:端口，例如 127.0.0.1:7777、localhost:7777 或 [::1]:7777。";
+            string formatError = option + " 必须是地址:端口，例如 127.0.0.1:7777、localhost:7777 或 [::1]:7777。";
             if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsWhiteSpace))
                 throw new ArgumentException(formatError);
 
@@ -176,7 +205,7 @@ namespace StreamDuel.Cli
                 host = value.Substring(1, closing - 1);
                 IPAddress address;
                 if (!IPAddress.TryParse(host, out address) || address.AddressFamily != AddressFamily.InterNetworkV6)
-                    throw new ArgumentException("--join 的方括号内必须是有效的 IPv6 地址。");
+                    throw new ArgumentException(option + " 的方括号内必须是有效的 IPv6 地址。");
                 portText = value.Substring(closing + 2);
             }
             else
@@ -187,10 +216,10 @@ namespace StreamDuel.Cli
                 host = value.Substring(0, separator);
                 var hostType = Uri.CheckHostName(host);
                 if (hostType != UriHostNameType.Dns && hostType != UriHostNameType.IPv4)
-                    throw new ArgumentException("--join 需要有效的 IPv4 地址或主机名；IPv6 地址请使用 [地址]:端口。");
+                    throw new ArgumentException(option + " 需要有效的 IPv4 地址或主机名；IPv6 地址请使用 [地址]:端口。");
                 portText = value.Substring(separator + 1);
             }
-            port = ParsePort(portText, 1, "--join");
+            port = ParsePort(portText, 1, option);
         }
     }
 }

@@ -30,6 +30,7 @@ namespace StreamDuel.Cli
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
+                if (options.WatchHost != null) return WatchBattle(db, options);
                 var player = options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
@@ -160,6 +161,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team。");
+            Console.WriteLine("  --spectate-port 端口  仅房主启用独立观众端口，0 自动分配；固定延迟 2 回合，结束后补齐。");
+            Console.WriteLine("  --watch 地址:端口  只读观看，使用匹配的 --pack/--pack-dir；收到结束标记后退出，不写存档。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
@@ -169,6 +172,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
             Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
             Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
+            Console.WriteLine("观战不能与选手、AI、组队、回放或保存参数同用；可用 --hash 显示收到更新后的局面哈希，最终哈希始终显示。--list-packs 只列包，不连接观战。");
         }
 
         private static string LevelName(AiLevel level)
