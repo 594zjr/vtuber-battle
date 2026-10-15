@@ -7,6 +7,11 @@ namespace StreamDuel.Core
 
     public static class Describe
     {
+        public static string Tracks(ContentDb db, StreamerDef streamer)
+        {
+            return db.Types[streamer.Type].Name + (streamer.Type2 == null ? "" : "/" + db.Types[streamer.Type2].Name);
+        }
+
         public static string Frac(double f)
         {
             if (System.Math.Abs(f - 0.5) < 1e-6) return "1/2";

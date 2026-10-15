@@ -54,7 +54,7 @@ namespace StreamDuel.Core
 
     public sealed class StreamerDef
     {
-        public string Id, Name, Type, Persona, Fifth, Blurb, Org;
+        public string Id, Name, Type, Type2, Persona, Fifth, Blurb, Org;
         public Dictionary<string, int> Stats = new Dictionary<string, int>();
         public List<string> Skills = new List<string>();
     }
@@ -100,6 +100,11 @@ namespace StreamDuel.Core
             return Chart.TryGetValue(atk, out row) && row.TryGetValue(def, out v) ? v : 1;
         }
 
+        public double TypeMul(string atk, string def, string def2)
+        {
+            return TypeMul(atk, def) * (def2 == null ? 1 : TypeMul(atk, def2));
+        }
+
         public string StatName(string k) { string v; return StatNames.TryGetValue(k, out v) ? v : k; }
 
         // ---------- 读取 ----------
@@ -134,7 +139,10 @@ namespace StreamDuel.Core
             foreach (var item in (List<object>)pack["streamers"])
             {
                 var o = (Dictionary<string, object>)item;
-                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org") };
+                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Type2 = Str(o, "type2"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org") };
+                object secondType;
+                if (o.TryGetValue("type2", out secondType) && secondType != null && !(secondType is string))
+                    throw new KeyError("主播 " + s.Id + " 的第二赛道 type2 必须是赛道 id 或 null");
                 foreach (var st in Obj(o, "stats")) s.Stats[st.Key] = (int)(double)st.Value;
                 foreach (var sk in (List<object>)o["skills"]) s.Skills.Add((string)sk);
                 // 每位主播可以有自己的人设名字和说明：复制一份同机制的人设，挂在这位主播名下
@@ -286,6 +294,11 @@ namespace StreamDuel.Core
             foreach (var s in Streamers)
             {
                 if (!Types.ContainsKey(s.Type)) throw new KeyError("主播 " + s.Id + " 的赛道不存在");
+                if (s.Type2 != null)
+                {
+                    if (!Types.ContainsKey(s.Type2)) throw new KeyError("主播 " + s.Id + " 的第二赛道不存在：" + s.Type2);
+                    if (s.Type2 == s.Type) throw new KeyError("主播 " + s.Id + " 的第二赛道不能与主赛道相同：" + s.Type2);
+                }
                 if (!Personas.ContainsKey(s.Persona)) throw new KeyError("主播 " + s.Id + " 的人设不存在：" + s.Persona);
                 if (s.Skills.Count != 4) throw new KeyError("主播 " + s.Id + " 需要正好 4 个普通技能");
                 foreach (var k in s.Skills) if (!Skills.ContainsKey(k)) throw new KeyError("主播 " + s.Id + " 的技能不存在：" + k);

@@ -235,6 +235,7 @@ namespace StreamDuel.Game
         void Box(Rect r) { GUI.Box(r, GUIContent.none, sPanel); }
         string C(string text, Color c) { return "<color=" + HexOf(c) + ">" + text + "</color>"; }
         string TypeTag(string type) { return C("[" + db.Types[type].Name + "]", TypeColor(type)); }
+        string TypeTag(StreamerDef streamer) { return C("[" + Describe.Tracks(db, streamer) + "]", TypeColor(streamer.Type)); }
 
         void Portrait(Rect r, StreamerDef d, bool dead)
         {
@@ -319,7 +320,7 @@ namespace StreamDuel.Game
             if (GUI.Button(new Rect(r.x, r.y, r.width - 110, r.height), GUIContent.none, GUIStyle.none)) Do(() => teamDetail = d.Id);
             Portrait(new Rect(r.x + 14, r.y + 14, 64, 64), d, false);
             GUI.Label(new Rect(r.x + 90, r.y + 12, 160, 30), d.Name, sTitle);
-            GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d.Type) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted), sSmall);
+            GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted), sSmall);
             string stats = string.Join("  ", new[] { "hp", "atk", "def", "spa", "sdef", "spd" }.Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k]));
             GUI.Label(new Rect(r.x + 14, r.y + 92, 330, 26), stats, sSmall);
             var p = db.Personas[d.Persona];
@@ -339,7 +340,7 @@ namespace StreamDuel.Game
             var d = db.Streamer(teamDetail);
             GUILayout.BeginArea(new Rect(r.x + 14, r.y + 12, r.width - 28, r.height - 24));
             teamDetailScroll = GUILayout.BeginScrollView(teamDetailScroll);
-            GUILayout.Label(d.Name + "  " + TypeTag(d.Type), sTitle);
+            GUILayout.Label(d.Name + "  " + TypeTag(d), sTitle);
             var p = db.Personas[d.Persona];
             GUILayout.Label(C("人设·" + p.Name, Accent) + C("  时机：" + p.Node + " · 不可消除", Muted) + "\n" + p.Desc, sSmall);
             GUILayout.Space(6);
@@ -402,7 +403,7 @@ namespace StreamDuel.Game
                 if (detailKind == "pet" && detailSide == side && detailIdx == i) Fill(new Rect(r.x, r.y, r.width, 3), Accent);
                 Portrait(new Rect(r.x + 12, r.y + 14, 52, 52), def, false);
                 GUI.Label(new Rect(r.x + 74, r.y + 14, width - 86, 30), def.Name, sTitle);
-                GUI.Label(new Rect(r.x + 74, r.y + 44, width - 86, 26), TypeTag(def.Type), sSmall);
+                GUI.Label(new Rect(r.x + 74, r.y + 44, width - 86, 26), TypeTag(def), sSmall);
                 GUI.Label(new Rect(r.x + 12, r.y + 80, width - 24, 28), "人设·" + persona.Name, sSmall);
                 string[] stats = { "hp", "atk", "def", "spa", "sdef", "spd" };
                 for (int row = 0; row < 2; row++)
@@ -482,7 +483,7 @@ namespace StreamDuel.Game
             Box(r);
             Fill(new Rect(r.x, r.y, 5, r.height), s == 0 ? Mine : Foe);
             Portrait(new Rect(r.x + 20, r.y + 18, 100, 100), p.Def, hp <= 0);
-            GUI.Label(new Rect(r.x + 136, r.y + 10, 600, 40), "<b>" + p.Name + "</b>  " + TypeTag(p.Type) + C("   " + p.Slot + " 号位 · " + db.StatName("spd") + " " + b.StatVal(p, "spd") + (s == 0 ? "" : "   对手"), Muted), sTitle);
+            GUI.Label(new Rect(r.x + 136, r.y + 10, 600, 40), "<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("   " + p.Slot + " 号位 · " + db.StatName("spd") + " " + b.StatVal(p, "spd") + (s == 0 ? "" : "   对手"), Muted), sTitle);
             HpBar(new Rect(r.x + 136, r.y + 48, 520, 14), hp, p.MaxHp);
             GUI.Label(new Rect(r.x + 670, r.y + 40, 260, 28), C(db.StatName("hp") + " " + hp + " / " + p.MaxHp + "（" + Mathf.RoundToInt(100f * hp / p.MaxHp) + "%）", Muted), sSmall);
 
@@ -555,8 +556,8 @@ namespace StreamDuel.Game
                 if (br.Contains(Event.current.mousePosition)) { detailKind = "skill"; detailIdx = i; }
                 var tc = TypeColor(sk.Type);
                 Fill(new Rect(br.x, br.y, br.width, 4), o.Fifth ? Accent : tc);
-                double m = sk.Power > 0 ? db.TypeMul(sk.Type, foe.Type) : 1;
-                string hint = sk.Power == 0 ? C("状态技能", Muted) : C("对" + db.Types[foe.Type].Name + " ×" + m, m > 1 ? Ok : m < 1 ? Foe : Muted);
+                double m = sk.Power > 0 ? db.TypeMul(sk.Type, foe.Type, foe.Def.Type2) : 1;
+                string hint = sk.Power == 0 ? C("状态技能", Muted) : C("对" + Describe.Tracks(db, foe.Def) + " ×" + m, m > 1 ? Ok : m < 1 ? Foe : Muted);
                 string prio = o.Prio.Value != 0 ? C("先制 " + (o.Prio.Value > 0 ? "+" : "") + o.Prio.Value, Accent) : C("先制 0", Muted);
                 string label = (o.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>\n" +
                                C(db.Types[sk.Type].Name + " · " + db.CatNames[sk.Cat] + (sk.Power > 0 ? " · 威力 " + sk.Power : ""), Muted) + "\n" +
@@ -611,7 +612,7 @@ namespace StreamDuel.Game
                 {
                     var p = b.Sides[detailSide].Team[detailIdx];
                     var pd = db.Personas[p.Def.Persona];
-                    GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Type) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
+                    GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
                     GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + pd.Desc, sSmall);
                     foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp);
                     break;

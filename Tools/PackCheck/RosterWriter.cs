@@ -35,7 +35,8 @@ namespace StreamDuel.PackCheck
                     Line(text, "## " + Escape(streamer.Name) + "（" + Escape(streamer.Id) + "）");
                     Line(text);
                     Line(text, "- 所属：" + Escape(string.IsNullOrWhiteSpace(streamer.Org) ? "未填写" : streamer.Org));
-                    Line(text, "- 赛道：" + Escape(db.Types[streamer.Type].Name) + "（" + Escape(streamer.Type) + "）");
+                    string trackIds = streamer.Type + (streamer.Type2 == null ? "" : "/" + streamer.Type2);
+                    Line(text, "- 赛道：" + Escape(Describe.Tracks(db, streamer)) + "（" + Escape(trackIds) + "）");
                     Line(text, "- 简介：" + Escape(string.IsNullOrWhiteSpace(streamer.Blurb) ? "未填写" : streamer.Blurb));
                     Line(text, "- 人设：" + Escape(persona.Name) + (persona.PackDefined ? "〔本包独有〕" : "")
                         + "（" + Escape(persona.Id) + "）");
