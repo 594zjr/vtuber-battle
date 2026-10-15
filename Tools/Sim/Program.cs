@@ -21,7 +21,17 @@ namespace StreamDuel.Sim
             public bool Help;
             public bool ListPacks;
             public bool Tune;
+            public bool Compare;
+            public AiLevel OpponentLevel = AiLevel.Normal;
             public int Rounds = 20;
+            public int Candidates = 4;
+            public int HoldoutGames = 800;
+            public double Perturbation = 0.3;
+            public int Changes = 3;
+            public int Jobs = 1;
+            public string Weights;
+            public string Baseline;
+            public string Report;
         }
 
         private sealed class StreamerStats
@@ -48,11 +58,17 @@ namespace StreamDuel.Sim
                 if (options.Help)
                 {
                     Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1 [--level normal] [--pack-dir <文件夹>] [--list-packs]");
-                    Console.WriteLine("调参：dotnet run --project Tools/Sim -- --tune --rounds 20 --games 400 --seed 1；省略 games 时调参默认 400 局。");
-                    Console.WriteLine("调参 games 必须为正偶数；每轮扰动 1～3 个权重（±30%），挑战当前最好权重；胜率严格超过 55% 才替换。双方交替换边，平局不计胜场。");
-                    Console.WriteLine("调参标准输出只写最终权重 JSON；标准错误写每轮结果及独立种子集对 Default 的胜率。不会自动采用权重或改写文件。");
+                    Console.WriteLine("调参：dotnet run --project Tools/Sim -- --tune --level normal --rounds 20 --candidates 4 --games 400 --seed 1。");
+                    Console.WriteLine("调参支持 normal / hard（默认 normal）；每轮生成若干候选，对照轮初最佳。--changes 默认 3：每个候选扰动 1～3 个有效权重。");
+                    Console.WriteLine("--perturbation 默认 0.3：乘法扰动 ±30%，支持 0 < 幅度 <= 1。DamageScoreMultiplier / PpReduceScore 冻结，Hard 只扰动实际使用字段。");
+                    Console.WriteLine("--jobs 默认 1，范围 1.." + Math.Min(16, Environment.ProcessorCount) + "；只并行独立的八局组，固定种子的结果不随并行数变化。");
+                    Console.WriteLine("调参 games 默认 400、--holdout-games 默认 800，均须为正的 8 倍数；每组固定阵容/种子，交换阵容、权重所在方、电脑调用顺序共 8 局。平局非胜。");
+                    Console.WriteLine("候选胜率 >52% 且 Wilson 双侧 95% 下界 >52% 才可采用，每轮取合格候选中胜率最高者，同分取先生成者。");
+                    Console.WriteLine("--weights <JSON文件> 指定起始完整权重；--baseline <JSON文件> 指定最终对照（默认旧版 Legacy）。最终独立种子留出验证不反馈搜索。");
+                    Console.WriteLine("调参 stdout 仅输出最终权重 JSON；stderr 含每轮全部候选权重、种子、胜负平与采用记录。--report <JSON文件> 另保存完整记录；不会自动采用权重。");
+                    Console.WriteLine("对比：--compare --level hard --opponent-level normal --weights <本方完整权重.json> --baseline <对手完整权重.json> --games 400 --seed 1 --jobs 1。");
+                    Console.WriteLine("对比双方难度只支持 normal / hard（均默认 normal），必须显式提供两份权重；八局对称规则不变，不扰动或筛选。stdout 输出完整结果 JSON，--report 可另存同一报告。");
                     Console.WriteLine("--level 支持 easy（简单）/ normal（普通）/ hard（困难）/ expert（专家），默认 normal；双方行动和补位使用同一难度。");
-                    Console.WriteLine("--tune 固定搜索普通难度的评分权重，不能与 --level 同时使用。");
                     Console.WriteLine("默认：--pack original，--games 5000，--seed 1；games 为正整数，seed 为 0..4294967295。");
                     Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出。--pack 使用包 id，兼容内置文件名；id 冲突时内置优先并提示。");
                     Console.WriteLine("games 按入选队伍计数（包括未上场的后排）；wins 为所在队伍获胜次数，平局不计胜场。");
@@ -68,7 +84,14 @@ namespace StreamDuel.Sim
                 if (options.ListPacks) return 0;
                 if (options.Tune)
                 {
-                    Tuning.Run(db, options.Rounds, options.Games, options.Seed);
+                    Tuning.Run(db, options.Rounds, options.Candidates, options.Games, options.HoldoutGames,
+                        options.Seed, options.Level, options.Perturbation, options.Changes, options.Jobs, options.Weights, options.Baseline, options.Report);
+                    return 0;
+                }
+                if (options.Compare)
+                {
+                    Tuning.Compare(db, options.Games, options.Seed, options.Level, options.OpponentLevel,
+                        options.Jobs, options.Weights, options.Baseline, options.Report);
                     return 0;
                 }
                 var streamers = db.Streamers.ToDictionary(s => s.Id, s => new StreamerStats { Streamer = s });
@@ -108,7 +131,8 @@ namespace StreamDuel.Sim
                     "总局数：{0}，平局数：{1}，耗时：{2:F3} 秒", options.Games, draws, timer.Elapsed.TotalSeconds));
                 return 0;
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException || ex is KeyError || ex is FormatException)
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException ||
+                ex is KeyError || ex is FormatException || ex is KeyNotFoundException || ex is System.Text.Json.JsonException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
@@ -120,7 +144,9 @@ namespace StreamDuel.Sim
             var options = new Options();
             bool gamesSpecified = false;
             bool roundsSpecified = false;
-            bool levelSpecified = false;
+            bool tuningOptionSpecified = false;
+            bool evaluationOptionSpecified = false;
+            bool opponentLevelSpecified = false;
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
@@ -139,7 +165,14 @@ namespace StreamDuel.Sim
                     options.Tune = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed" && option != "--rounds" && option != "--level")
+                if (option == "--compare")
+                {
+                    options.Compare = true;
+                    continue;
+                }
+                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed" && option != "--rounds" && option != "--level" &&
+                    option != "--candidates" && option != "--holdout-games" && option != "--weights" && option != "--baseline" && option != "--report" &&
+                    option != "--perturbation" && option != "--changes" && option != "--jobs" && option != "--opponent-level")
                     throw new ArgumentException("未知选项：" + option + "；使用 --help 查看用法。");
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
                     throw new ArgumentException(option + " 缺少参数值。");
@@ -164,6 +197,42 @@ namespace StreamDuel.Sim
                             throw new ArgumentException("--rounds 必须是 1..2147483647 的整数。");
                         roundsSpecified = true;
                         break;
+                    case "--candidates":
+                        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Candidates) || options.Candidates <= 0)
+                            throw new ArgumentException("--candidates 必须是 1..2147483647 的整数。");
+                        tuningOptionSpecified = true;
+                        break;
+                    case "--changes":
+                        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Changes) || options.Changes <= 0 || options.Changes > 35)
+                            throw new ArgumentException("--changes 必须是 1..35 的整数；实际最多使用该难度的可调字段数。");
+                        tuningOptionSpecified = true;
+                        break;
+                    case "--jobs":
+                        int maxJobs = Math.Min(16, Environment.ProcessorCount);
+                        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Jobs) || options.Jobs <= 0 || options.Jobs > maxJobs)
+                            throw new ArgumentException("--jobs 必须是 1.." + maxJobs + " 的整数。");
+                        evaluationOptionSpecified = true;
+                        break;
+                    case "--perturbation":
+                        if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out options.Perturbation) ||
+                            !double.IsFinite(options.Perturbation) || options.Perturbation <= 0 || options.Perturbation > 1)
+                            throw new ArgumentException("--perturbation 必须是大于 0 且不超过 1 的有限小数。");
+                        tuningOptionSpecified = true;
+                        break;
+                    case "--holdout-games":
+                        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.HoldoutGames) || options.HoldoutGames <= 0)
+                            throw new ArgumentException("--holdout-games 必须是 1..2147483647 的整数。");
+                        tuningOptionSpecified = true;
+                        break;
+                    case "--weights":
+                    case "--baseline":
+                    case "--report":
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(option + " 需要非空 JSON 文件路径。");
+                        if (option == "--weights") options.Weights = value;
+                        else if (option == "--baseline") options.Baseline = value;
+                        else options.Report = value;
+                        evaluationOptionSpecified = true;
+                        break;
                     case "--seed":
                         if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Seed))
                             throw new ArgumentException("--seed 必须是 0..4294967295 的整数。");
@@ -174,16 +243,30 @@ namespace StreamDuel.Sim
                         else if (value == "hard") options.Level = AiLevel.Hard;
                         else if (value == "expert") options.Level = AiLevel.Expert;
                         else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
-                        levelSpecified = true;
+                        break;
+                    case "--opponent-level":
+                        if (value == "normal") options.OpponentLevel = AiLevel.Normal;
+                        else if (value == "hard") options.OpponentLevel = AiLevel.Hard;
+                        else throw new ArgumentException("--opponent-level 只能是 normal（普通）或 hard（困难）。");
+                        opponentLevelSpecified = true;
                         break;
                 }
             }
-            if (options.Tune && levelSpecified)
-                throw new ArgumentException("--tune 固定搜索普通难度的评分权重，不能与 --level 同时使用；请移除 --level。");
+            if (options.Tune && options.Compare) throw new ArgumentException("--tune 与 --compare 不能同时使用。");
+            bool evaluating = options.Tune || options.Compare;
+            if (evaluating && options.Level != AiLevel.Normal && options.Level != AiLevel.Hard)
+                throw new ArgumentException("--tune / --compare 的 --level 只支持 normal 或 hard。");
             if (roundsSpecified && !options.Tune) throw new ArgumentException("--rounds 需要与 --tune 一起使用。");
-            if (options.Tune && !gamesSpecified) options.Games = 400;
-            if (options.Tune && options.Games % 2 != 0) throw new ArgumentException("调参的 --games 必须为正偶数，以便每组阵容交换双方各赛一局。");
-            if (options.Tune && (ulong)options.Rounds * (uint)options.Games + (uint)(options.Games / 2) > (ulong)uint.MaxValue + 1)
+            if (tuningOptionSpecified && !options.Tune) throw new ArgumentException("--candidates、--holdout-games、--perturbation、--changes 需要与 --tune 一起使用。");
+            if (evaluationOptionSpecified && !evaluating) throw new ArgumentException("--weights、--baseline、--report、--jobs 需要与 --tune 或 --compare 一起使用。");
+            if (opponentLevelSpecified && !options.Compare) throw new ArgumentException("--opponent-level 需要与 --compare 一起使用。");
+            if (options.Compare && (options.Weights == null || options.Baseline == null))
+                throw new ArgumentException("--compare 必须显式提供 --weights 和 --baseline 两份完整权重文件。");
+            if (evaluating && options.ListPacks) throw new ArgumentException("--tune / --compare 不能与 --list-packs 同时使用。");
+            if (evaluating && !gamesSpecified) options.Games = 400;
+            if ((evaluating && options.Games % 8 != 0) || (options.Tune && options.HoldoutGames % 8 != 0))
+                throw new ArgumentException("调参或对比的 --games 与调参 --holdout-games 必须为正的 8 倍数，以便完整交换阵容、双方与电脑调用顺序。");
+            if (options.Tune && (ulong)options.Rounds * (uint)(options.Games / 8) + (uint)(options.HoldoutGames / 8) > (ulong)uint.MaxValue + 1)
                 throw new ArgumentException("调参的轮数与局数组合超出种子范围，会重复训练或验证种子；请减少 --rounds 或 --games。");
             return options;
         }

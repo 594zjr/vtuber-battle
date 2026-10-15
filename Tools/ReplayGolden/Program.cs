@@ -143,16 +143,19 @@ internal static class Program
             if (battle.Phase == Phase.Choose)
             {
                 var choices = new BattleAction[2];
+                // 冻结样例的策略输入，避免当前默认调参改变历史录像的生成结果。
                 for (int side = 0; side < 2; side++)
                     choices[side] = attackingSide >= 0 && side != attackingSide ? BattleAction.Pass()
-                        : manual || attackingSide >= 0 ? ManualAction(battle, side) : Ai.Choose(battle, side);
+                        : manual || attackingSide >= 0 ? ManualAction(battle, side)
+                        : Ai.ChooseWithWeights(battle, side, AiLevel.Normal, AiWeights.Legacy);
                 battle.ResolveTurn(choices[0], choices[1]);
             }
             else if (battle.Phase == Phase.Replace)
             {
                 for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
                     if (battle.Need[side]) battle.Replace(side,
-                        manual || attackingSide >= 0 ? ManualReplacement(battle, side) : Ai.ChooseReplacement(battle, side));
+                        manual || attackingSide >= 0 ? ManualReplacement(battle, side)
+                        : Ai.ChooseReplacementWithWeights(battle, side, AiLevel.Normal, AiWeights.Legacy));
             }
             else throw new InvalidOperationException("生成器遇到尚未处理的对战阶段：" + battle.Phase);
         }
