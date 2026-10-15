@@ -107,7 +107,7 @@ namespace StreamDuel.PackCheck
                     if (entry.Result.Db == null) continue;
                     try
                     {
-                        // MiniJson 允许部分非标准语法，检查工具继续执行原有严格 JSON 校验。
+                        // 独立复核语法，保留检查工具原有的标准 JSON 验证。
                         ReadJson(entry.Path);
                     }
                     catch (Exception ex) when (IsContentError(ex))

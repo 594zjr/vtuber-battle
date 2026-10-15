@@ -413,9 +413,12 @@ namespace StreamDuel.Core
             Turn = source.Turn;
             Phase = source.Phase;
             Winner = source.Winner;
+            leadPickAfterBan = source.leadPickAfterBan;
             Record = new BattleRecord
             {
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
+                BanOne = source.Record.BanOne,
+                Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
                 Teams = source.Record.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
             for (int s = 0; s < Sides.Length; s++)
@@ -423,6 +426,7 @@ namespace StreamDuel.Core
                 Need[s] = source.Need[s];
                 ActedFirst[s] = source.ActedFirst[s];
                 leadChoices[s] = source.leadChoices[s];
+                banChoices[s] = source.banChoices[s];
                 Sides[s] = new SideState { Name = source.Sides[s].Name, Active = source.Sides[s].Active };
                 foreach (var fighter in source.Sides[s].Team)
                 {
@@ -431,6 +435,7 @@ namespace StreamDuel.Core
                         Def = fighter.Def, Slot = fighter.Slot, Side = fighter.Side, Hp = fighter.Hp, MaxHp = fighter.MaxHp,
                         EnteredTurn = fighter.EnteredTurn, Fainted = fighter.Fainted,
                         LastSkillIndex = fighter.LastSkillIndex,
+                        FirstControlImmunityUsed = fighter.FirstControlImmunityUsed, EndureUsed = fighter.EndureUsed,
                         Stages = new Dictionary<string, int>(fighter.Stages),
                         Skills = fighter.Skills.Select(k => new SkillSlot { Id = k.Id, Pp = k.Pp, Max = k.Max, Fifth = k.Fifth }).ToList(),
                         Statuses = fighter.Statuses.Select(k => new StatusInst { Id = k.Id, Left = k.Left }).ToList(),

@@ -63,6 +63,7 @@ namespace StreamDuel.Core
 
         void PersonaOnEnter(Fighter p, string node)
         {
+            PersonaNewOnEnter(p, node);
             var t = PersonaOf(p);
             if (t.Code != "T_ENTER_FIELD") return;
             Add(node, "【人设·" + t.Name + "】" + p.Name + " 开播", "trait", p.Side);
