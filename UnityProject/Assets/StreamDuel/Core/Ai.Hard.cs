@@ -357,6 +357,7 @@ namespace StreamDuel.Core
                 }
                 score += benefit * probability;
             }
+            score += StylePreference(b, s, action);
             if (!goesFirst && incoming.Min >= me.Hp) score *= 0.08;
             return score;
         }
