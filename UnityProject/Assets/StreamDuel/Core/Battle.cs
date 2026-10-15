@@ -35,6 +35,7 @@ namespace StreamDuel.Core
     {
         public StreamerDef Def; public int Slot, Side, Hp, MaxHp, EnteredTurn = 1; public bool Fainted;
         public int LastSkillIndex = -1;
+        public bool FirstControlImmunityUsed, EndureUsed;
         public Dictionary<string, int> Stages = NewStages();
         public List<SkillSlot> Skills = new List<SkillSlot>();
         public List<StatusInst> Statuses = new List<StatusInst>();
@@ -163,6 +164,7 @@ namespace StreamDuel.Core
                 if (p.Fields.Any(f => Db.Fields[f.Id].ImmuneControl)) { Add(node, p.Name + " 有「重连保护」，" + d.Name + "无效", "status", p.Side); return false; }
                 var cur = ControlOf(p);
                 if (cur != null) { Add(node, p.Name + " 已经处于「" + Db.Statuses[cur.Id].Name + "」，" + d.Name + "无效", "status", p.Side); return false; }
+                if (PersonaBlocksFirstControl(p, node)) return false;
                 p.Statuses.Add(new StatusInst { Id = id, Left = d.Skip });
                 Add(node, p.Name + " 陷入「" + d.Name + "」（控制类，将跳过 " + d.Skip + " 次行动）", "status", p.Side);
                 return true;
@@ -220,8 +222,10 @@ namespace StreamDuel.Core
         {
             if (p.Fainted) return 0;
             int real = Math.Min(amt, p.Hp);
+            bool endured = triggerFaintPersona && PersonaEndure(p, ref real);
             p.Hp -= real;
             Add(node, text.Replace("{n}", real.ToString()), "dmg", p.Side);
+            if (endured) Add(node, "【人设·" + PersonaOf(p).Name + "】" + p.Name + " 保留 1 点人气（本场对战唯一一次保命已用完）", "trait", p.Side);
             var afk = p.Statuses.FirstOrDefault(x => Db.Statuses[x.Id].WakeOnHit);
             if (afk != null && real > 0 && fromHit) { p.Statuses.Remove(afk); Add(node, p.Name + " 被打得回过神来了", "status", p.Side); }
             if (p.Hp <= 0) Faint(p, node, triggerFaintPersona);
@@ -497,7 +501,11 @@ namespace StreamDuel.Core
                 if (skill.Cat == "talent") p.Fields.RemoveAll(x => Db.Fields[x.Id].Consume && Db.Fields[x.Id].TalentMul != 1);
                 string effTxt = r.Eff > 1 ? "，赛道克制" : r.Eff < 1 ? "，赛道被克" : "";
                 ctx.Dealt = DamageWithReflection(ctx, f, r.Dmg, f.Name + " 人气 -{n}" + effTxt + (r.Notes.Count > 0 ? "（" + string.Join("，", r.Notes) + "）" : ""));
-                if (Phase != Phase.Over) PersonaAfterHit(f, p, skill, node);
+                if (Phase != Phase.Over && !ctx.InterruptedByReflection)
+                {
+                    if (ctx.Dealt > 0) PersonaStageOnHit(f, node);
+                    PersonaAfterHit(f, p, skill, node);
+                }
             }
             foreach (var e in skill.Effects) if (e.At == "post" && !ctx.InterruptedByReflection && Phase != Phase.Over) RunEffect(ctx, e);
         }
