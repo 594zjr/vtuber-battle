@@ -55,8 +55,22 @@ dotnet test Engine.Tests
 - **不得修改** `LICENSE`、`UnityProject/Assets/StreamDuel/Resources/Packs/LICENSE.md`、`FANWORK.md`，以及 README 里“非官方同人作品声明”一节。
 - 不要提交 `Library/`、`Temp/`、`Logs/`、`UserSettings/`、`bin/`、`obj/`。
 
-## 提交
+## 分支、PR 与合并（多个 Codex 窗口同时工作）
 
-- 仓库：https://github.com/594zjr/vtuber-battle 。每个任务从最新 `origin/main` 开分支 `task/T-xx`，推送后开 PR 到 main；不要直接推 main，不要自己合并。同时做多个任务时每个任务用单独的 `git worktree` 文件夹（见 `docs/codex-tasks/SETUP.md`）。
-- 一个任务一个 PR，标题写任务编号，例如 `T-03 新效果码 PP_REDUCE / FIXED_DAMAGE`。
-- PR 描述写：做了什么、改了哪些文件、测试结果。
+仓库：https://github.com/594zjr/vtuber-battle ，默认分支 `main`。本机主文件夹 `D:\vtuber-battle`，每个窗口用自己的 worktree：`D:\vtuber-battle-wt\<名字>`。**只在这些文件夹里操作**，不得读写电脑上其他目录（尤其 `D:\游戏`、`D:\seer`）。
+
+**任务窗口（写代码的）**
+1. 领任务：`git fetch origin --prune`，在 `docs/TASKS.md` 里找编号最小的、状态为 ⬜、依赖都已 ✅、且远端没有 `origin/task/T-xx` 分支的任务。立刻 `git push origin origin/main:refs/heads/task/T-xx` 占位（别的窗口看到这个分支就不会再领）。
+2. `git worktree add D:\vtuber-battle-wt\T-xx -b task/T-xx origin/main`（已存在就 `git switch task/T-xx` 并 `git pull`），在里面按 `docs/codex-tasks/T-xx.md` 做。
+3. 自查：`dotnet test Engine.Tests` 全绿；对照本文件“硬性规则”和“禁止事项”逐条检查自己的改动。
+4. 提交、`git push -u origin task/T-xx`，开 PR 到 `main`，按 `.github/pull_request_template.md` 填写。**不要自己合并**，合并由审查窗口做。
+5. 回到第 1 步领下一个任务。
+
+**审查窗口（只有一个）** 按 `docs/codex-tasks/REVIEWER.md` 工作：逐个审 PR，不合格就直接在 PR 分支上改到合格，然后 squash 合并到 `main`、删分支、在 `docs/TASKS.md` 把该任务标 ✅。
+
+**所有人都要遵守**
+- 分支名 `task/T-xx`（任务）或 `fix/<简短英文>`（审查员的修复）。不要直接往 `main` 推代码；唯一例外是审查员合并后更新 `docs/TASKS.md` 的状态。
+- 提交信息、PR 标题以任务编号开头，例如 `T-03 新效果码 PP_REDUCE / FIXED_DAMAGE`。
+- 不得为了变绿而删除、跳过、改弱测试或验收测试的断言；验收测试本身有错时在 PR 里写明理由再改。
+- 不得改写别人分支的历史（不 force push 到别人的分支）；不 push 空提交。
+- 遇到需要人决定的问题（规则含糊、要加新依赖、要动禁止修改的文件），在 PR 描述里写“需要决定：……”，跳过这一处继续做别的。
