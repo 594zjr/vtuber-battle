@@ -94,6 +94,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 - `dotnet run --project Tools/Cli -- --glossary`：列出当前内容包的赛道克制、状态、直播间效果、人设和通用对战规则。可用 `--glossary "卡麦"` 按标题或正文搜索（不区分大小写），并配合 `--pack`、`--pack-dir` 查询其他包；此模式只查阅说明，不开始对战或写入存档。
 
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
+- `dotnet run --project Tools/Cli -- --seed 1 --ban --lead --advice`：在首次选择前显示建议禁用、两位首发候选、两位主要威胁及各自的应对人选。建议只基于双方公开的原始六人阵容和开场伤害预览，不预测对方选择或胜率；同时启用禁用与首发时只在禁用前显示一次。`--advice` 需要 `--ban` 或 `--lead`，仅用于新的本地对局，不能与回放、联网、分析或列表模式同用。启用建议不改变对局选择或随机数流。
 - 结束时打印对战统计和本包累计战绩，并保存 `saves/profile.json`；`--save-dir 目录` 可指定其他本机目录。完整回放写入该目录下的 `replays/<UTC时间>_<packId>.json`，只保留本工具生成的最近 50 份，其他命名文件保留。外部包 id 含特殊字符或超过 80 字符时，文件名用 id 的 SHA256 摘要，JSON 内仍保存原 id。提前退出不记战绩、不保存回放。
 - `dotnet run --project Tools/Cli -- --replay saves/replays/<文件名>.json`：自动加载记录对应的内容包；外部包需加 `--pack-dir 目录`。先显示第一个有日志的回合，再按回车逐回合播放；`q` 或输入结束退出。加 `--auto` 连续播放全部记录。回看不增加战绩，也不保存第二份回放；不完整记录会提示“未完成”。回放需要与原对局相同的规则和内容包版本。
 - `--share`：完成对局后打印以 `SD1-` 开头的回放分享码，可直接复制给其他人；也可与 `--replay` 或 `--replay-code` 一起使用，在播放完毕后重新导出。提前退出不输出分享码。超大记录导出失败会报错并返回退出码 1，已完成对局仍会保存回放及战绩。回放时战报与分享分别导出，战报写入失败仍会输出可用的分享码。
