@@ -58,7 +58,7 @@ namespace StreamDuel.Cli
 
             public void Show(TurnClock clock, Battle battle, int mySide)
             {
-                if (clock == null || battle.Phase == Phase.Over) return;
+                if (clock == null || battle.Phase != Phase.Choose && battle.Phase != Phase.Replace) return;
                 string text = "计时（第 " + battle.Turn + " 回合 · "
                     + (battle.Phase == Phase.Replace ? "补位" : "选招") + "）：本方基本 "
                     + Seconds(clock.TurnLeft(mySide)) + " 秒 / 总时间 " + Seconds(clock.BankLeft(mySide))

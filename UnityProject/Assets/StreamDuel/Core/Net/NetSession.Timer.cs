@@ -93,7 +93,7 @@ namespace StreamDuel.Core
         private void BeginRevealTimerIfReady()
         {
             int peer = 1 - MySide;
-            if (Clock == null || revealTimerStarted || !TimerParticipant(peer)
+            if (Clock == null || revealTimerStarted || !SelectionParticipant(peer)
                 || commitments[peer] == null || revealed[peer] || !AllCommitmentsReady()) return;
             revealTimerStarted = true;
             revealWaitSeconds = 0;
@@ -140,7 +140,7 @@ namespace StreamDuel.Core
                 }
 
                 bool waitingCommit = TimerParticipant(peer) && commitments[peer] == null && Clock.TimedOut(peer);
-                bool waitingReveal = !automaticallySubmitted && TimerParticipant(peer)
+                bool waitingReveal = !automaticallySubmitted && SelectionParticipant(peer)
                     && commitments[peer] != null && !revealed[peer] && AllCommitmentsReady();
                 double step = remaining;
                 for (int side = 0; side < 2; side++)

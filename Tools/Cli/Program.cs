@@ -43,7 +43,7 @@ namespace StreamDuel.Cli
                 var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
                     .Concat(player).Take(6).ToArray();
                 var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" },
-                    new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead });
+                    new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead, PickCount = options.PickCount });
 
                 Console.WriteLine("开播对决 · 命令行对战");
                 Console.WriteLine("内容包：" + db.PackName);
@@ -51,6 +51,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
                 PrintTeams(battle);
+                PrintPickMode(battle);
                 int logIndex = 0;
                 PrintNewLog(battle, ref logIndex);
                 var clock = options.TurnSeconds.HasValue
@@ -75,6 +76,22 @@ namespace StreamDuel.Cli
                             }
                             else to = Ai.ChooseBan(battle, side);
                             battle.ChooseBan(side, to);
+                            PrintNewLog(battle, ref logIndex);
+                        }
+                        PrintTeams(battle);
+                        continue;
+                    }
+
+                    if (battle.Phase == Phase.Pick)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("===== 秘密选人 =====");
+                        for (int side = 0; side < 2 && battle.Phase == Phase.Pick; side++)
+                        {
+                            if (battle.HasChosenPick(side)) continue;
+                            var selected = side == 0 && !options.Auto ? ReadPick(battle, side) : Ai.ChoosePick(battle, side, options.Level);
+                            if (selected == null) return Quit();
+                            battle.ChoosePick(side, selected);
                             PrintNewLog(battle, ref logIndex);
                         }
                         PrintTeams(battle);
@@ -184,9 +201,10 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
-            Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
-            Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
-            Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
+            Console.WriteLine("                    禁用、选人和首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
+            Console.WriteLine("  --ban             开局各禁用对方一位；默认五对五，与 --pick 同用则从余下五人选人。");
+            Console.WriteLine("  --pick 3|4        公开六人阵容后秘密选出 3 或 4 人，按输入顺序出战，第一位为首发；联网以房主设置为准。");
+            Console.WriteLine("  --lead            双方选择首发；先禁用再首发，与 --pick 同用时选序直接决定首发，不再额外选首发。");
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
@@ -206,7 +224,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code、--replays 或 --list-packs 同用。");
             Console.WriteLine("回放均支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用。--save-dir 决定录像库位置，其他对战参数不改变记录；回看不新增战绩或录像。");
             Console.WriteLine("--replays 与回看、联网、--list-packs、--report、--share、--timer、队伍码导入导出及分析/图鉴入口互斥；其他对战参数对列表无影响。战报不能写入 replay-library 目录。现有文件路径优先于同名录像编号。");
-            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--replay-code、--replays、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希；仅在终局校验完成后分享和保存。");
+            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；房主可设置 --ban 和 --pick，客机服从房主设置；不能与 --lead、--replay、--replay-code、--replays、--list-packs 同用。--auto 仅替本方选择，--hash 显示已同步阶段及最终哈希；仅在终局校验完成后分享和保存。");
         }
 
         private static string LevelName(AiLevel level)
@@ -294,9 +312,10 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadBan(Battle battle)
+        private static int? ReadBan(Battle battle, int side = 0, Func<string, int?> readNumber = null)
         {
-            var foes = battle.Sides[1].Team;
+            if (readNumber == null) readNumber = ReadNumber;
+            var foes = battle.Sides[1 - side].Team;
             Console.WriteLine("对手完整阵容（选择一位禁用）：");
             for (int index = 0; index < foes.Count; index++)
             {
@@ -309,7 +328,7 @@ namespace StreamDuel.Cli
             }
             while (true)
             {
-                var number = ReadNumber("请选择要禁用的对手号位（q 退出）> ");
+                var number = readNumber("请选择要禁用的对手号位（q 退出）> ");
                 if (!number.HasValue) return null;
                 if (number.Value >= 1 && number.Value <= foes.Count) return number.Value - 1;
                 Console.WriteLine("该号位不存在，请选择列表中的对手主播。");

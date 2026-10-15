@@ -75,6 +75,14 @@ namespace StreamDuel.Core
                 hash.Int(modifiers.Count);
                 foreach (string id in modifiers) hash.Text(id);
             }
+            // 尚未揭示的阵容不能成为可枚举的哈希输入，只比较配置和公开确认标记。
+            if (PickCount > 0)
+            {
+                hash.Text("StreamDuel.Pick.v1");
+                hash.Int(PickCount);
+                hash.Bool(HasChosenPick(0));
+                hash.Bool(HasChosenPick(1));
+            }
             return hash.Value;
         }
 

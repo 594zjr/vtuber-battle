@@ -31,7 +31,7 @@ namespace StreamDuel.Cli
             using (connection)
             {
                 var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null,
-                    turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds);
+                    turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds, pickCount: options.PickCount, banOne: options.Ban);
                 Console.WriteLine("等待对手握手……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
@@ -50,12 +50,16 @@ namespace StreamDuel.Cli
                 else if (!host && options.TurnSeconds.HasValue)
                     Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
                 PrintTeams(battle);
+                PrintPickMode(battle);
+                if (!host && (options.PickCount != battle.PickCount || options.Ban != battle.Record.BanOne))
+                    Console.WriteLine("选人与禁用采用房主设置，客机参数不覆盖房主。");
                 var input = new ConsoleInput();
                 var pump = new NetworkPump(session);
                 ChoiceStamp? inputStage = null;
                 Action prepareInput = () =>
                 {
-                    if (options.Auto || session.State != NetState.Choose && session.State != NetState.Replace) return;
+                    if (options.Auto || session.State != NetState.Choose && session.State != NetState.Replace
+                        && session.State != NetState.Ban && session.State != NetState.Pick) return;
                     if (!inputStage.HasValue || !inputStage.Value.Matches(battle))
                     {
                         input.DiscardCompleted();
@@ -92,15 +96,36 @@ namespace StreamDuel.Cli
 
                     waitingPrinted = false;
                     Console.WriteLine();
-                    Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
-                    PrintFighter(battle, 1 - session.MySide);
-                    PrintFighter(battle, session.MySide);
+                    if (session.State == NetState.Ban) Console.WriteLine("===== 开局禁用 =====");
+                    else if (session.State == NetState.Pick) Console.WriteLine("===== 秘密选人 =====");
+                    else
+                    {
+                        Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
+                        PrintFighter(battle, 1 - session.MySide);
+                        PrintFighter(battle, session.MySide);
+                    }
                     var stamp = new ChoiceStamp(battle);
                     NetState choosingState = session.State;
                     Func<bool> expired = () => !stamp.Matches(battle) || session.HasSubmitted || session.State != choosingState;
                     try
                     {
-                        if (choosingState == NetState.Choose)
+                        if (choosingState == NetState.Ban)
+                        {
+                            int? to = options.Auto ? Ai.ChooseBan(battle, session.MySide)
+                                : ReadBan(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
+                            if (!to.HasValue) return Quit();
+                            pump.Pump();
+                            if (!expired()) session.SubmitBan(to.Value);
+                        }
+                        else if (choosingState == NetState.Pick)
+                        {
+                            var selected = options.Auto ? Ai.ChoosePick(battle, session.MySide, options.Level)
+                                : ReadPick(battle, session.MySide, prompt => ReadPumpedLine(input, prompt, pump.Pump, expired));
+                            if (selected == null) return Quit();
+                            pump.Pump();
+                            if (!expired()) session.SubmitPick(selected);
+                        }
+                        else if (choosingState == NetState.Choose)
                         {
                             BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
                                 : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));

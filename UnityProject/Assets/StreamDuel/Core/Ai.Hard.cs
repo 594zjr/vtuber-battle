@@ -415,12 +415,14 @@ namespace StreamDuel.Core
             Phase = source.Phase;
             Winner = source.Winner;
             leadPickAfterBan = source.leadPickAfterBan;
+            CopyPickStateFrom(source);
             modifiers = new List<string>(source.modifiers).AsReadOnly();
             Record = new BattleRecord
             {
                 Version = source.Record.Version, ContentHash = source.Record.ContentHash,
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
                 BanOne = source.Record.BanOne,
+                PickCount = source.Record.PickCount,
                 Modifiers = source.Record.Modifiers == null ? null : new List<string>(source.Record.Modifiers),
                 Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
                 Teams = source.Record.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()

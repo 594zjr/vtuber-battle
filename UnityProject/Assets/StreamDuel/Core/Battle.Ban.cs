@@ -8,6 +8,7 @@ namespace StreamDuel.Core
         public uint? Seed;
         public bool LeadPick;
         public bool BanOne;
+        public int PickCount;
         public List<string> Modifiers;
     }
 
@@ -48,7 +49,8 @@ namespace StreamDuel.Core
             for (int s = 0; s < Sides.Length; s++)
                 Add(Node.Start, Sides[s].Name + " 禁用了 " + Sides[1 - s].Name + " 的「" + banned[1 - s].Name + "」", "ban", s);
 
-            if (leadPickAfterBan) Phase = Phase.Lead;
+            if (PickCount > 0) Phase = Phase.Pick;
+            else if (leadPickAfterBan) Phase = Phase.Lead;
             else StartBattle();
         }
     }

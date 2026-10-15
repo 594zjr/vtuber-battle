@@ -22,7 +22,7 @@ namespace StreamDuel.Cli
                     Port = actualPort,
                     Protocol = NetSession.ProtocolVersion,
                     ContentHash = db.ContentHash(),
-                    Ruleset = "casual"
+                    Ruleset = (options.Ban ? "ban-" : "") + (options.PickCount == 0 ? "casual" : "pick" + options.PickCount)
                 };
                 using (var beacon = room == null ? null : new LanBeaconSender(room))
                 {
