@@ -7,18 +7,23 @@ namespace StreamDuel.Game
 {
     public sealed class ScreenRouter : MonoBehaviour
     {
-        readonly Dictionary<string, Func<IScreen>> factories = new Dictionary<string, Func<IScreen>>(StringComparer.Ordinal);
-        UIDocument document;
-        VisualElement root;
-        IScreen current;
-        Action<bool> setLegacyVisible;
-        bool initialized;
-        bool restorePending;
+        // 热重载不能恢复工厂和委托，相关状态必须一起重建，不能只留下 initialized。
+        [NonSerialized] readonly Dictionary<string, Func<IScreen>> factories = new Dictionary<string, Func<IScreen>>(StringComparer.Ordinal);
+        [NonSerialized] UIDocument document;
+        [NonSerialized] VisualElement root;
+        [NonSerialized] IScreen current;
+        [NonSerialized] Action<bool> setLegacyVisible;
+        [NonSerialized] bool initialized;
+        [NonSerialized] bool restorePending;
 
+        [field: NonSerialized]
         public ScreenResources Resources { get; private set; }
         public UIDocument Document => document;
+        [field: NonSerialized]
         public string CurrentScreenId { get; private set; }
+        [field: NonSerialized]
         public object CurrentArgs { get; private set; }
+        internal bool IsInitialized => initialized;
 
         public void Initialize(UIDocument uiDocument, ScreenResources resources, Action<bool> legacyVisibility)
         {

@@ -464,27 +464,27 @@ namespace StreamDuel.Game
             GUILayout.EndArea();
         }
 
-        void SkillBlock(SkillDef sk, bool fifth, int ppLeft)
+        void SkillBlock(SkillDef sk, bool fifth, int ppLeft, int? maxPp = null, Battle battle = null)
         {
             GUILayout.Space(8);
-            GUILayout.Label((fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>  " + SkillMeta(sk) + (ppLeft >= 0 ? C("  剩余 PP " + ppLeft, Muted) : ""), sText);
+            GUILayout.Label((fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>  " + SkillMeta(sk, maxPp) + (ppLeft >= 0 ? C("  剩余 PP " + ppLeft, Muted) : ""), sText);
             if (sk.Effects.Count == 0) GUILayout.Label("没有附加效果", sSmall);
-            foreach (var e in sk.Effects) GUILayout.Label(EffectLine(e), sSmall);
+            foreach (var e in sk.Effects) GUILayout.Label(EffectLine(e, battle), sSmall);
         }
 
-        string SkillMeta(SkillDef sk)
+        string SkillMeta(SkillDef sk, int? maxPp = null)
         {
             var bits = new List<string> { TypeTag(sk.Type), C(db.CatNames[sk.Cat], Muted) };
             if (sk.Power > 0) bits.Add(C("威力 " + sk.Power, Muted));
-            bits.Add(C("PP " + sk.Pp, Muted));
+            bits.Add(C("PP " + (maxPp ?? sk.Pp), Muted));
             if (sk.Acc < 100) bits.Add(C("命中 " + sk.Acc + "%", Muted));
             if (sk.Prio != 0) bits.Add(C("先制 " + (sk.Prio > 0 ? "+" : "") + sk.Prio, Accent));
             return string.Join(" ", bits);
         }
 
-        string EffectLine(EffectDef e)
+        string EffectLine(EffectDef e, Battle battle = null)
         {
-            var t = Describe.Effect(db, e);
+            var t = Describe.Effect(db, e, battle);
             string at = C("〔" + t.At + "〕", e.At == "pre" ? Hex("#7fd3ff") : Hex("#ffcf7a"));
             string disp = t.Dispel == null ? "" : " " + C("〔" + t.Dispel + "〕", t.Dispel.Contains("不") ? Foe : Ok);
             return at + " " + C(t.Text, Fg) + disp;
@@ -522,7 +522,7 @@ namespace StreamDuel.Game
                 string[] stats = { "hp", "atk", "def", "spa", "sdef", "spd" };
                 for (int row = 0; row < 2; row++)
                     GUI.Label(new Rect(r.x + 12, r.y + 114 + row * 26, width - 24, 26),
-                        string.Join("  ", stats.Skip(row * 3).Take(3).Select(k => db.StatName(k) + " " + def.Stats[k])), sSmall);
+                        string.Join("  ", stats.Skip(row * 3).Take(3).Select(k => db.StatName(k) + " " + (k == "hp" ? fighter.MaxHp : def.Stats[k]))), sSmall);
                 int index = i;
                 if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side == 0 ? "选为首发" : "查看详情", sBtn))
                 {
@@ -739,17 +739,17 @@ namespace StreamDuel.Game
                     if (detailIdx >= me.Skills.Count) break;
                     var slot = me.Skills[detailIdx]; var sk = db.Skills[slot.Id];
                     var pr = b.PrioOf(0, sk);
-                    GUILayout.Label((slot.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>  " + SkillMeta(sk), sText);
+                    GUILayout.Label((slot.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>  " + SkillMeta(sk, slot.Max), sText);
                     GUILayout.Label("当前实际先制 " + (pr.Value > 0 ? "+" : "") + pr.Value + (pr.Parts.Count > 0 ? "（技能本身 " + sk.Prio + "，" + string.Join("，", pr.Parts) + "）" : ""), sSmall);
                     if (sk.Effects.Count == 0) GUILayout.Label("没有附加效果", sSmall);
-                    foreach (var e in sk.Effects) GUILayout.Label(EffectLine(e), sSmall);
+                    foreach (var e in sk.Effects) GUILayout.Label(EffectLine(e, b), sSmall);
                     break;
                 }
                 case "persona":
                 {
                     var p = db.Personas[detailId];
                     GUILayout.Label("<b>人设·" + p.Name + "</b>  " + C("时机：" + p.Node + " · 不可消除", Muted), sText);
-                    GUILayout.Label(p.Desc, sSmall);
+                    GUILayout.Label(Describe.PersonaDescription(db, p, b), sSmall);
                     break;
                 }
                 case "status":
@@ -771,8 +771,8 @@ namespace StreamDuel.Game
                     var p = b.Sides[detailSide].Team[detailIdx];
                     var pd = db.Personas[p.Def.Persona];
                     GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
-                    GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + pd.Desc, sSmall);
-                    foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp);
+                    GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + Describe.PersonaDescription(db, pd, b), sSmall);
+                    foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp, sl.Max, b);
                     break;
                 }
                 default:
