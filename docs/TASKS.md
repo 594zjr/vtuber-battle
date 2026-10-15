@@ -36,7 +36,7 @@
   - `Replay.Run(ContentDb db, BattleRecord r)`：PackId 不一致抛异常；否则新建同种子对战，按事件依次调用 `ResolveTurn` / `Replace`，返回对战。
 - **验收**：移入 `Pending/T02_ReplayTests.cs`，通过。
 
-### ⬜ T-03 新效果码 PP_REDUCE、FIXED_DAMAGE
+### ✅ T-03 新效果码 PP_REDUCE、FIXED_DAMAGE
 
 - **目标**：补上赛尔号式的“削 PP”和“固定伤害”。
 - **代码**：
