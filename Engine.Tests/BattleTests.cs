@@ -40,7 +40,7 @@ public class BattleTests
         Assert.Equal("卡麦", fan.Statuses[fan.Personas[fan.Streamer("marine").Persona].Status].Name);
         Assert.Equal("船长反击", fan.Personas[fan.Streamer("marine").Persona].Name);
         // 改名只影响这个内容包，原创包不受影响
-        Assert.Equal("翻黑历史", Db.Skills["dig_history"].Name);
+        Assert.Equal("回放追击", Db.Skills["dig_history"].Name);
         RunMany(fan, 200);
     }
 
