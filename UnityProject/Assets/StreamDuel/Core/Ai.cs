@@ -44,7 +44,7 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, int s, int idx)
         {
-            return Matchup(b, s, idx, AiWeights.Default);
+            return Matchup(b, s, idx, AiWeights.Legacy);
         }
 
         static double Matchup(Battle b, int s, int idx, AiWeights w)
@@ -54,7 +54,7 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, Fighter cand, Fighter f)
         {
-            return Matchup(b, cand, f, AiWeights.Default);
+            return Matchup(b, cand, f, AiWeights.Legacy);
         }
 
         static double Matchup(Battle b, Fighter cand, Fighter f, AiWeights w)
@@ -76,11 +76,6 @@ namespace StreamDuel.Core
             return persona.Code == "T_CONTACT_STATUS" && persona.P("chance") > 0 && persona.Status != null
                 && !b.Db.Statuses[persona.Status].IsControl
                 && b.LegalFor(1 - s).Skills.Any(o => o.Usable && b.Db.Skills[o.Id].Cat == "interact");
-        }
-
-        static double FieldValue(Battle b, int s, EffectDef effect, double threat, bool goFirst)
-        {
-            return FieldValue(b, s, effect, threat, goFirst, AiWeights.Default);
         }
 
         static double FieldValue(Battle b, int s, EffectDef effect, double threat, bool goFirst, AiWeights w)
@@ -268,7 +263,7 @@ namespace StreamDuel.Core
             if (b.Random() < 0.5)
                 return BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
 
-            var action = ChooseNormal(b, s, AiWeights.Default);
+            var action = ChooseNormal(b, s, AiWeights.Legacy);
             return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
         }
 
@@ -279,15 +274,36 @@ namespace StreamDuel.Core
             return ChooseNormal(b, s, StyleWeights(b, s) ?? w);
         }
 
+        // 旧四参重载只配置 Normal；独立入口让调参显式选择 Hard 权重，避免改变调用契约。
+        public static BattleAction ChooseWithWeights(Battle b, int s, AiLevel level, AiWeights weights)
+        {
+            if (weights == null) throw new ArgumentNullException(nameof(weights));
+            if (level == AiLevel.Normal) return ChooseNormal(b, s, StyleWeights(b, s) ?? weights);
+            if (level == AiLevel.Hard) return ChooseHard(b, s, weights);
+            if (level == AiLevel.Easy) return Choose(b, s, level);
+            throw new ArgumentOutOfRangeException(nameof(level), "显式权重只支持简单、普通和困难难度");
+        }
+
+        public static int ChooseReplacementWithWeights(Battle b, int s, AiLevel level, AiWeights weights)
+        {
+            if (weights == null) throw new ArgumentNullException(nameof(weights));
+            if (level == AiLevel.Hard) return ChooseHardReplacement(b, s);
+            if (level == AiLevel.Easy) return ChooseReplacementWithWeights(b, s, AiLevel.Normal, AiWeights.Legacy);
+            if (level != AiLevel.Normal) throw new ArgumentOutOfRangeException(nameof(level), "显式权重只支持简单、普通和困难难度");
+            var side = b.Sides[s];
+            return Enumerable.Range(0, side.Team.Count).Where(i => !side.Team[i].Fainted && i != side.Active)
+                .OrderByDescending(i => Matchup(b, s, i, weights)).First();
+        }
+
         public static int ChooseReplacement(Battle b, int s)
         {
-            var sd = b.Sides[s];
-            return Enumerable.Range(0, sd.Team.Count).Where(i => !sd.Team[i].Fainted && i != sd.Active).OrderByDescending(i => Matchup(b, s, i)).First();
+            return ChooseReplacementWithWeights(b, s, AiLevel.Normal, AiWeights.Default);
         }
 
         public static int ChooseReplacement(Battle b, int s, AiLevel level)
         {
             if (level == AiLevel.Expert) return ChooseExpertReplacement(b, s);
+            if (level == AiLevel.Easy) return ChooseReplacementWithWeights(b, s, AiLevel.Normal, AiWeights.Legacy);
             return level == AiLevel.Hard ? ChooseHardReplacement(b, s) : ChooseReplacement(b, s);
         }
     }

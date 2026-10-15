@@ -61,9 +61,9 @@ namespace StreamDuel.Core
             var skill = b.Db.Skills[option.Id];
             bool first = option.Prio.Value > 0 || (option.Prio.Value == 0 && b.StatVal(b.Active(s), "spd") > b.StatVal(b.Active(1 - s), "spd"));
             double threat = Threat(b, s);
-            // 搜索保留原战术分，只叠加风格相对默认估值的差额；不抽取随机数。
+            // 风格差额固定参照旧估值，避免普通难度调参暗中改变困难和专家的风格。
             return NormalSkillScore(b, s, skill, first, threat, weights)
-                - NormalSkillScore(b, s, skill, first, threat, AiWeights.Default);
+                - NormalSkillScore(b, s, skill, first, threat, AiWeights.Legacy);
         }
     }
 }
