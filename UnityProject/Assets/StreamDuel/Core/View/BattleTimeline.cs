@@ -128,6 +128,11 @@ namespace StreamDuel.Core
             {
                 cue.Start = speed <= 0 ? 0 : cue.Start / speed;
                 cue.Duration = speed <= 0 ? 0 : cue.Duration / speed;
+                double cueEnd = cue.Start + cue.Duration;
+                if (double.IsNaN(cue.Start) || double.IsInfinity(cue.Start)
+                    || double.IsNaN(cue.Duration) || double.IsInfinity(cue.Duration)
+                    || double.IsNaN(cueEnd) || double.IsInfinity(cueEnd))
+                    throw new ArgumentOutOfRangeException(nameof(speed), loc.T("timeline.err.speed.range"));
             }
             return cues;
         }

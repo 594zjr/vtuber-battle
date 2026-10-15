@@ -53,6 +53,18 @@ namespace StreamDuel.Core
             using (OpenLock(".settings.lock")) WriteAtomic("settings.json", ".settings.json.tmp", json);
         }
 
+        public TeamPresetList LoadTeams()
+        {
+            return TeamPresetList.FromJson(ReadOptional("teams.json"));
+        }
+
+        public void SaveTeams(TeamPresetList teams)
+        {
+            if (teams == null) throw new ArgumentNullException(nameof(teams));
+            string json = teams.ToJson();
+            using (OpenLock(".teams.lock")) WriteAtomic("teams.json", ".teams.json.tmp", json);
+        }
+
         public Profile LoadProfile()
         {
             return Profile.FromJson(ReadOptional("profile.json"));

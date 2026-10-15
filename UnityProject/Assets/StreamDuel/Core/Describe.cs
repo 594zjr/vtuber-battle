@@ -39,6 +39,11 @@ namespace StreamDuel.Core
 
         public static EffectText Effect(ContentDb db, EffectDef e)
         {
+            return Effect(db, e, null);
+        }
+
+        public static EffectText Effect(ContentDb db, EffectDef e, Battle battle)
+        {
             string tgt = e.Target == "self" ? Loc.T("describe.target.self") : Loc.T("describe.target.foe");
             string ch = e.Chance < 100 ? Loc.T("describe.chance", e.Chance) : "";
             string what, dispel = null;
@@ -60,7 +65,7 @@ namespace StreamDuel.Core
                     if (e.Changes.Values.Any(v => v > 0)) dispel = Loc.T("describe.dispel.boost");
                     break;
                 case "STEAL_BOOST":
-                    what = Loc.T("describe.effect.steal.boost", ch, tgt);
+                    what = Loc.T("describe.effect.steal.boost", ch, tgt, battle?.StageLimit ?? 6);
                     dispel = Loc.T("describe.dispel.steal.boost");
                     break;
                 case "HEAL": what = Loc.T("describe.effect.heal", Frac(e.Frac)); break;
@@ -96,6 +101,11 @@ namespace StreamDuel.Core
 
         public static EffectText Persona(ContentDb db, PersonaDef persona)
         {
+            return Persona(db, persona, null);
+        }
+
+        public static EffectText Persona(ContentDb db, PersonaDef persona, Battle battle)
+        {
             string at = persona.Node, text = persona.Desc ?? "", dispel = Loc.T("describe.dispel.persona");
             switch (persona.Code)
             {
@@ -122,12 +132,29 @@ namespace StreamDuel.Core
                     at = Loc.T("describe.at.hit");
                     var changes = ContentDb.StatKeys.Where(k => (int)persona.P(k) > 0)
                         .Select(k => Loc.T("describe.stage.increase", db.StatName(k), (int)persona.P(k)));
-                    text = Loc.T("describe.persona.stage.hit", string.Join(Loc.T("describe.list.separator"), changes));
+                    text = Loc.T("describe.persona.stage.hit", string.Join(Loc.T("describe.list.separator"), changes), battle?.StageLimit ?? 6);
                     dispel = Loc.T("describe.dispel.persona.stage", dispel);
                     break;
                 }
+                case "T_SPEED_IF_FIRST":
+                    if (battle != null && battle.StageLimit != 6)
+                    {
+                        at = Loc.T("describe.at.turn.end");
+                        text = Loc.T("describe.persona.speed.first", db.StatName("spd"), (int)persona.P("n"), battle.StageLimit);
+                        dispel = Loc.T("describe.dispel.persona.stage", dispel);
+                    }
+                    break;
             }
             return new EffectText { At = at, Text = text, Dispel = dispel };
+        }
+
+        public static string PersonaDescription(ContentDb db, PersonaDef persona, Battle battle = null)
+        {
+            // 默认保留内容包原文；特殊上限只覆盖相关代码的说明，不改写包内文案。
+            if (battle == null || battle.StageLimit == 6 ||
+                (persona.Code != "T_STAGE_ON_HIT" && persona.Code != "T_SPEED_IF_FIRST")) return persona.Desc;
+            var text = Persona(db, persona, battle);
+            return Loc.T("describe.persona.summary", text.Text, text.Dispel);
         }
 
         public static string FieldKind(FieldDef f)

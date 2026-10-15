@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <TieredCompilation>false</TieredCompilation>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Engine/StreamDuel.Core.csproj" />
+    <None Include="../../UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json" CopyToOutputDirectory="PreserveNewest" Link="Content/StreamDuelRules.json" />
+    <None Include="../../UnityProject/Assets/StreamDuel/Resources/Packs/*.json" CopyToOutputDirectory="PreserveNewest" Link="Content/Packs/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
