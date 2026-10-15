@@ -18,7 +18,7 @@ namespace StreamDuel.Core
     public enum Phase { Choose, Replace, Over, Lead }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
-    public struct BattleAction
+    public partial struct BattleAction
     {
         public ActionType Type; public int Index;
         public static BattleAction Skill(int i) { return new BattleAction { Type = ActionType.Skill, Index = i }; }
