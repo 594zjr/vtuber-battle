@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.ReplayDiffMode) return CompareReplays(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
@@ -224,6 +225,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
+            Console.WriteLine("  --replay-diff 录像1 录像2  只读对比文件或录像库编号，打印开局、首个行动/状态分歧和较短记录结束位置；第 0 回合表示开场。");
+            Console.WriteLine("                    仅可搭配 --save-dir、--pack-dir 和帮助参数；按记录加载内容包，不写存档、锁、索引或战报。文件优先，裸编号取自 replay-library，不接受分享码。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
             Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
