@@ -37,6 +37,7 @@ namespace StreamDuel.Cli
         public bool Auto;
         public bool Ban;
         public bool Lead;
+        public bool Advice;
         public bool Hash;
         public bool Help;
         public bool ListPacks;
@@ -129,6 +130,12 @@ namespace StreamDuel.Cli
                 if (option == "--ban")
                 {
                     options.Ban = true;
+                    continue;
+                }
+                if (option == "--advice")
+                {
+                    if (options.Advice) throw new ArgumentException(Loc.Current.T("advice.cli.duplicate"));
+                    options.Advice = true;
                     continue;
                 }
                 if (option == "--lead")
@@ -266,6 +273,19 @@ namespace StreamDuel.Cli
                         options.TeamCode = value;
                         break;
                 }
+            }
+            if (options.Advice && !options.Help)
+            {
+                var compatible = new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "--advice", "--ban", "--lead", "--pack", "--pack-dir", "--level", "--seed", "--team",
+                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
+                };
+                var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException(Loc.Current.T("advice.cli.conflict", string.Join("、", unsupported)));
+                if (!options.Ban && !options.Lead)
+                    throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
             }
             if (options.TournamentFile != null && !options.Help)
             {

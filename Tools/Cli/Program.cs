@@ -53,6 +53,8 @@ namespace StreamDuel.Cli
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
                 PrintTeams(battle);
+                // 只读取原始公开六人阵容，必须早于任何禁用/首发确认，也不借用实战随机流。
+                if (options.Advice) PrintTeamAdvice(db, player, opponent);
                 int logIndex = 0;
                 PrintNewLog(battle, ref logIndex);
                 var clock = options.TurnSeconds.HasValue
@@ -196,6 +198,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
+            Console.WriteLine(Loc.Current.T("advice.cli.help"));
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
