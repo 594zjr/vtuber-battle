@@ -5,7 +5,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum BattleRecordEventType { Turn, Replace, Lead }
+    public enum BattleRecordEventType { Turn, Replace, Lead, Ban }
 
     public sealed class BattleRecordEvent
     {
@@ -23,6 +23,8 @@ namespace StreamDuel.Core
         public uint Seed { get; set; }
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
+        public bool BanOne { get; set; }
+        public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
         public List<BattleRecordEvent> Events { get; } = new List<BattleRecordEvent>();
 
@@ -32,6 +34,16 @@ namespace StreamDuel.Core
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
             if (LeadPick) sb.Append(",\"leadPick\":true");
+            if (BanOne) sb.Append(",\"banOne\":true");
+            if (Names != null)
+            {
+                if (Names.Length != 2) throw new FormatException("对战记录必须包含两个名称");
+                sb.Append(",\"names\":[");
+                WriteString(sb, Names[0]);
+                sb.Append(',');
+                WriteString(sb, Names[1]);
+                sb.Append(']');
+            }
             sb.Append(",\"teams\":[");
             for (int s = 0; s < Teams.Length; s++)
             {
@@ -56,9 +68,12 @@ namespace StreamDuel.Core
                     sb.Append(",\"a1\":");
                     WriteAction(sb, e.A1);
                 }
-                else if (e.Type == BattleRecordEventType.Replace || e.Type == BattleRecordEventType.Lead)
+                else if (e.Type == BattleRecordEventType.Replace || e.Type == BattleRecordEventType.Lead || e.Type == BattleRecordEventType.Ban)
                 {
-                    sb.Append(e.Type == BattleRecordEventType.Lead ? "{\"type\":\"lead\",\"side\":" : "{\"type\":\"replace\",\"side\":");
+                    string type = e.Type == BattleRecordEventType.Ban ? "ban" : e.Type == BattleRecordEventType.Lead ? "lead" : "replace";
+                    sb.Append("{\"type\":");
+                    WriteString(sb, type);
+                    sb.Append(",\"side\":");
                     sb.Append(e.Side.ToString(CultureInfo.InvariantCulture));
                     sb.Append(",\"to\":").Append(e.To.ToString(CultureInfo.InvariantCulture));
                 }
@@ -86,6 +101,17 @@ namespace StreamDuel.Core
                 if (!(leadPick is bool enabled)) throw new FormatException("leadPick 必须是布尔值");
                 record.LeadPick = enabled;
             }
+            if (root.TryGetValue("banOne", out var banOne))
+            {
+                if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
+                record.BanOne = enabled;
+            }
+            if (root.TryGetValue("names", out var namesValue))
+            {
+                var names = ReadArray(namesValue, "names");
+                if (names.Count != 2) throw new FormatException("对战记录必须包含两个名称");
+                record.Names = new[] { ReadString(names[0], "names[0]"), ReadString(names[1], "names[1]") };
+            }
             for (int s = 0; s < teams.Count; s++)
             {
                 var team = new List<string>();
@@ -103,9 +129,9 @@ namespace StreamDuel.Core
                     e.A0 = ReadAction(Required(obj, "a0"));
                     e.A1 = ReadAction(Required(obj, "a1"));
                 }
-                else if (type == "replace" || type == "lead")
+                else if (type == "replace" || type == "lead" || type == "ban")
                 {
-                    e.Type = type == "lead" ? BattleRecordEventType.Lead : BattleRecordEventType.Replace;
+                    e.Type = type == "ban" ? BattleRecordEventType.Ban : type == "lead" ? BattleRecordEventType.Lead : BattleRecordEventType.Replace;
                     e.Side = (int)ReadInteger(Required(obj, "side"), "side", 0, 1);
                     e.To = (int)ReadInteger(Required(obj, "to"), "to", 0, int.MaxValue);
                 }
@@ -181,13 +207,15 @@ namespace StreamDuel.Core
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
-            var battle = new Battle(db, r.Teams, new[] { "你", "对手" }, r.Seed, r.LeadPick);
+            var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
+                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne });
             foreach (var e in r.Events)
             {
                 if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);
                 if (e.Type == BattleRecordEventType.Turn) battle.ResolveTurn(e.A0, e.A1);
                 else if (e.Type == BattleRecordEventType.Replace) battle.Replace(e.Side, e.To);
                 else if (e.Type == BattleRecordEventType.Lead) battle.ChooseLead(e.Side, e.To);
+                else if (e.Type == BattleRecordEventType.Ban) battle.ChooseBan(e.Side, e.To);
                 else throw new FormatException("未知回放事件类型：" + e.Type);
             }
             return battle;

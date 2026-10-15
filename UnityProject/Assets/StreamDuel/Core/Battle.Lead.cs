@@ -27,9 +27,20 @@ namespace StreamDuel.Core
             for (int s = 0; s < Sides.Length; s++)
             {
                 var team = Sides[s].Team;
-                var lead = team[leadChoices[s]];
-                team.RemoveAt(leadChoices[s]);
+                int leadIndex = leadChoices[s];
+                var lead = team[leadIndex];
+                team.RemoveAt(leadIndex);
                 team.Insert(0, lead);
+                // 禁用日志早于首发重排，旧快照也必须按主播身份映射到最终队伍顺序。
+                foreach (var entry in Log)
+                {
+                    var hp = entry.SnapHp[s];
+                    int leadHp = hp[leadIndex];
+                    for (int i = leadIndex; i > 0; i--) hp[i] = hp[i - 1];
+                    hp[0] = leadHp;
+                    int oldActive = entry.SnapActive[s];
+                    entry.SnapActive[s] = oldActive == leadIndex ? 0 : oldActive < leadIndex ? oldActive + 1 : oldActive;
+                }
                 for (int i = 0; i < team.Count; i++) team[i].Slot = i + 1;
                 Sides[s].Active = 0;
             }

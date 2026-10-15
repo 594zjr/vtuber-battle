@@ -32,9 +32,10 @@ namespace StreamDuel.Core
             int draws = checked(stats.Draws + (b.Winner == -1 ? 1 : 0));
             var picks = new Dictionary<string, int>(stats.Picks, StringComparer.Ordinal);
             var pickWins = new Dictionary<string, int>(stats.PickWins, StringComparer.Ordinal);
-            // 回放保留开局名单，首发重排或当前上场位置都不应改变选用统计。
-            foreach (string id in b.Record.Teams[playerSide])
+            // 最终队伍已移除被禁主播；下播和是否登场都不改变本局的选用名单。
+            foreach (var fighter in b.Sides[playerSide].Team)
             {
+                string id = fighter.Def.Id;
                 int count;
                 picks.TryGetValue(id, out count);
                 picks[id] = checked(count + 1);

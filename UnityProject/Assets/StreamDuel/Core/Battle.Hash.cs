@@ -66,6 +66,8 @@ namespace StreamDuel.Core
                     }
                 }
             }
+            foreach (int choice in banChoices) hash.Int(choice);
+            hash.Bool(leadPickAfterBan);
             return hash.Value;
         }
 
