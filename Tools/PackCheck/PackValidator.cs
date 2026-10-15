@@ -103,6 +103,8 @@ namespace StreamDuel.PackCheck
                 CheckText(pair.Value, LoadedLocation(packPath, "stats", pair.Key), words, report);
             foreach (var pair in db.CatNames.OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 CheckText(pair.Value, LoadedLocation(packPath, "categories", pair.Key), words, report);
+            foreach (var pair in db.Seasons.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+                CheckText(pair.Value.Name, packPath + ":$.seasons[\"" + pair.Key + "\"].name", words, report);
 
             return errors;
         }

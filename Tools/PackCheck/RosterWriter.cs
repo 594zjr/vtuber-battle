@@ -47,7 +47,7 @@ namespace StreamDuel.PackCheck
                         WriteSkill(text, db, db.Skills[streamer.Skills[i]], "普通技能 " + (i + 1).ToString(CultureInfo.InvariantCulture));
                     WriteSkill(text, db, db.Skills[streamer.Fifth], "第五技能");
                 }
-                return text.ToString();
+                return text.ToString().TrimEnd('\n') + "\n";
             }
             finally
             {
