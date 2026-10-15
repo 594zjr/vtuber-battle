@@ -69,6 +69,7 @@ namespace StreamDuel.Core
     public sealed class Rng
     {
         uint a;
+        internal uint State { get { return a; } set { a = value; } }
         public Rng(uint seed) { a = seed; }
         public double Next()
         {
@@ -102,6 +103,12 @@ namespace StreamDuel.Core
             Db = db;
             Seed = seed ?? (uint)Environment.TickCount;
             rng = new Rng(Seed);
+            Record = new BattleRecord
+            {
+                Seed = Seed,
+                PackId = db.PackId,
+                Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
+            };
             for (int s = 0; s < 2; s++)
             {
                 Sides[s] = new SideState { Name = names[s] };
@@ -505,6 +512,7 @@ namespace StreamDuel.Core
         public void ResolveTurn(BattleAction a0, BattleAction a1)
         {
             if (Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
+            Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Turn, A0 = a0, A1 = a1, RngState = rng.State });
             var acts = new[] { Normalize(0, a0), Normalize(1, a1) };
             ActedFirst[0] = ActedFirst[1] = false;
             Add(Node.TurnHeader, "第 " + Turn + " 回合", "turn");
@@ -570,6 +578,7 @@ namespace StreamDuel.Core
             if (Phase != Phase.Replace || !Need[s]) throw new InvalidOperationException("这一方现在不需要补位");
             var sd = Sides[s];
             if (to == sd.Active || to < 0 || to >= sd.Team.Count || sd.Team[to].Fainted) throw new InvalidOperationException("不能派出这位主播");
+            Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Replace, Side = s, To = to, RngState = rng.State });
             Need[s] = false;
             SwitchTo(s, to, Node.Replace);
             if (!Need[0] && !Need[1] && Phase != Phase.Over) Phase = Phase.Choose;
