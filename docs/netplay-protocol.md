@@ -1,6 +1,6 @@
-# 联网对战协议 v3
+# 联网对战协议 v3 与可选终止协议 v4
 
-本文记录 `NetSession.ProtocolVersion = 3` 的现有线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；本任务不修改协议；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
 
 v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
 
@@ -244,3 +244,26 @@ CLI 的 `FinishNetwork` 在 `Over` 后调用 `CompleteSending()`，仅关闭 TCP
 1. 承诺摘要只绑定 `action + "|" + nonce`，不绑定回合、kind、发送方或会话身份。外层会校验回合和 kind，但无法阻止一方复制对方 digest，随后复制其相同行动与 nonce。需要另行决定是否给摘要加入上下文。
 2. JSON 重复键取最后值，没有重复键错误。需要另行决定后续版本是否拒绝重复键；本任务不通过改解析器改变现有行为。
 3. `hash` 没有独立的十六进制格式验证；字符串与本地值不等便进入 `Desync`。需要决定未来是否将非法格式归类为 `Error`，区分它与真正的状态分歧。
+
+## 10. T-98：显式启用终止协议 v4
+
+双方构造 `NetSession(..., enableTermination: true)` 才使用本节。hello 的 `version` 为 4，并额外要求数值 `terminationVersion:1`；旧端 v3 与新端 v4 明确拒绝连接，未声明能力的 v4 端也拒绝。其他 hello、快捷语、计时和错误字段沿用前文，主机种子规则暂不改变。CLI 默认使用此模式，库的默认构造仍为 v3，因此原固定消息样例和旧集成调用保持原样。尚未合并的公平种子任务 T-87 也涉及新版本，后合并方须统一版本及能力组合，不能仅因版本号相等省略能力核对。
+
+在可信 FIFO 传输上，新模式把每次普通结算和投降/和局控制操作都排入一次确认窗口。阶段编号 `phase` 从 1 开始，每次开放新的选择或补位阶段递增；`turn` 为该阶段的 Battle.Turn。控制序号 `seq` 从 1 开始，由主机逐窗口递增，不随回合归零。
+
+| type | 发送方 | 其它必需字段 | 含义 |
+|---|---|---|---|
+| `termination-wake` | 客机 | `phase`, `turn` | 客机请求主机启动同步窗口 |
+| `termination-freeze` | 主机 | `phase`, `turn`, `seq` | 固定本次输入窗口，等待客机确认 |
+| `termination-ready` | 客机 | `phase`, `turn`, `seq`, `request`, `resolve` | 客机确认自己的控制请求，以及普通选择是否公开齐全 |
+| `termination-apply` | 主机 | `phase`, `turn`, `seq`, `requests`, `resolve` | 按 `[主机, 客机]` 应用双方请求，是否随后结算普通选择 |
+
+`phase`、`turn`、`seq` 为正整数，要求与当前状态精确相等（客机收到 freeze 要求下一个 seq）。`request` 是 `none`、`surrender`、`offer`、`accept` 或 `reject`；`requests` 恰有两个这样的字符串；`resolve` 必须是布尔值。普通 JSON 的未知字段及重复键行为仍沿用第 1 节，不能据此执行额外操作。角色错误、重复确认、错误序号/阶段、改变客机已确认请求、请求与当前待答/冷却状态不符，以及未公开齐全却要求结算，均进入 Error。
+
+两端正常动作仍用原 commit/reveal 保护。任何终止输入或完整普通选择都会触发窗口，冻结后暂停新的输入和公开；同向 FIFO 保证 ready 之前已经发出的消息先到达主机。主机先发 apply，再按相同算法本地执行，并发送 hash；客机先处理 apply 后处理 hash。控制结束与正常终局一样要完成哈希确认，不能凭“已经发送投降”保存结果。正常双补位仍按 0、1 方逐次发送两份 hash。
+
+请求同时存在时，投降优先，双投降平局；其余请求按 0、1 方执行，接受后不再执行本窗口剩余操作。没有终局时，仅双方都确认选择齐全才结算；否则保留原承诺、公开选择、剩余计时及所在阶段。恢复后继续公开和结算。两个已提交的投降不依赖 Poll 先后；一端已发 ready 后不允许追加投降去改写已经确认的结果。
+
+提议/回应的实际应用写入录像 v3，双方采用相同 RNG 检查点。冷却为每方独立五回合，拒绝只清除待答标记。`DrawOffered` 为对方请求，`DrawOfferPending` 为自己请求。`CanSurrender`、`CanOfferDraw`、`CanRespondDraw` 告知当前输入窗口是否允许对应操作，握手、冻结、待哈希或结束时不可提交。当前网络只支持 Choose/Replace；本地 Battle 在首发、禁用等阶段的投降不意味着网络已支持这些开局流程。
+
+v3 的既有已知问题仍保留，本扩展不增加认证、加密或可信主机保证；恶意端仍可断线。`Q` 是公开 BattleAction 编码，但网络中的投降走控制请求，commit/reveal 中的 `Q` 会被拒绝，不能借普通动作绕过窗口确认。

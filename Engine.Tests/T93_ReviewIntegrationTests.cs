@@ -47,7 +47,7 @@ public class T93_ReviewIntegrationTests
     }
 
     [Theory]
-    [InlineData(3)]
+    [InlineData(4)]
     [InlineData(int.MaxValue)]
     public void CursorRejectsFutureInMemoryRecordWithTheUpgradeReason(int futureVersion)
     {
@@ -90,7 +90,7 @@ public class T93_ReviewIntegrationTests
         string futureId = library.Save(battle.Record, summary);
         string futurePath = Path.Combine(directory.Root, futureId + ".json");
         string savedJson = File.ReadAllText(futurePath);
-        string currentMarker = "\"version\":" + BattleRecord.CurrentVersion.ToString(CultureInfo.InvariantCulture);
+        string currentMarker = "\"version\":" + BattleRecord.DefaultVersion.ToString(CultureInfo.InvariantCulture);
         string futureMarker = "\"version\":" + (BattleRecord.CurrentVersion + 1).ToString(CultureInfo.InvariantCulture);
         Assert.Contains(currentMarker, savedJson);
         string futureJson = savedJson.Replace(currentMarker, futureMarker);
