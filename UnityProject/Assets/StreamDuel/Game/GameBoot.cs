@@ -40,7 +40,7 @@ namespace StreamDuel.Game
             router.Initialize(document, Resources.Load<ScreenResources>("StreamDuelUI"), visible => legacy.enabled = visible);
             router.Register(ScreenIds.Menu, () => new MenuScreen(legacy));
             router.Register(ScreenIds.About, () => new AboutScreen());
-            router.Register(ScreenIds.AnimationPreview, () => new MenuPreviewScreen(ScreenIds.AnimationPreview, "动画预览"));
+            router.Register(ScreenIds.AnimationPreview, () => new AnimPreviewScreen());
             router.Register(ScreenIds.EffectPreview, () => new MenuPreviewScreen(ScreenIds.EffectPreview, "特效预览"));
             router.Register(ScreenIds.Team, () => new TeamScreen());
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());

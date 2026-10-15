@@ -185,7 +185,7 @@ namespace StreamDuel.Game
             var developer = new Foldout { name = "developer-tools", text = "开发", value = false };
             developer.AddToClassList("sd-menu__developer");
             shell.Add(developer);
-            MakeLabel("developer-note", "动画与特效预览入口暂为占位界面。", "sd-menu__developer-note", developer);
+            MakeLabel("developer-note", "特效预览入口暂为占位界面。", "sd-menu__developer-note", developer);
             var buttons = MakeElement("developer-actions", "sd-menu__developer-actions", developer);
             AddPage(router, buttons, "open-legacy", ScreenIds.Legacy, "旧版对战", args);
             AddPage(router, buttons, "open-animation-preview", ScreenIds.AnimationPreview, "动画预览", args);

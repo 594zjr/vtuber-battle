@@ -491,7 +491,7 @@ namespace StreamDuel.Game
             legacy.MainMenuRequested();
             yield return Settle();
             Require(router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "旧版返回菜单失效。");
-            report.steps.Add(Size + "：开发折叠、两个预览占位路由及旧版往返均通过。");
+            report.steps.Add(Size + "：开发折叠、两个开发预览路由及旧版往返均通过。");
         }
 
         IEnumerator CheckDisposal()
