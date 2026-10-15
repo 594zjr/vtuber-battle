@@ -25,6 +25,8 @@ namespace StreamDuel.Cli
         public string SaveDir = "saves";
         public string ReplayFile;
         public string ReplayCode;
+        public string ReplayDiffA;
+        public string ReplayDiffB;
         public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
@@ -53,6 +55,7 @@ namespace StreamDuel.Cli
         public string[] MatchupTeamB;
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
         public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
+        public bool ReplayDiffMode { get { return ReplayDiffA != null; } }
         public bool AnalysisMode { get { return CalcAttacker != null || MatchupTeamA != null; } }
 
         public static CliOptions Parse(string[] args)
@@ -65,6 +68,13 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--replay-diff")
+                {
+                    if (options.ReplayDiffMode) throw new ArgumentException("--replay-diff 不能重复指定。");
+                    options.ReplayDiffA = ReadAnalysisValue(args, ref i, option, "录像1文件或编号");
+                    options.ReplayDiffB = ReadAnalysisValue(args, ref i, option, "录像2文件或编号");
+                    continue;
+                }
                 if (option == "--hotseat")
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
@@ -292,6 +302,17 @@ namespace StreamDuel.Cli
                         options.TeamCode = value;
                         break;
                 }
+            }
+            if (options.ReplayDiffMode && !options.Help)
+            {
+                var unsupported = provided.Where(option => option != "--replay-diff" && option != "--save-dir"
+                    && option != "--pack-dir" && option != "--help" && option != "-h").Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("--replay-diff 是独立只读操作，只可搭配 --save-dir、--pack-dir 和帮助参数；不能与 "
+                        + string.Join("、", unsupported) + " 同用。");
+                foreach (string option in new[] { "--save-dir", "--pack-dir" })
+                    if (provided.Count(item => item == option) > 1)
+                        throw new ArgumentException("录像对比时 " + option + " 不能重复指定。");
             }
             if (options.Advice && !options.Help)
             {
