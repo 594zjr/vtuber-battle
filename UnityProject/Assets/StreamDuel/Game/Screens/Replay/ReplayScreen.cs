@@ -169,7 +169,11 @@ namespace StreamDuel.Game
             };
             speed.style.width = speed.style.minWidth = 210;
             StyleField(speed, speed.labelElement, 64);
-            EventCallback<ChangeEvent<string>> changedSpeed = _ => elapsed = 0;
+            EventCallback<ChangeEvent<string>> changedSpeed = _ => Attempt(() =>
+            {
+                elapsed = 0;
+                animator.SkipToEnd();
+            });
             speed.RegisterValueChangedCallback(changedSpeed);
             var speedField = speed;
             unbind.Add(() => speedField.UnregisterValueChangedCallback(changedSpeed));
@@ -266,9 +270,11 @@ namespace StreamDuel.Game
             RequireReplay();
             StopPlayback();
             animator.SkipToEnd();
+            int previousIndex = navigator.Index;
             if (forward) navigator.Next();
             else navigator.Previous();
-            RefreshFrame();
+            if (navigator.Index != previousIndex) RefreshFrame(forward);
+            else UpdateControls();
         }
 
         void Jump()
@@ -282,15 +288,24 @@ namespace StreamDuel.Game
                     + navigator.Turns[navigator.Count - 1] + " 之间的已有回合。");
             StopPlayback();
             animator.SkipToEnd();
-            navigator.Seek(target);
-            RefreshFrame();
+            if (target != navigator.Index)
+            {
+                navigator.Seek(target);
+                RefreshFrame();
+            }
+            else UpdateControls();
             Message(target == 0 ? "已回到开场。" : "已跳转到第 " + navigator.Turns[target] + " 回合。");
         }
 
         void TogglePlayback()
         {
             RequireReplay();
-            if (playing) StopPlayback();
+            if (playing)
+            {
+                StopPlayback();
+                // 接口没有暂停进度，暂停时先落到当前回合终态，避免画面继续播放。
+                animator.SkipToEnd();
+            }
             else
             {
                 if (navigator.Index == navigator.Count - 1)
@@ -311,14 +326,13 @@ namespace StreamDuel.Game
             Attempt(() =>
             {
                 if (animator.IsPlaying) return;
-                float rate = speed.index == 0 ? .5f : speed.index == 2 ? 2 : speed.index == 3 ? 4 : 1;
                 // 切回窗口时不把长时间挂起当成连续播放，避免瞬间跳过整份录像。
-                elapsed += Math.Min(dt, 1) * rate;
+                elapsed += Math.Min(dt, 1) * PlaybackSpeed;
                 while (playing && elapsed >= 1 && !animator.IsPlaying)
                 {
                     elapsed -= 1;
                     navigator.Next();
-                    RefreshFrame();
+                    RefreshFrame(true);
                     if (navigator.Index == navigator.Count - 1)
                     {
                         StopPlayback();
@@ -335,7 +349,9 @@ namespace StreamDuel.Game
             elapsed = 0;
         }
 
-        void RefreshFrame()
+        float PlaybackSpeed => speed.index == 0 ? .5f : speed.index == 2 ? 2 : speed.index == 3 ? 4 : 1;
+
+        void RefreshFrame(bool animate = false)
         {
             var battle = navigator.Current;
             var view = BattleViewModel.From(battle, 0);
@@ -365,7 +381,9 @@ namespace StreamDuel.Game
             foreach (var entry in navigator.FrameLog) log.Add(Text("【" + entry.Node + "】" + entry.Text));
             if (log.contentContainer.childCount == 0) log.Add(Text("本回合暂无日志。"));
             log.scrollOffset = Vector2.zero;
-            animator.Play(Array.Empty<AnimCue>());
+            // 后退和跳转仍保留全部提示，由 Core 的零倍速语义直接呈现终态。
+            animator.Play(BattleTimeline.Build(battle.Events, navigator.FrameEventStart,
+                battle.Events.Count, animate ? PlaybackSpeed : 0));
             UpdateControls();
         }
 

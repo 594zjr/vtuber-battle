@@ -12,10 +12,12 @@ namespace StreamDuel.Game
         readonly List<int> cuts = new List<int>();
         readonly List<int> turns = new List<int>();
         readonly List<int> logStarts = new List<int>();
+        readonly List<int> eventStarts = new List<int>();
 
         public int Count => cuts.Count;
         public int Index { get; private set; }
         public Battle Current { get; private set; }
+        public int FrameEventStart => eventStarts[Index];
         public IReadOnlyList<int> Turns => turns.AsReadOnly();
         public BattleRecord Record => BattleRecord.FromJson(recordJson);
         public IReadOnlyList<LogEntry> FrameLog => Current.Log.Skip(logStarts[Index]).ToList().AsReadOnly();
@@ -33,7 +35,10 @@ namespace StreamDuel.Game
             cuts.Add(firstTurn < 0 ? snapshot.Events.Count : firstTurn);
             turns.Add(0);
             logStarts.Add(0);
-            int previousLogCount = Replay.Run(content, Prefix(snapshot, cuts[0])).Log.Count;
+            eventStarts.Add(0);
+            var opening = Replay.Run(content, Prefix(snapshot, cuts[0]));
+            int previousLogCount = opening.Log.Count;
+            int previousEventCount = opening.Events.Count;
             for (int i = Math.Max(0, firstTurn); firstTurn >= 0 && i < snapshot.Events.Count; i++)
             {
                 if (snapshot.Events[i].Type != BattleRecordEventType.Turn) continue;
@@ -44,7 +49,9 @@ namespace StreamDuel.Game
                 // 补位日志可能已标记下一回合，用真实回合标题命名；日志按范围保留，不能漏掉补位。
                 turns.Add(state.Log.Last(entry => entry.Node == Node.TurnHeader).Turn);
                 logStarts.Add(previousLogCount);
+                eventStarts.Add(previousEventCount);
                 previousLogCount = state.Log.Count;
+                previousEventCount = state.Events.Count;
             }
             Seek(0);
         }

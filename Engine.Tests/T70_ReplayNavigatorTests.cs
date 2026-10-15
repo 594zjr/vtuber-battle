@@ -161,4 +161,191 @@ public class T70_ReplayNavigatorTests
         Assert.Throws<ArgumentNullException>(() => new ReplayNavigator(null, battle.Record));
         Assert.Throws<ArgumentNullException>(() => new ReplayNavigator(battle.Db, null));
     }
+
+    [Theory]
+    [InlineData(0u, true)]
+    [InlineData(42u, false)]
+    public void FrameEventRangesPartitionTheActualBattleAcrossNavigation(uint seed, bool opening)
+    {
+        AssertFrameEventRanges(Completed(seed, opening));
+    }
+
+    [Fact]
+    public void BothReplacementEntriesBelongToTheTurnThatCausedThem()
+    {
+        var battle = CompletedWithBothSidesReplacing();
+        Assert.Equal(10, battle.Record.Events.Count(e => e.Type == BattleRecordEventType.Replace));
+        AssertFrameEventRanges(battle);
+        var navigation = new ReplayNavigator(battle.Db, battle.Record);
+        for (int frame = 1; frame < navigation.Count - 1; frame++)
+        {
+            navigation.Seek(frame);
+            var replacementIndices = Enumerable.Range(navigation.FrameEventStart,
+                    navigation.Current.Events.Count - navigation.FrameEventStart)
+                .Where(i => navigation.Current.Events[i].Kind == BattleEventKind.Enter
+                    && navigation.Current.Events[i].Node == Node.Replace).ToArray();
+            Assert.Equal(2, replacementIndices.Length);
+            Assert.Equal(new[] { 0, 1 }, replacementIndices.Select(i => navigation.Current.Events[i].Side));
+            Assert.All(replacementIndices, i =>
+                Assert.Equal(navigation.Turns[frame] + 1, navigation.Current.Events[i].Turn));
+            var cues = BattleTimeline.Build(navigation.Current.Events, navigation.FrameEventStart,
+                navigation.Current.Events.Count, 1);
+            Assert.Equal(replacementIndices, cues.Where(c => c.Kind == CueKind.Enter).Select(c => c.EventIndex));
+        }
+    }
+
+    [Fact]
+    public void EmptyOpeningAndUnfinishedReplacementHaveExactEventRanges()
+    {
+        var battle = CompletedWithBothSidesReplacing();
+        int firstTurn = battle.Record.Events.FindIndex(e => e.Type == BattleRecordEventType.Turn);
+        foreach (int count in new[] { 0, firstTurn, firstTurn + 1 })
+        {
+            var record = BattleRecord.FromJson(battle.Record.ToJson());
+            record.Events.RemoveRange(count, record.Events.Count - count);
+            var partial = Replay.Run(battle.Db, record);
+            AssertFrameEventRanges(partial);
+            var navigation = new ReplayNavigator(battle.Db, record);
+            navigation.Seek(navigation.Count - 1);
+            var cues = BattleTimeline.Build(navigation.Current.Events, navigation.FrameEventStart,
+                navigation.Current.Events.Count, 0);
+            if (count == 0)
+            {
+                Assert.Equal(1, navigation.Count);
+                Assert.Equal(Phase.Lead, navigation.Current.Phase);
+                Assert.Equal(0, navigation.FrameEventStart);
+                Assert.Empty(navigation.Current.Events);
+                Assert.Empty(cues);
+            }
+            else if (count == firstTurn)
+            {
+                Assert.Equal(1, navigation.Count);
+                Assert.Equal(Phase.Choose, navigation.Current.Phase);
+                Assert.Equal(0, navigation.FrameEventStart);
+                Assert.Equal(2, cues.Count(c => c.Kind == CueKind.Enter));
+            }
+            else
+            {
+                Assert.Equal(2, navigation.Count);
+                Assert.Equal(Phase.Replace, navigation.Current.Phase);
+                Assert.Equal(2, cues.Count(c => c.Kind == CueKind.Faint));
+                Assert.DoesNotContain(cues, c => c.Kind == CueKind.Enter);
+                Assert.DoesNotContain(navigation.Current.Events, e => e.Node == Node.Replace);
+            }
+        }
+    }
+
+    static Battle CompletedWithBothSidesReplacing()
+    {
+        var db = BattleTests.LoadPack("original");
+        foreach (var streamer in db.Streamers)
+        {
+            streamer.Persona = "pure";
+            streamer.Skills = new List<string> { "full_volume", "pregame", "deep_breath", "quick_mic" };
+            streamer.Fifth = "high_note";
+        }
+        var skill = db.Skills["full_volume"];
+        skill.Cat = "status";
+        skill.Power = 0;
+        skill.Pp = 40;
+        skill.Acc = 100;
+        skill.Effects = new List<EffectDef>
+        {
+            new EffectDef { At = "post", Code = "FIXED_DAMAGE", Target = "foe", N = 10000 },
+            new EffectDef { At = "post", Code = "FIXED_DAMAGE", Target = "self", N = 10000 }
+        };
+        db.Validate();
+        var ids = db.Streamers.Select(s => s.Id).ToArray();
+        var battle = new Battle(db, new IList<string>[] { ids.Take(6).ToArray(), ids.Skip(6).Take(6).ToArray() },
+            new[] { "补位甲", "补位乙" }, 7u, leadPick: true);
+        battle.ChooseLead(0, 0);
+        battle.ChooseLead(1, 0);
+        for (int turn = 0; turn < 6 && battle.Phase != Phase.Over; turn++)
+        {
+            battle.ResolveTurn(BattleAction.Skill(0), BattleAction.Pass());
+            if (battle.Phase == Phase.Over) break;
+            Assert.Equal(Phase.Replace, battle.Phase);
+            Assert.All(battle.Need, needed => Assert.True(needed));
+            for (int side = 0; side < 2; side++)
+                battle.Replace(side, battle.Sides[side].Team.FindIndex(f => !f.Fainted));
+        }
+        Assert.Equal(Phase.Over, battle.Phase);
+        return battle;
+    }
+
+    static void AssertFrameEventRanges(Battle battle)
+    {
+        string originalJson = battle.Record.ToJson();
+        ulong originalHash = battle.StateHash();
+        var originalEvents = battle.Events.Select(EventKey).ToArray();
+        // 补位的 Turn 已递增，必须按真实回合标题划界，不能按事件的 Turn 分组。
+        var boundaries = new List<int> { 0 };
+        boundaries.AddRange(Enumerable.Range(0, battle.Events.Count).Where(i =>
+            battle.Events[i].Kind == BattleEventKind.Info && battle.Events[i].Node == Node.TurnHeader));
+        boundaries.Add(battle.Events.Count);
+        var navigation = new ReplayNavigator(battle.Db, battle.Record);
+        Assert.Equal(boundaries.Count - 1, navigation.Count);
+        var hashes = new List<ulong>();
+        var visited = new List<int>();
+        for (int frame = 0; frame < navigation.Count; frame++)
+        {
+            if (frame > 0) navigation.Next();
+            AssertFrameEventRange(navigation, battle.Events, boundaries, frame);
+            visited.AddRange(Enumerable.Range(navigation.FrameEventStart,
+                navigation.Current.Events.Count - navigation.FrameEventStart));
+            hashes.Add(navigation.Current.StateHash());
+        }
+        Assert.Equal(Enumerable.Range(0, battle.Events.Count), visited);
+        Assert.Equal(originalHash, navigation.Current.StateHash());
+        Assert.Equal(originalJson, navigation.Current.Record.ToJson());
+        navigation.Next();
+        AssertFrameEventRange(navigation, battle.Events, boundaries, navigation.Count - 1);
+        for (int frame = navigation.Count - 1; frame >= 0; frame--)
+        {
+            AssertFrameEventRange(navigation, battle.Events, boundaries, frame);
+            Assert.Equal(hashes[frame], navigation.Current.StateHash());
+            navigation.Previous();
+        }
+        Assert.Equal(0, navigation.Index);
+        foreach (int frame in new[] { navigation.Count - 1, 0, navigation.Count / 2, navigation.Count / 2, 0 })
+        {
+            navigation.Seek(frame);
+            AssertFrameEventRange(navigation, battle.Events, boundaries, frame);
+            Assert.Equal(hashes[frame], navigation.Current.StateHash());
+        }
+        Assert.Equal(originalJson, battle.Record.ToJson());
+        Assert.Equal(originalJson, navigation.Record.ToJson());
+        Assert.Equal(originalHash, battle.StateHash());
+        Assert.Equal(originalEvents, battle.Events.Select(EventKey));
+    }
+
+    static void AssertFrameEventRange(ReplayNavigator navigation, IReadOnlyList<BattleEvent> source,
+        IList<int> boundaries, int frame)
+    {
+        int from = boundaries[frame], to = boundaries[frame + 1];
+        Assert.Equal(frame, navigation.Index);
+        Assert.Equal(from, navigation.FrameEventStart);
+        Assert.Equal(to, navigation.Current.Events.Count);
+        var expected = source.Skip(from).Take(to - from).Select(EventKey).ToArray();
+        Assert.Equal(expected, navigation.Current.Events.Skip(from).Select(EventKey));
+        var animated = BattleTimeline.Build(navigation.Current.Events, from, to, 2);
+        var immediate = BattleTimeline.Build(navigation.Current.Events, from, to, 0);
+        var visibleIndices = Enumerable.Range(from, to - from).Where(i =>
+            source[i].Kind != BattleEventKind.Info && source[i].Kind != BattleEventKind.PpChange).ToArray();
+        Assert.Equal(visibleIndices, animated.Select(c => c.EventIndex).Distinct());
+        Assert.Equal(animated.Select(CueKey), immediate.Select(CueKey));
+        Assert.All(immediate, cue => { Assert.Equal(0d, cue.Start); Assert.Equal(0d, cue.Duration); });
+        Assert.All(animated, cue =>
+        {
+            Assert.InRange(cue.EventIndex, from, to - 1);
+            Assert.Equal(source[cue.EventIndex].LogIndex, cue.LogIndex);
+        });
+        Assert.Equal(expected, navigation.Current.Events.Skip(from).Select(EventKey));
+    }
+
+    static (BattleEventKind, int, int, string, int, int, string, int) EventKey(BattleEvent entry) =>
+        (entry.Kind, entry.LogIndex, entry.Turn, entry.Node, entry.Side, entry.Slot, entry.Id, entry.Amount);
+
+    static (CueKind, int, int, int, int, int, string, string, string) CueKey(AnimCue cue) =>
+        (cue.Kind, cue.EventIndex, cue.LogIndex, cue.Side, cue.Slot, cue.Amount, cue.Id, cue.Text, cue.Style);
 }

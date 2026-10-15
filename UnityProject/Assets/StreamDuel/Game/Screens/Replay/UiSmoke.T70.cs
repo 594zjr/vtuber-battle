@@ -55,6 +55,30 @@ namespace StreamDuel.Game
             public void Dispose() => replay.Dispose();
         }
 
+        sealed class T70Animator : IBattleAnimator
+        {
+            public List<AnimCue> LastCues;
+            public int Plays, Skips, OverlappingPlays;
+            public bool IsPlaying { get; private set; }
+
+            public void Play(IReadOnlyList<AnimCue> cues)
+            {
+                if (IsPlaying) OverlappingPlays++;
+                Plays++;
+                LastCues = cues?.Select(cue => new AnimCue
+                {
+                    Start = cue.Start, Duration = cue.Duration, Kind = cue.Kind,
+                    EventIndex = cue.EventIndex, LogIndex = cue.LogIndex, Side = cue.Side,
+                    Slot = cue.Slot, Amount = cue.Amount, Id = cue.Id, Text = cue.Text, Style = cue.Style
+                }).ToList();
+                // 正时长提示由探针显式完成，才能验证页面是否等待动画、暂停和释放。
+                IsPlaying = LastCues != null && LastCues.Any(cue => cue.Start + cue.Duration > 0);
+            }
+
+            public void SkipToEnd() { Skips++; Complete(); }
+            public void Complete() { IsPlaying = false; }
+        }
+
         IEnumerator RunT70()
         {
             t70OriginalClipboard = GUIUtility.systemCopyBuffer;
@@ -324,6 +348,7 @@ namespace StreamDuel.Game
                 T70CheckFrame(expected);
                 Require(fallbackCalls == callsBefore + 2 && router.CurrentScreenId == ScreenIds.Replay,
                     "临时解析器探针影响了正式回看工厂。");
+                yield return T70CheckAnimator(battle, store);
                 Require(battle.StateHash() == originalHash && battle.Record.ToJson() == originalRecord
                     && T70LogSnapshot(battle) == originalLogs && BattleSummary.From(battle).ToText() == originalSummary,
                     "结算或回看污染了原始对战、录像、日志或累计统计。");
@@ -333,6 +358,137 @@ namespace StreamDuel.Game
             router.Show(ScreenIds.Menu);
             yield return T70Ready();
             report.providersChecked = true;
+        }
+
+        IEnumerator T70CheckAnimator(Battle source, ISaveStore store)
+        {
+            string originalRecord = source.Record.ToJson();
+            ulong originalHash = source.StateHash();
+            var expected = new ReplayNavigator(source.Db, source.Record);
+            var animator = new T70Animator();
+            router.Show(ScreenIds.Replay, new ReplayScreenArgs
+            {
+                Content = source.Db, Record = source.Record, SaveStore = store, Animator = animator
+            });
+            yield return T70Ready();
+            Require(animator.Plays == 1, "初载录像没有且仅提交一次动画提示。");
+            T70CheckCues(animator, expected, 0, "初载");
+            T70CheckFrame(expected);
+
+            var speed = T70Element<DropdownField>("playback-speed");
+            string[] choices = { "0.5x", "1x", "2x", "4x" };
+            double[] rates = { .5, 1, 2, 4 };
+            for (int option = 0; option < choices.Length; option++)
+            {
+                string context = choices[option];
+                int plays = animator.Plays;
+                speed.value = choices[option];
+                Require(animator.Plays == plays && !animator.IsPlaying, "切换倍速重复提交了当前帧。");
+                yield return T70Submit("next-turn-button");
+                expected.Next();
+                Require(animator.Plays == plays + 1, context + " 单步前进没有且仅提交一帧。");
+                T70CheckCues(animator, expected, rates[option], context + " 单步");
+                T70CheckFrame(expected);
+
+                plays = animator.Plays;
+                yield return T70Submit("play-pause-button");
+                yield return new WaitForSecondsRealtime((float)(1.1 / rates[option]));
+                Require(animator.IsPlaying && animator.Plays == plays, context + " 未等待当前动画结束就自动前进。");
+                T70CheckFrame(expected);
+                animator.Complete();
+                float playDeadline = Time.realtimeSinceStartup + 5;
+                while (animator.Plays == plays)
+                {
+                    Require(Time.realtimeSinceStartup < playDeadline, context + " 动画完成后没有自动前进。");
+                    yield return null;
+                }
+                expected.Next();
+                Require(animator.Plays == plays + 1, context + " 自动前进重复提交或跳过了一帧。");
+                T70CheckCues(animator, expected, rates[option], context + " 自动");
+                T70CheckFrame(expected);
+                plays = animator.Plays;
+                int skips = animator.Skips;
+                yield return T70Submit("play-pause-button");
+                Require(!animator.IsPlaying && animator.Skips > skips && animator.Plays == plays,
+                    context + " 暂停没有结束动画，或重新提交了提示。");
+                yield return new WaitForSecondsRealtime(.3f);
+                Require(animator.Plays == plays && !animator.IsPlaying, context + " 暂停后仍遗留播放。");
+                T70CheckFrame(expected);
+
+                yield return T70Submit("previous-turn-button");
+                expected.Previous();
+                Require(animator.Plays == plays + 1, "后退没有且仅提交一帧。");
+                T70CheckCues(animator, expected, 0, context + " 后退");
+                T70CheckFrame(expected);
+                plays = animator.Plays;
+                yield return T70Jump(expected.Turns[expected.Index + 1]);
+                expected.Next();
+                Require(animator.Plays == plays + 1, "向相邻回合跳转没有且仅提交一帧。");
+                T70CheckCues(animator, expected, 0, context + " 向前跳转");
+                T70CheckFrame(expected);
+                plays = animator.Plays;
+                yield return T70Jump(expected.Turns[expected.Index]);
+                Require(animator.Plays == plays && !animator.IsPlaying, "同回合跳转重复提交了提示。");
+                T70CheckFrame(expected);
+                yield return T70Jump(0);
+                expected.Seek(0);
+                Require(animator.Plays == plays + 1, "向开场跳转没有且仅提交一帧。");
+                T70CheckCues(animator, expected, 0, context + " 返回开场");
+                T70CheckFrame(expected);
+            }
+
+            yield return T70Submit("next-turn-button");
+            expected.Next();
+            T70CheckCues(animator, expected, 4, "改速前");
+            int previousPlays = animator.Plays, previousSkips = animator.Skips;
+            speed.value = "0.5x";
+            Require(animator.Skips > previousSkips && !animator.IsPlaying && animator.Plays == previousPlays,
+                "动画中改速没有落到终态，或重复提交了当前帧。");
+            T70CheckFrame(expected);
+            yield return T70Submit("next-turn-button");
+            expected.Next();
+            T70CheckCues(animator, expected, .5, "改速后");
+            yield return T70Submit("play-pause-button");
+            var staleNext = T70Button("next-turn-button");
+            var stalePosition = T70Label("replay-position");
+            previousPlays = animator.Plays;
+            previousSkips = animator.Skips;
+            yield return T70Submit("back-button");
+            Require(router.CurrentScreenId == ScreenIds.Menu && animator.Skips > previousSkips && !animator.IsPlaying,
+                "离开回看没有释放正在播放的动画。");
+            string positionAfterLeave = stalePosition.text;
+            SendSubmit(staleNext);
+            yield return new WaitForSecondsRealtime(.3f);
+            Require(animator.Plays == previousPlays && !animator.IsPlaying && stalePosition.text == positionAfterLeave,
+                "Dispose 后动画或旧按钮仍在推进回看。");
+            Require(animator.OverlappingPlays == 0, "新帧覆盖了尚未结束的动画。");
+            Require(source.Record.ToJson() == originalRecord && source.StateHash() == originalHash,
+                "动画探针改变了源录像或对战状态哈希。");
+            report.steps.Add(RequestedWidth + "×" + RequestedHeight
+                + "：注入 IBattleAnimator，初载/后退/跳转保留零时长提示；四档单步和自动提示逐字段等于 BattleTimeline.Build；"
+                + "自动等待动画、暂停、改速、Dispose 及旧按钮隔离通过，源录像/hash 不变。");
+        }
+
+        static void T70CheckCues(T70Animator animator, ReplayNavigator expected, double speed, string context)
+        {
+            var cues = BattleTimeline.Build(expected.Current.Events, expected.FrameEventStart,
+                expected.Current.Events.Count, speed);
+            Require(cues.Count > 0, context + " 验收局面缺少有效提示。");
+            Require(animator.LastCues != null && animator.LastCues.Count == cues.Count,
+                context + " 传给动画接口的提示为空或数量与 Core 不同。");
+            for (int index = 0; index < cues.Count; index++)
+            {
+                var actual = animator.LastCues[index];
+                var wanted = cues[index];
+                Require(actual.Start == wanted.Start && actual.Duration == wanted.Duration
+                    && actual.Kind == wanted.Kind && actual.EventIndex == wanted.EventIndex
+                    && actual.LogIndex == wanted.LogIndex && actual.Side == wanted.Side && actual.Slot == wanted.Slot
+                    && actual.Amount == wanted.Amount && actual.Id == wanted.Id && actual.Text == wanted.Text
+                    && actual.Style == wanted.Style, context + " 提示 " + index + " 与公开 Core 时间线不一致。");
+            }
+            Require(speed > 0 ? animator.IsPlaying && BattleTimeline.TotalDuration(cues) > 0
+                : !animator.IsPlaying && animator.LastCues.All(cue => cue.Start == 0 && cue.Duration == 0),
+                context + " 动画时长或直接终态不符合所选倍速。");
         }
 
         IEnumerator T70CheckSummary(Battle battle)
