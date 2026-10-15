@@ -19,13 +19,8 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             if (host)
             {
-                using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
-                {
-                    Console.WriteLine("监听端口：" + actualPort);
-                    Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
-                    Console.Out.Flush();
-                    do { connection = listener.Accept(250); } while (connection == null);
-                }
+                connection = WaitForNetworkGuest(db, options);
+                if (connection == null) return Quit();
             }
             else
             {
