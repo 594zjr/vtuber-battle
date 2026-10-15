@@ -336,7 +336,11 @@
 
 ## 8. 画面（Unity，`Game/`）
 
-当前实现：`BattleScreen.cs` 用 Unity 即时 GUI（IMGUI），参考分辨率 1600×900 等比缩放，中文用系统字体。打开工程按 Play 即可，`GameBoot` 自动创建。
+迁移期间保留 `BattleScreen.cs` 的 Unity 即时 GUI（IMGUI）对战，内容区域以 1600×900 等比缩放。打开工程按 Play 即可，`GameBoot` 自动创建画面。
+
+T-59 起由 `GameBoot` 创建一个 `UIDocument` 与 `ScreenRouter`，默认仍显示可玩的 IMGUI；顶部菜单进入 UI Toolkit 占位界面，返回时继续同一局。新界面分别位于 `Game/Screens/` 的独立子目录，实现 `IScreen` 的 Build/Tick/Dispose，通过 `Show(screenId, args)` 的参数对象传数据。切换时解绑回调并释放旧页面；菜单显示期间停用旧界面的输入和计时。新面板以 1920×1080 为参考，宽高各占一半缩放权重；两套画面均使用随工程提供的 Noto Sans SC Regular/Bold，不再依赖系统字体。主题基本颜色与三档字号在 `UI/Theme.uss`，赛道颜色直接读取 `TypeDef.Color`。
+
+`BattleStage` 仅提供具名显示节点：双方 `fighter-0` / `fighter-1`，各含 `portrait`、`hp-bar`、`status-row`；覆盖层 `fx-layer` / `float-layer` 与 `field-banner`。动画、技能特效、状态图标、头像分别通过 `IBattleAnimator`、`IFxPlayer`、`IStatusIconProvider`、`IPortraitProvider` 替换；当前默认实现为空动画、空特效、文字图标及按赛道颜色生成的纯色头像，不推导战斗规则。Input System 使用编辑器推荐的 1.20.1，迁移期间以 Both 保留旧 IMGUI 的运行时输入，T-67 移除旧画面后再切为 New。
 
 `BattleViewModel.From(battle, viewerSide)` 提供当前时点的独立显示快照，不持有战斗或内容定义对象，也不改变状态、日志、回放或随机数。双方顺序与 Battle 相同；技能和可换人下标取查看方的 `LegalFor`，伤害范围取 `PreviewDamage`，不在画面重复计算规则。`Pct` 沿用 Fighter 的整数百分比；禁用后的队伍保留实际五人。状态芯片同时列出状态与直播间效果的类别、剩余次数或回合、层数及消除规则。`NodeStrip` 按开场、换人、回合开始、先手行动、后手行动、回合结束、补位、结束排列，仅标记 `battle.Turn` 的日志内容；历史逐行回放继续使用日志中的快照。
 
