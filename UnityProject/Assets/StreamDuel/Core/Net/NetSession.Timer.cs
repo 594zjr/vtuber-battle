@@ -76,7 +76,7 @@ namespace StreamDuel.Core
 
         private bool TimerParticipant(int side)
         {
-            return phase == Phase.Choose || phase == Phase.Replace && needsReplacement[side];
+            return SelectionParticipant(side) && !aiControlled[side];
         }
 
         private void BeginTimerPhase()
@@ -109,6 +109,7 @@ namespace StreamDuel.Core
         public void Tick(double seconds)
         {
             if (!ValidSeconds(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), "推进时间必须是有限、非负的秒数。");
+            if (TickTakeoverWait(seconds)) return;
             if (Clock == null || Battle == null || Terminal) return;
             double remaining = seconds;
             int peer = 1 - MySide;
@@ -119,14 +120,15 @@ namespace StreamDuel.Core
                 if (hashes.Count == 0 && TimerParticipant(MySide) && !HasSubmitted && Clock.TimedOut(MySide))
                 {
                     automaticallySubmitted = true;
-                    if (phase == Phase.Choose) Submit(TurnClock.TimeoutAction(Battle, MySide));
+                    if (AiTakeoverOnTimeout) DeclareLocalTakeover();
+                    else if (phase == Phase.Choose) Submit(TurnClock.TimeoutAction(Battle, MySide));
                     else
                     {
                         int replacement = TurnClock.TimeoutReplacement(Battle, MySide);
                         if (replacement < 0) { Fault(NetState.Error, "补位超时，但本方没有可上场的队友。"); return; }
                         SubmitReplace(replacement);
                     }
-                    if (Terminal) return;
+                    if (Terminal || WaitingForAiTakeover || AiTakeoverOnTimeout) return;
                 }
                 if (remaining <= 0) return;
                 if (hashes.Count > 0)
@@ -156,7 +158,10 @@ namespace StreamDuel.Core
                 if (waitingCommit) commitWaitSeconds += step;
                 if (waitingReveal) revealWaitSeconds += step;
                 if (commitWaitSeconds >= TimerGraceSeconds)
+                {
+                    if (AiTakeoverOnTimeout) { BeginUnresponsiveTakeover(); return; }
                     Fault(NetState.Error, "对方计时预算已用完，额外等待 10 秒仍未收到承诺，对方已掉线。");
+                }
                 else if (revealWaitSeconds >= TimerGraceSeconds)
                     Fault(NetState.Error, "对方承诺已齐备，但超过 10 秒仍未公开行动，对方已掉线。");
             }

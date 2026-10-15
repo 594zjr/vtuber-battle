@@ -1,6 +1,6 @@
 # 联网对战协议 v3
 
-本文记录 `NetSession.ProtocolVersion = 3` 的现有线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；本任务不修改协议；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+本文记录默认 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。T-100 显式协商的可选代打扩展见第 10 节；未启用时既有固定线路不变。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
 
 v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
 
@@ -244,3 +244,15 @@ CLI 的 `FinishNetwork` 在 `Over` 后调用 `CompleteSending()`，仅关闭 TCP
 1. 承诺摘要只绑定 `action + "|" + nonce`，不绑定回合、kind、发送方或会话身份。外层会校验回合和 kind，但无法阻止一方复制对方 digest，随后复制其相同行动与 nonce。需要另行决定是否给摘要加入上下文。
 2. JSON 重复键取最后值，没有重复键错误。需要另行决定后续版本是否拒绝重复键；本任务不通过改解析器改变现有行为。
 3. `hash` 没有独立的十六进制格式验证；字符串与本地值不等便进入 `Desync`。需要决定未来是否将非法格式归类为 `Error`，区分它与真正的状态分歧。
+
+## 10. 显式协商的电脑代打扩展（T-100）
+
+默认关闭，以上默认 v3 固定样例不变。只有房主构造 `aiTakeoverOnTimeout:true` 时在 hello 附加 `aiTakeoverVersion:1`、`aiTakeover:true`；客机不能声明此设置。新版客机在验证后发送 `{"type":"takeover-ready","version":1}`，房主等到该确认才开局。旧端忽略附加字段不会被视为支持，10 秒未确认则失败；无 Clock 也须 Tick。`takeover-ready` 仅允许这两个字段；重复确认、错误角色/版本、未启用时发送均拒绝。
+
+已完成协商后才允许 `{"type":"takeover","turn":1,"kind":"action"}`（补位 kind 为 replace），只含这三个字段。发送方交出自己的控制，不发送 AI 行动、nonce、digest 或 side。正常客户端仅本方未提交且计时耗尽时声明；接收端不按本地估计复核对方时钟，提前声明至多使发送者自己提前转 AI。已经锁定的 commit、无需补位、重复或越阶段声明均拒绝；收到 AI 方的新 commit/reveal 也拒绝。
+
+每阶段只收齐真人参与方承诺，双方从共享 RNG 检查点按 0、1 顺序各自用 Normal AI 选择，保存抽样后位置用于结算和录像。真人 reveal 与每次结算 hash 仍照旧验证；AI 方无需网络动作消息。此协议变化只能在能力确认后执行，不能作为普通未知字段兼容。与尚未合并的 T-87 握手整合时，须按第 8 节由审查确定最终协议编号及组合固定样例；本分支未借用其未合并代码。
+
+连接中断进入 10 秒等待，继续处理排队消息；必须确认接收端排空后才能离线。无 commit 超预算加 10 秒的分叉也要 Poll 实际耗尽队列；单批 64 条不等于空队列，队列尾错误不可漏验。离线恢复最后双方确认阶段快照，撤回未确认阶段、把对方转 AI，设置 `IsOfflineContinuation`，随后不再发送协议消息。离线不是双方确认的联网结果；断网两端继续真人输入可能各自产生不同结果，不承诺终局相同。已经收到的坏 reveal/hash/error 始终失败，不走离线；连接未断时缺 reveal/hash 到限仍失败。
+
+在线完成继续最终 hash 与 TCP 收尾；CLI 离线完成单独提示、保存标记录像，不累计联网战绩。录像事件 `aiTakeoverMask` 及根 `offlineContinuation` 仅为来源元数据，不参与 StateHash；旧记录缺省分别为 0/false。T-75 重连与 T-57 排位尚未合并，恢复控制和离线排位归属留待审查整合。

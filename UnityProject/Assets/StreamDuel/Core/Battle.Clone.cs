@@ -5,8 +5,8 @@
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
-// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
-// BattleRecordEvent：Type、A0、A1、Side、To、RngState。
+// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、IsOfflineContinuation、Modifiers、Names、Teams、Events；
+// BattleRecordEvent：Type、A0、A1、Side、To、RngState、AiTakeoverMask。
 // BattleEvent：LogIndex、Turn、Side、Slot、Amount、Node、Id、Kind。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
 using System;
@@ -135,6 +135,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                IsOfflineContinuation = source.IsOfflineContinuation,
                 Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
@@ -148,7 +149,8 @@ namespace StreamDuel.Core
                     A1 = entry.A1,
                     Side = entry.Side,
                     To = entry.To,
-                    RngState = entry.RngState
+                    RngState = entry.RngState,
+                    AiTakeoverMask = entry.AiTakeoverMask
                 });
             }
             return copy;

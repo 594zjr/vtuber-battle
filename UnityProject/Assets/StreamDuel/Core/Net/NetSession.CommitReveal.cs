@@ -39,11 +39,13 @@ namespace StreamDuel.Core
         {
             ValidateSelectionKind(obj);
             int peer = 1 - MySide;
+            if (aiControlled[peer]) throw new FormatException("电脑代打方不能再发送真人承诺。");
             if (commitments[peer] != null) throw new FormatException("对方重复发送承诺。");
             string digest = NetJson.Text(obj, "digest");
             if (!LowerHex(digest, 64)) throw new FormatException("承诺摘要必须是 64 位小写十六进制字符串。");
             commitments[peer] = digest;
             Clock?.Submit(peer);
+            CancelUnresponsiveTakeover();
             BeginRevealTimerIfReady();
         }
 
@@ -51,6 +53,7 @@ namespace StreamDuel.Core
         {
             ValidateSelectionKind(obj);
             int peer = 1 - MySide;
+            if (aiControlled[peer]) throw new FormatException("电脑代打方不能再公开真人选择。");
             if (!AllCommitmentsReady()) throw new FormatException("本阶段所需承诺尚未齐全，不能提前公开行动。");
             if (revealed[peer]) throw new FormatException("对方重复公开承诺的行动。");
             string wire = NetJson.Text(obj, "action");
@@ -75,13 +78,20 @@ namespace StreamDuel.Core
         private bool AllCommitmentsReady()
         {
             for (int side = 0; side < 2; side++)
-                if ((phase == Phase.Choose || needsReplacement[side]) && commitments[side] == null) return false;
+            {
+                if (!SelectionParticipant(side) || aiControlled[side]) continue;
+                if (IsOfflineContinuation)
+                {
+                    if (!revealed[side]) return false;
+                }
+                else if (commitments[side] == null) return false;
+            }
             return true;
         }
 
         private void RevealIfReady()
         {
-            if (!HasSubmitted || revealSent || !AllCommitmentsReady()) return;
+            if (IsOfflineContinuation || aiControlled[MySide] || !HasSubmitted || revealSent || !AllCommitmentsReady()) return;
             revealSent = true;
             // 先发公开消息再登记本方选择，单方补位也必须遵守 commit → reveal → hash 的顺序。
             if (Send("{\"type\":\"reveal\",\"turn\":" + Number(turn)

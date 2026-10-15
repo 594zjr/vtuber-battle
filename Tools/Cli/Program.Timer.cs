@@ -151,6 +151,7 @@ namespace StreamDuel.Cli
                     elapsed.Restart();
                 }
                 bool choosing = !session.HasSubmitted && (session.State == NetState.Choose || session.State == NetState.Replace);
+                var selectedBattle = session.Battle;
                 Phase phase = session.Battle.Phase;
                 var beforeTick = new ChoiceStamp(session.Battle);
                 timerRevision = session.TimerRevision;
@@ -158,8 +159,13 @@ namespace StreamDuel.Cli
                 CheckNetwork(session);
                 if (timerRevision != session.TimerRevision) elapsed.Restart();
                 observedTimerRevision = session.TimerRevision;
-                if (choosing && (session.HasSubmitted || !beforeTick.Matches(session.Battle)))
-                    PrintTimeout(session.Battle, session.MySide, phase == Phase.Replace);
+                if (choosing && ReferenceEquals(selectedBattle, session.Battle)
+                    && (session.HasSubmitted || !beforeTick.Matches(session.Battle)))
+                {
+                    if (session.IsAiControlled(session.MySide))
+                        Console.WriteLine(session.Battle.Sides[session.MySide].Name + "：总时间已耗尽，后续由电脑代打。");
+                    else PrintTimeout(session.Battle, session.MySide, phase == Phase.Replace);
+                }
                 display.Show(session.Clock, session.Battle, session.MySide);
             }
         }

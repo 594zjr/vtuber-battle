@@ -202,6 +202,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
+            Console.WriteLine("  --ai-takeover     房主可选：总时间耗尽后由普通 AI 代打；客机自动采用。默认关闭。");
+            Console.WriteLine("                    断线超过宽限后从最后确认阶段离线续局，保存标记录像，不累计联网战绩。");
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
             Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");

@@ -40,7 +40,7 @@ namespace StreamDuel.Core
             }
             catch (Exception error) when (error is KeyError || error is ArgumentException
                 || error is InvalidOperationException || error is NullReferenceException
-                || error is KeyNotFoundException || error is IndexOutOfRangeException)
+                || error is KeyNotFoundException || error is IndexOutOfRangeException || error is FormatException)
             {
                 return Incompatible("录像所需的内容或结构无效：" + error.Message);
             }
@@ -92,6 +92,7 @@ namespace StreamDuel.Core
             foreach (var entry in r.Events)
             {
                 if (entry == null) return "录像包含空事件。";
+                entry.ValidateAiTakeover();
                 if (entry.Type == BattleRecordEventType.Turn) continue;
                 if (entry.Type == BattleRecordEventType.Replace || entry.Type == BattleRecordEventType.Lead
                     || entry.Type == BattleRecordEventType.Ban)

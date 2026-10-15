@@ -35,6 +35,7 @@ namespace StreamDuel.Cli
         public bool LanList;
         public double? TurnSeconds;
         public double? BankSeconds;
+        public bool AiTakeover;
         public bool Auto;
         public bool Ban;
         public bool Lead;
@@ -111,6 +112,12 @@ namespace StreamDuel.Cli
                 if (option == "--auto")
                 {
                     options.Auto = true;
+                    continue;
+                }
+                if (option == "--ai-takeover")
+                {
+                    if (options.AiTakeover) throw new ArgumentException("--ai-takeover 不能重复指定。");
+                    options.AiTakeover = true;
                     continue;
                 }
                 if (option == "--export-team")
@@ -344,6 +351,8 @@ namespace StreamDuel.Cli
             if (options.LanHostName != null && !options.HostPort.HasValue) options.HostPort = 0;
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
+            if (options.AiTakeover && !options.Help && !options.HostPort.HasValue)
+                throw new ArgumentException("--ai-takeover 只能由房主搭配 --host 或 --lan-host 声明；客机自动采用房主设置。");
             if (!options.Help)
             {
                 if (options.TeamCode != null && options.Team != null)

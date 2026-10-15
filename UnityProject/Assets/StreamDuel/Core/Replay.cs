@@ -16,6 +16,17 @@ namespace StreamDuel.Core
         public int To { get; set; }
         // AI 选择也消耗同一随机流，回放不调用 AI，所以必须保存结算前的位置。
         public uint? RngState { get; set; }
+        // 仅说明行动的控制来源，不参与规则或状态哈希；旧录像缺省为未记录代打。
+        public int AiTakeoverMask { get; set; }
+
+        internal void ValidateAiTakeover()
+        {
+            if (AiTakeoverMask < 0 || AiTakeoverMask > 3)
+                throw new FormatException("电脑代打标记必须是 0 至 3 的整数");
+            if (AiTakeoverMask == 0 || Type == BattleRecordEventType.Turn) return;
+            if (Type != BattleRecordEventType.Replace || Side < 0 || Side > 1 || AiTakeoverMask != (1 << Side))
+                throw new FormatException("电脑代打标记必须对应本次行动或补位的一方");
+        }
     }
 
     public sealed class BattleRecord
@@ -28,6 +39,7 @@ namespace StreamDuel.Core
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
         public bool BanOne { get; set; }
+        public bool IsOfflineContinuation { get; set; }
         public List<string> Modifiers { get; set; }
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
@@ -46,6 +58,7 @@ namespace StreamDuel.Core
             }
             if (LeadPick) sb.Append(",\"leadPick\":true");
             if (BanOne) sb.Append(",\"banOne\":true");
+            if (IsOfflineContinuation) sb.Append(",\"offlineContinuation\":true");
             if (Modifiers != null && Modifiers.Count > 0)
             {
                 sb.Append(",\"modifiers\":[");
@@ -82,6 +95,7 @@ namespace StreamDuel.Core
             {
                 if (i > 0) sb.Append(',');
                 var e = Events[i];
+                e.ValidateAiTakeover();
                 if (e.Type == BattleRecordEventType.Turn)
                 {
                     sb.Append("{\"type\":\"turn\",\"a0\":");
@@ -100,6 +114,8 @@ namespace StreamDuel.Core
                 }
                 else throw new FormatException("未知回放事件类型：" + e.Type);
                 if (e.RngState.HasValue) sb.Append(",\"rng\":").Append(e.RngState.Value.ToString(CultureInfo.InvariantCulture));
+                if (e.AiTakeoverMask != 0)
+                    sb.Append(",\"aiTakeoverMask\":").Append(e.AiTakeoverMask.ToString(CultureInfo.InvariantCulture));
                 sb.Append('}');
             }
             return sb.Append("]}").ToString();
@@ -130,6 +146,11 @@ namespace StreamDuel.Core
             {
                 if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
                 record.BanOne = enabled;
+            }
+            if (root.TryGetValue("offlineContinuation", out var offlineContinuation))
+            {
+                if (!(offlineContinuation is bool enabled)) throw new FormatException("offlineContinuation 必须是布尔值");
+                record.IsOfflineContinuation = enabled;
             }
             if (root.TryGetValue("modifiers", out var modifiersValue))
             {
@@ -169,6 +190,9 @@ namespace StreamDuel.Core
                 }
                 else throw new FormatException("未知回放事件类型：" + type);
                 if (obj.TryGetValue("rng", out var state)) e.RngState = (uint)ReadInteger(state, "rng", 0, uint.MaxValue);
+                if (obj.TryGetValue("aiTakeoverMask", out var takeover))
+                    e.AiTakeoverMask = (int)ReadInteger(takeover, "aiTakeoverMask", 0, 3);
+                e.ValidateAiTakeover();
                 record.Events.Add(e);
             }
             return record;
@@ -252,11 +276,13 @@ namespace StreamDuel.Core
         {
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
                 new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
+            battle.Record.IsOfflineContinuation = r.IsOfflineContinuation;
             foreach (var e in r.Events)
             {
+                e.ValidateAiTakeover();
                 if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);
-                if (e.Type == BattleRecordEventType.Turn) battle.ResolveTurn(e.A0, e.A1);
-                else if (e.Type == BattleRecordEventType.Replace) battle.Replace(e.Side, e.To);
+                if (e.Type == BattleRecordEventType.Turn) battle.ResolveTurnWithAiTakeover(e.A0, e.A1, e.AiTakeoverMask);
+                else if (e.Type == BattleRecordEventType.Replace) battle.ReplaceWithAiTakeover(e.Side, e.To, e.AiTakeoverMask != 0);
                 else if (e.Type == BattleRecordEventType.Lead) battle.ChooseLead(e.Side, e.To);
                 else if (e.Type == BattleRecordEventType.Ban) battle.ChooseBan(e.Side, e.To);
                 else throw new FormatException("未知回放事件类型：" + e.Type);

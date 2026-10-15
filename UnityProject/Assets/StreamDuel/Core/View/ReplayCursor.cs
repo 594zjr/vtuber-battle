@@ -112,14 +112,15 @@ namespace StreamDuel.Core
             for (int i = start; i < end; i++)
             {
                 var entry = entries[i];
+                entry.ValidateAiTakeover();
                 if (entry.RngState.HasValue) battle.RestoreReplayRng(entry.RngState.Value);
                 switch (entry.Type)
                 {
                     case BattleRecordEventType.Turn:
-                        battle.ResolveTurn(entry.A0, entry.A1);
+                        battle.ResolveTurnWithAiTakeover(entry.A0, entry.A1, entry.AiTakeoverMask);
                         break;
                     case BattleRecordEventType.Replace:
-                        battle.Replace(entry.Side, entry.To);
+                        battle.ReplaceWithAiTakeover(entry.Side, entry.To, entry.AiTakeoverMask != 0);
                         break;
                     case BattleRecordEventType.Lead:
                         battle.ChooseLead(entry.Side, entry.To);
@@ -143,6 +144,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                IsOfflineContinuation = source.IsOfflineContinuation,
                 Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
@@ -159,7 +161,8 @@ namespace StreamDuel.Core
                 A1 = source.A1,
                 Side = source.Side,
                 To = source.To,
-                RngState = source.RngState
+                RngState = source.RngState,
+                AiTakeoverMask = source.AiTakeoverMask
             };
         }
 

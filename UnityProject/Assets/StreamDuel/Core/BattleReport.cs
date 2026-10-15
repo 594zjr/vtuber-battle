@@ -18,6 +18,8 @@ namespace StreamDuel.Core
             if (b == null) throw new ArgumentNullException(nameof(b));
             if (viewerSide < 0 || viewerSide >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(viewerSide));
             var text = new StringBuilder("# 对战战报\n\n");
+            if (b.Record.IsOfflineContinuation)
+                text.Append("> 离线续局（未经双方终局确认）。\n\n");
             text.Append("内容包：").Append(Inline(b.Db.PackName)).Append('\n').Append('\n');
             if (!string.IsNullOrEmpty(b.Db.PackNotice))
             {

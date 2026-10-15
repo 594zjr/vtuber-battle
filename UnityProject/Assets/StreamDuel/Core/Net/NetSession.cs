@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 
 namespace StreamDuel.Core
@@ -37,7 +38,7 @@ namespace StreamDuel.Core
         }
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
-            double? turnSeconds = null, double? bankSeconds = null)
+            double? turnSeconds = null, double? bankSeconds = null, bool aiTakeoverOnTimeout = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
@@ -46,6 +47,7 @@ namespace StreamDuel.Core
             this.myName = myName;
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
+            AiTakeoverOnTimeout = host && aiTakeoverOnTimeout;
             if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
             var errors = TeamCheck.Validate(db, null, this.myTeam);
             if (errors.Count > 0 || myName == null)
@@ -59,28 +61,32 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TakeoverHello() + "}");
         }
 
         public void Poll()
         {
             if (Faulted) return;
+            if (IsOfflineContinuation) { Advance(); return; }
             try
             {
                 string message;
+                incomingQueueDrained = false;
                 // 聊天洪泛不能占住调用线程，计时和界面需在下一批前继续推进。
-                for (int received = 0; received < 64 && !Faulted && transport.TryReceive(out message); received++)
+                for (int received = 0; received < 64 && !Faulted; received++)
                 {
+                    if (!transport.TryReceive(out message)) { incomingQueueDrained = true; break; }
                     if (Receive(message)) Advance();
                 }
             }
             catch (TcpDisconnectedException ex)
             {
                 // 终局仍接收迟到的协议报错，只有排队消息处理完后的纯断线可以忽略。
-                if (State != NetState.Over) Fault(NetState.Error, ex.Message, false);
+                if (State != NetState.Over && !BeginDisconnectedTakeover(true)) Fault(NetState.Error, ex.Message, false);
             }
             catch (Exception ex)
             {
+                if (ex is IOException && BeginDisconnectedTakeover(true)) return;
                 Fault(NetState.Error, "接收或处理消息失败：" + ex.Message);
             }
         }
@@ -96,14 +102,16 @@ namespace StreamDuel.Core
             string wire;
             try { wire = action.ToWire(); }
             catch (FormatException ex) { throw new InvalidOperationException("不能提交该行动编码。", ex); }
-            CommitSelection("action", wire);
+            if (IsOfflineContinuation) SubmitOfflineSelection(wire);
+            else CommitSelection("action", wire);
         }
 
         public void SubmitReplace(int to)
         {
             if (State != NetState.Replace || HasSubmitted || !ValidReplacement(MySide, to))
                 throw new InvalidOperationException("现在不能提交该补位，或本阶段已经提交。");
-            CommitSelection("replace", BattleAction.SwitchTo(to).ToWire());
+            if (IsOfflineContinuation) SubmitOfflineSelection(BattleAction.SwitchTo(to).ToWire());
+            else CommitSelection("replace", BattleAction.SwitchTo(to).ToWire());
         }
 
         private bool Terminal
@@ -133,6 +141,11 @@ namespace StreamDuel.Core
                 return true;
             }
             if (State == NetState.Over) throw new FormatException("对战已经结束，不能再接收新的协议操作。");
+            if (type == "takeover-ready")
+            {
+                ReceiveTakeoverReady(obj);
+                return true;
+            }
             if (type == "hello")
             {
                 ReceiveHello(obj);
@@ -147,7 +160,8 @@ namespace StreamDuel.Core
             if (hashes.Count > 0) throw new FormatException("上一阶段哈希尚未确认，不能提前提交下一阶段。");
             int messageTurn = (int)NetJson.Integer(obj, "turn", 1, int.MaxValue);
             if (messageTurn != turn) throw new FormatException("消息回合不匹配：当前 " + Number(turn) + "，收到 " + Number(messageTurn) + "。");
-            if (type == "commit") ReceiveCommit(obj);
+            if (type == "takeover") ReceiveTakeover(obj);
+            else if (type == "commit") ReceiveCommit(obj);
             else if (type == "reveal") ReceiveReveal(obj);
             else throw new FormatException("未知协议消息类型：" + type);
             return true;
@@ -186,6 +200,7 @@ namespace StreamDuel.Core
             }
             else sharedSeed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue);
             ReceiveTimerHello(obj);
+            if (!ReceiveTakeoverHello(obj)) return;
             var teams = new IList<string>[2];
             var names = new string[2];
             teams[MySide] = myTeam;
@@ -199,32 +214,35 @@ namespace StreamDuel.Core
 
         private void Advance()
         {
-            if (Terminal || Battle == null || hashes.Count > 0) return;
+            if (Terminal || Battle == null || hashes.Count > 0 || WaitingForAiTakeover) return;
+            PrepareAiSelections();
             RevealIfReady();
-            if (Faulted) return;
+            if (Faulted || WaitingForAiTakeover) return;
             if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
                 // 本端 AI 建议可能消费 RNG；只以双方共享的结算检查点推进对战随机流。
-                Battle.RestoreReplayRng(rngCheckpoint);
+                Battle.RestoreReplayRng(aiResolutionRng ?? rngCheckpoint);
                 int resolvedTurn = Battle.Turn;
-                Battle.ResolveTurn(actions[0].Value, actions[1].Value);
+                Battle.ResolveTurnWithAiTakeover(actions[0].Value, actions[1].Value, AiMask);
                 CaptureHash(resolvedTurn);
+                if (IsOfflineContinuation) BeginPhase();
             }
             else if (phase == Phase.Replace
                 && (!needsReplacement[0] || replacements[0].HasValue)
                 && (!needsReplacement[1] || replacements[1].HasValue))
             {
                 State = NetState.Waiting;
-                Battle.RestoreReplayRng(rngCheckpoint);
+                Battle.RestoreReplayRng(aiResolutionRng ?? rngCheckpoint);
                 // 双方同时补位也按主机、客机顺序执行，消息到达顺序不改变登场效果。
                 for (int side = 0; side < 2 && !Terminal; side++)
                 {
                     if (!needsReplacement[side]) continue;
                     int replacedTurn = Battle.Turn;
-                    Battle.Replace(side, replacements[side].Value);
+                    Battle.ReplaceWithAiTakeover(side, replacements[side].Value, aiControlled[side]);
                     CaptureHash(replacedTurn);
                 }
+                if (IsOfflineContinuation) BeginPhase();
             }
         }
 
@@ -238,6 +256,7 @@ namespace StreamDuel.Core
         private void CaptureHash(int operationTurn)
         {
             rngCheckpoint = Battle.NetRngState;
+            if (IsOfflineContinuation) return;
             string hash = Battle.StateHash().ToString("x16", CultureInfo.InvariantCulture);
             if (hashes.Count == 0) BeginHashTimer();
             hashes.Enqueue(new HashStamp { Turn = operationTurn, Hash = hash });
@@ -269,6 +288,8 @@ namespace StreamDuel.Core
             // 等哈希期间也可能预先请求 AI 建议，下一阶段仍从已保存的结算点开始。
             Battle.RestoreReplayRng(rngCheckpoint);
             HasSubmitted = false;
+            aiResolutionRng = null;
+            aiSelectionsPrepared = false;
             ResetCommitReveal();
             for (int side = 0; side < 2; side++)
             {
@@ -281,13 +302,16 @@ namespace StreamDuel.Core
             else if (phase == Phase.Replace) State = needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
             else Fault(NetState.Error, "同步协议暂不支持禁用或首发选择阶段。");
             BeginTimerPhase();
+            BeginTakeoverPhase();
         }
 
         private bool Send(string message)
         {
+            if (IsOfflineContinuation || WaitingForAiTakeover) return false;
             try { transport.Send(message); return true; }
             catch (Exception ex)
             {
+                if (ex is IOException && BeginDisconnectedTakeover()) return false;
                 Fault(NetState.Error, "发送消息失败：" + ex.Message, false);
                 return false;
             }

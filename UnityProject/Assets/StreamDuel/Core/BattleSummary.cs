@@ -19,6 +19,8 @@ namespace StreamDuel.Core
         public List<FighterStats>[] Sides;
         public int Winner = -1;
         public int Turns;
+        public bool AiTakeover;
+        public bool IsOfflineContinuation;
         readonly string[] sideNames = new string[2];
         readonly List<string>[] fighterNames = { new List<string>(), new List<string>() };
         readonly Dictionary<string, string> skillNames = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -30,7 +32,9 @@ namespace StreamDuel.Core
             {
                 Sides = new[] { new List<FighterStats>(), new List<FighterStats>() },
                 Winner = b.Winner,
-                Turns = b.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)
+                Turns = b.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn),
+                AiTakeover = b.Record.Events.Any(entry => entry.AiTakeoverMask != 0),
+                IsOfflineContinuation = b.Record.IsOfflineContinuation
             };
             for (int side = 0; side < b.Sides.Length; side++)
             {
@@ -49,6 +53,8 @@ namespace StreamDuel.Core
         public string ToText()
         {
             var text = new StringBuilder("对战统计\n");
+            if (IsOfflineContinuation) text.Append("离线续局（未经双方终局确认）\n");
+            if (AiTakeover) text.Append("本局包含电脑代打。\n");
             for (int side = 0; side < Sides.Length; side++)
             {
                 text.Append(side == 0 ? "甲方：" : "乙方：").Append(sideNames[side]).Append('\n');
