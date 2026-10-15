@@ -33,6 +33,7 @@ namespace StreamDuel.Cli
                 var player = options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
+                if (options.Network) return PlayNetwork(db, player, options);
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
                 var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
                     .Concat(player).Take(6).ToArray();
@@ -133,42 +134,11 @@ namespace StreamDuel.Cli
                         Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                 }
 
-                Console.WriteLine();
-                Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
-                PrintTeams(battle);
-                Console.WriteLine(BattleSummary.From(battle).ToText());
-                bool reportFailed = false;
-                try
-                {
-                    SaveReport(battle, options);
-                }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
-                {
-                    // 战报和存档各自保存，任一目标不可写时仍保留其他已完成的结果。
-                    Console.Error.WriteLine("错误：" + ex.Message);
-                    reportFailed = true;
-                }
-                string replayWarning;
-                try
-                {
-                    replayWarning = ReplayStore.Save(battle, options.SaveDir);
-                    Console.WriteLine("回放已保存到：" + Path.Combine(options.SaveDir, "replays"));
-                }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-                {
-                    // 回放与档案独立保存，回放目录的故障不能漏记已完成的对局。
-                    replayWarning = "回放保存失败：" + ex.Message;
-                }
-                if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
-                var profile = ProfileStore.Record(battle, options.SaveDir);
-                var stats = profile.Packs[db.PackId];
-                Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
-                Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-                return replayWarning == null && !reportFailed ? 0 : 1;
+                return SaveCompletedBattle(battle, options, 0);
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException
                 || ex is UnauthorizedAccessException || ex is KeyError || ex is OverflowException
-                || ex is FormatException || ex is InvalidOperationException)
+                || ex is FormatException || ex is InvalidOperationException || ex is TimeoutException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
@@ -188,6 +158,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
+            Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
+            Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
@@ -196,6 +168,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
             Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
+            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
         }
 
         private static ContentDb LoadPack(string content, CliOptions options)
@@ -313,9 +286,10 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static BattleAction? ReadAction(Battle battle)
+        private static BattleAction? ReadAction(Battle battle, int side = 0, Func<string, int?> readNumber = null)
         {
-            var legal = battle.LegalFor(0);
+            if (readNumber == null) readNumber = ReadNumber;
+            var legal = battle.LegalFor(side);
             Console.WriteLine("技能：");
             foreach (var option in legal.Skills)
             {
@@ -330,14 +304,14 @@ namespace StreamDuel.Cli
                         + (description.Dispel == null ? "" : "〔" + description.Dispel + "〕"));
                 }
             }
-            PrintSwitches(battle, legal.Switches, false);
+            PrintSwitches(battle, legal.Switches, false, side);
             if (legal.Controlled != null) Console.WriteLine("  [0] 受「" + legal.Controlled + "」控制，跳过本次行动"
                 + (legal.Switches.Count > 0 ? "（仍可换人）" : ""));
             else if (legal.Struggle) Console.WriteLine("  [0] 所有技能无 PP，使用「" + battle.Db.Struggle.Name + "」");
 
             while (true)
             {
-                var number = ReadNumber("选择行动（q 退出）> ");
+                var number = readNumber("选择行动（q 退出）> ");
                 if (!number.HasValue) return null;
                 var option = legal.Skills.FirstOrDefault(s => s.Index + 1 == number.Value && s.Usable);
                 if (option != null) return BattleAction.Skill(option.Index);
@@ -349,29 +323,30 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadReplacement(Battle battle)
+        private static int? ReadReplacement(Battle battle, int mySide = 0, Func<string, int?> readNumber = null)
         {
+            if (readNumber == null) readNumber = ReadNumber;
             // 补位不受主动换人的锁麦限制，最终选择仍交给 Core.Replace 校验。
-            var side = battle.Sides[0];
+            var side = battle.Sides[mySide];
             var choices = Enumerable.Range(0, side.Team.Count)
                 .Where(index => index != side.Active && !side.Team[index].Fainted).ToList();
-            PrintSwitches(battle, choices, true);
+            PrintSwitches(battle, choices, true, mySide);
             while (true)
             {
-                var number = ReadNumber("请选择补位号位（q 退出）> ");
+                var number = readNumber("请选择补位号位（q 退出）> ");
                 if (!number.HasValue) return null;
                 if (choices.Contains(number.Value - 1)) return number.Value - 1;
                 Console.WriteLine("该号位不能补位，请选择列表中的主播。");
             }
         }
 
-        private static void PrintSwitches(Battle battle, IList<int> choices, bool replacement)
+        private static void PrintSwitches(Battle battle, IList<int> choices, bool replacement, int side = 0)
         {
             Console.WriteLine(replacement ? "可补位队友：" : "可换队友：");
             if (choices.Count == 0) Console.WriteLine("  无");
             foreach (int index in choices)
             {
-                var fighter = battle.Sides[0].Team[index];
+                var fighter = battle.Sides[side].Team[index];
                 Console.WriteLine("  [" + (index + (replacement ? 1 : 6)) + "] " + fighter.Slot + "号 " + fighter.Name
                     + " · 人气 " + fighter.Hp + "/" + fighter.MaxHp);
             }

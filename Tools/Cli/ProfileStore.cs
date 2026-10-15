@@ -6,7 +6,7 @@ namespace StreamDuel.Cli
 {
     internal static class ProfileStore
     {
-        public static Profile Record(Battle battle, string directory)
+        public static Profile Record(Battle battle, string directory, int mySide = 0)
         {
             string path = Path.Combine(directory, "profile.json");
             Profile profile;
@@ -20,7 +20,7 @@ namespace StreamDuel.Cli
                 try
                 {
                     profile = File.Exists(path) ? Profile.FromJson(File.ReadAllText(path)) : new Profile();
-                    profile.Record(battle, 0);
+                    profile.Record(battle, mySide);
                     using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
                     {
                         created = true;
