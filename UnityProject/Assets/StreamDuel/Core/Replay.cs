@@ -5,7 +5,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum BattleRecordEventType { Turn, Replace }
+    public enum BattleRecordEventType { Turn, Replace, Lead }
 
     public sealed class BattleRecordEvent
     {
@@ -22,6 +22,7 @@ namespace StreamDuel.Core
     {
         public uint Seed { get; set; }
         public string PackId { get; set; }
+        public bool LeadPick { get; set; }
         public IList<string>[] Teams { get; set; }
         public List<BattleRecordEvent> Events { get; } = new List<BattleRecordEvent>();
 
@@ -30,6 +31,7 @@ namespace StreamDuel.Core
             var sb = new StringBuilder();
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
+            if (LeadPick) sb.Append(",\"leadPick\":true");
             sb.Append(",\"teams\":[");
             for (int s = 0; s < Teams.Length; s++)
             {
@@ -54,9 +56,10 @@ namespace StreamDuel.Core
                     sb.Append(",\"a1\":");
                     WriteAction(sb, e.A1);
                 }
-                else if (e.Type == BattleRecordEventType.Replace)
+                else if (e.Type == BattleRecordEventType.Replace || e.Type == BattleRecordEventType.Lead)
                 {
-                    sb.Append("{\"type\":\"replace\",\"side\":").Append(e.Side.ToString(CultureInfo.InvariantCulture));
+                    sb.Append(e.Type == BattleRecordEventType.Lead ? "{\"type\":\"lead\",\"side\":" : "{\"type\":\"replace\",\"side\":");
+                    sb.Append(e.Side.ToString(CultureInfo.InvariantCulture));
                     sb.Append(",\"to\":").Append(e.To.ToString(CultureInfo.InvariantCulture));
                 }
                 else throw new FormatException("未知回放事件类型：" + e.Type);
@@ -78,6 +81,11 @@ namespace StreamDuel.Core
                 PackId = ReadString(Required(root, "packId"), "packId"),
                 Teams = new IList<string>[2]
             };
+            if (root.TryGetValue("leadPick", out var leadPick))
+            {
+                if (!(leadPick is bool enabled)) throw new FormatException("leadPick 必须是布尔值");
+                record.LeadPick = enabled;
+            }
             for (int s = 0; s < teams.Count; s++)
             {
                 var team = new List<string>();
@@ -95,9 +103,9 @@ namespace StreamDuel.Core
                     e.A0 = ReadAction(Required(obj, "a0"));
                     e.A1 = ReadAction(Required(obj, "a1"));
                 }
-                else if (type == "replace")
+                else if (type == "replace" || type == "lead")
                 {
-                    e.Type = BattleRecordEventType.Replace;
+                    e.Type = type == "lead" ? BattleRecordEventType.Lead : BattleRecordEventType.Replace;
                     e.Side = (int)ReadInteger(Required(obj, "side"), "side", 0, 1);
                     e.To = (int)ReadInteger(Required(obj, "to"), "to", 0, int.MaxValue);
                 }
@@ -173,12 +181,13 @@ namespace StreamDuel.Core
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
-            var battle = new Battle(db, r.Teams, new[] { "你", "对手" }, r.Seed);
+            var battle = new Battle(db, r.Teams, new[] { "你", "对手" }, r.Seed, r.LeadPick);
             foreach (var e in r.Events)
             {
                 if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);
                 if (e.Type == BattleRecordEventType.Turn) battle.ResolveTurn(e.A0, e.A1);
                 else if (e.Type == BattleRecordEventType.Replace) battle.Replace(e.Side, e.To);
+                else if (e.Type == BattleRecordEventType.Lead) battle.ChooseLead(e.Side, e.To);
                 else throw new FormatException("未知回放事件类型：" + e.Type);
             }
             return battle;
