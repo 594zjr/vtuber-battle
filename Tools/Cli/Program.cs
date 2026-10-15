@@ -80,8 +80,11 @@ namespace StreamDuel.Cli
                         action = choice.Value;
                     }
                     var foeAction = Ai.Choose(battle, 1, options.Level);
+                    int resolvedTurn = battle.Turn;
                     battle.ResolveTurn(action, foeAction);
                     PrintNewLog(battle, ref logIndex);
+                    if (options.Hash)
+                        Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                 }
 
                 Console.WriteLine();
@@ -99,12 +102,13 @@ namespace StreamDuel.Cli
 
         private static void PrintHelp()
         {
-            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto]");
+            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto] [--hash]");
             Console.WriteLine("默认：原创包 original、普通难度 normal、种子 1；--level 支持 easy / normal。");
             Console.WriteLine("未指定 --team 时，按内容包顺序选择前六位；电脑先选剩余主播，再按我方顺序补足六位。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("--auto 让双方按所选难度操作并输出整局；相同内容、参数和种子的输出完全一致。");
+            Console.WriteLine("--hash 无需参数值：每回合结算后、补位前输出一次 64 位状态哈希（16 位十六进制），包括对局结束的回合；补位不重复输出。");
         }
 
         private static void PrintTeams(Battle battle)
