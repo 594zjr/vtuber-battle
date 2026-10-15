@@ -32,6 +32,7 @@ namespace StreamDuel.Cli
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
+                if (options.AnalysisMode) return PrintAnalysis(db, options);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
                 if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
@@ -171,6 +172,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认 original，导入队伍码时默认使用码内内容包。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
+            Console.WriteLine("  --calc 攻击方id 技能序号 防守方id  预览两位主播首发时的伤害；序号 1～5，5 为第五技能。");
+            Console.WriteLine("  --matchup 六个id vs 六个id        输出 A 队攻击 B 队的 6×6 对位表；每队 id 可用空格或逗号分隔。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
@@ -195,6 +198,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
+            Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack、--pack-dir 和 --help。");
             Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code 或 --list-packs 同用。");
             Console.WriteLine("两种回放都支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用，其他对战/存档参数不改变记录，也不写存档。");
             Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--replay-code、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希；--share 等终局校验完成后输出。");
