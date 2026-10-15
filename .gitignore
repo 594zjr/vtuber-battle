@@ -12,3 +12,9 @@ UnityProject/.vs/
 # dotnet
 **/bin/
 **/obj/
+# 不提交任何官方素材或他人的图片、模型、音频
+*.psd
+*.moc3
+*.model3.json
+*.vrm
+*.fbx
