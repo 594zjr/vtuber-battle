@@ -16,6 +16,10 @@ namespace StreamDuel.Cli
         public AiLevel Level = AiLevel.Normal;
         public uint Seed = 1;
         public string[] Team = null;
+        public string[] TeamB;
+        public string NameA = "玩家 A";
+        public string NameB = "玩家 B";
+        public bool Hotseat;
         public string TeamCode;
         public bool ExportTeam;
         public string SaveDir = "saves";
@@ -58,6 +62,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--hotseat")
+                {
+                    if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
+                    options.Hotseat = true;
+                    continue;
+                }
                 if (option == "--glossary")
                 {
                     if (options.Glossary) throw new ArgumentException(Loc.Current.T("glossary.cli.duplicate"));
@@ -141,6 +151,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
+                    && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
@@ -151,6 +162,20 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--team-b":
+                        if (options.TeamB != null) throw new ArgumentException("--team-b 不能重复指定。");
+                        options.TeamB = value.Split(',').Select(id => id.Trim()).ToArray();
+                        if (options.TeamB.Any(id => id.Length == 0))
+                            throw new ArgumentException("--team-b 需要用逗号分隔的非空主播编号。");
+                        break;
+                    case "--name-a":
+                    case "--name-b":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException(option + " 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
+                            throw new ArgumentException(option + " 需要非空玩家名称，不能含换行或控制字符。");
+                        if (option == "--name-a") options.NameA = value.Trim();
+                        else options.NameB = value.Trim();
+                        break;
                     case "--lan-host":
                         if (options.LanHostName != null) throw new ArgumentException("--lan-host 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
@@ -234,6 +259,21 @@ namespace StreamDuel.Cli
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--team-code 需要非空队伍码。");
                         options.TeamCode = value;
                         break;
+                }
+            }
+            if (!options.Help)
+            {
+                if (!options.Hotseat && provided.Any(option => option == "--team-b" || option == "--name-a" || option == "--name-b"))
+                    throw new ArgumentException("--team-b、--name-a 和 --name-b 仅用于 --hotseat 同屏双人对战。");
+                if (options.Hotseat)
+                {
+                    var allowed = new HashSet<string>(new[] { "--hotseat", "--pack", "--pack-dir", "--seed", "--team",
+                        "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
+                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                    var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
+                    if (unsupported.Length > 0)
+                        throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)
+                            + "；双方请轮流手动操作，并在交接后按回车确认。");
                 }
             }
             if (options.CalcAttacker != null && options.MatchupTeamA != null)
