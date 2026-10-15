@@ -621,6 +621,12 @@ CLI 的 `--advice` 仅用于带 `--ban` 或 `--lead` 的新本地对局，在首
 
 估算每个可用技能的价值：伤害技能按“估算伤害 / 对手当前人气”，能击倒加大权重，先手击倒再加；状态、能力、直播间效果、驱散、净化按局面加分。普通难度的随机扰动上限、换人概率及其它策略系数由 `AiWeights.Default` 提供，困难难度使用 `AiWeights.HardDefault`。T-95 的自我对弈协议、完整参数与强度验证见 `ai-tuning.md`；这些参数只影响选择偏好，不改变合法行动和战斗结算。简单难度继续使用 `AiWeights.Legacy` 的历史策略（普通估值分支随机扰动上限 0.08、换人概率 60%，简单难度自身仍不主动换人）。补位选对位分最高的；简单难度补位使用旧权重，普通难度使用当前权重。
 
+专家保留三次采样、第一层前三名及分数并列者的向前搜索，默认每次行动或补位最多模拟 **128 个节点**。一个节点是副本中一次实际执行的 `ResolveTurn` 或 `Replace`，调用前扣除；双方补位分别计数。克隆、评分、困难难度启发式和已经结束的分支不计节点。预算限制确定性的模拟工作量，不读取系统时间；具体机器上的耗时由 `Tools/Bench` 测量，不承诺任意硬件下的墙钟时限。
+
+`Ai.ChooseExpert(battle, side, budget)` 与 `Ai.ChooseExpertReplacement(battle, side, budget)` 返回 `ExpertDecision`：`Action`、`SimulatedNodes`、`BudgetExhausted`。补位的 `Action` 是 `SwitchTo`。`Ai.Choose` / `ChooseReplacement` 的专家入口使用 `ExpertBudget.Default`；显式 `new ExpertBudget(maxNodes)` 可调节上限，0 合法，负数拒绝，null 预算拒绝。预算对象不可变，每次决策重新计数，可安全复用。`ExpertBudget.Unlimited` 用 `int.MaxValue` 保留旧专家的完整搜索顺序、估值与平局随机数处理，供强度对照。
+
+预算耗尽时只使用已完成的结果：第一层优先比较完成全部三次采样的候选；若没有，则比较已有完整样本的均值，忽略未完成补位的分支。第二层只在某个候选的全部样本扩展完成后更新评分；中断时从已完整扩展者中选择，尚无完整扩展者则使用第一层评分，避免混用不同搜索深度。补位须完成自身及对方必要补位与后续采样才计为一个完整样本。没有任何完整样本（含零预算）时返回顺序中的首个合法行动或可补位成员。仅当仍需模拟而无法取得下一节点时 `BudgetExhausted=true`，恰好用完并完成搜索不算截断。所有模拟在独立副本上执行，真实战斗只可能因最终并列选择消耗自身随机数。
+
 ### 9.1 主播的出招风格
 
 内容包的每条主播定义可选填 `aiStyle`，对应 `StreamerDef.AiStyle`；例如在该主播对象内添加 `"aiStyle": "aggressive"`。省略或设为 `null` 表示没有专属风格，使用该难度的默认策略。风格名区分大小写，只接受下表三个名称；未知名称在 `ContentDb.Validate()` 时抛出 `KeyError`，不静默回退。
