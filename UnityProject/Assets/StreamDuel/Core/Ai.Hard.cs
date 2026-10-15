@@ -16,6 +16,7 @@ namespace StreamDuel.Core
         {
             public BattleAction Action;
             public double Score;
+            public List<string> Reasons;
         }
 
         static List<BattleAction> HardActions(Battle b, int s)
@@ -170,7 +171,7 @@ namespace StreamDuel.Core
             return best.Count == 1 ? best[0] : best[(int)(b.Random() * best.Count)];
         }
 
-        static BattleAction ChooseHard(Battle live, int s)
+        static BattleAction ChooseHard(Battle live, int s, AiTrace trace = null)
         {
             var b = live.CopyForHardAi();
             b.PrepareHardAiTurn();
@@ -187,9 +188,13 @@ namespace StreamDuel.Core
                     return damage.Guaranteed && damage.Min >= foe.Hp &&
                         (HardFirst(b, s, action, other) == s || HardSkill(b, 1 - s, other) == null);
                 });
-                if (safeKill) kills.Add(new HardOption { Action = action, Score = HardScore(b, s, action) });
+                if (safeKill) kills.Add(HardScoredOption(b, s, action, trace));
             }
-            if (kills.Count > 0) return HardPick(live, kills, o => o.Score).Action;
+            if (kills.Count > 0)
+            {
+                TraceHardOptions(trace, kills, "主体伤害下界达到当前人气，进入估算击倒优先分支；只比较本分支候选，不保证实际击倒");
+                return HardPick(live, kills, o => o.Score).Action;
+            }
 
             var bestAttack = HardBestAttack(b, s, BattleAction.Pass());
             var enemyAttack = HardThreatAttack(b, 1 - s, bestAttack);
@@ -228,11 +233,33 @@ namespace StreamDuel.Core
                     if (matchup > current + (urgent ? 0.1 : 0.25) && (urgent || improvesRace))
                         switches.Add(new HardOption { Action = BattleAction.SwitchTo(index), Score = matchup });
                 }
-                if (switches.Count > 0) return HardPick(live, switches, o => o.Score).Action;
+                if (switches.Count > 0)
+                {
+                    TraceHardOptions(trace, switches, "进入脱离危险的换人分支；此分为承受一次最大估算伤害并结算回末后的对位分，已通过存活和改善门槛");
+                    return HardPick(live, switches, o => o.Score).Action;
+                }
             }
 
-            var choices = actions.Select(a => new HardOption { Action = a, Score = HardScore(b, s, a) }).ToList();
+            var choices = actions.Select(a => HardScoredOption(b, s, a, trace)).ToList();
+            TraceHardOptions(trace, choices, "未进入估算击倒或换人优先分支，比较当前行动评分；近似同分时用本次随机流决定");
             return HardPick(live, choices, o => o.Score).Action;
+        }
+
+        static HardOption HardScoredOption(Battle b, int s, BattleAction action, AiTrace trace)
+        {
+            var reasons = trace == null ? null : new List<string>();
+            return new HardOption { Action = action, Score = HardScore(b, s, action, reasons), Reasons = reasons };
+        }
+
+        static void TraceHardOptions(AiTrace trace, List<HardOption> options, string branch)
+        {
+            if (trace == null) return;
+            foreach (var option in options)
+            {
+                var reasons = option.Reasons ?? new List<string>();
+                reasons.Add(branch);
+                trace.Add(option.Action, option.Score, reasons);
+            }
         }
 
         static double HardMatchScore(Battle b, int s)
@@ -244,10 +271,15 @@ namespace StreamDuel.Core
             return outgoing.Expected / Math.Max(1, b.Active(1 - s).Hp) - incoming / Math.Max(1, b.Active(s).Hp) + b.Active(s).HpRatio * 0.2;
         }
 
-        static double HardScore(Battle b, int s, BattleAction action)
+        static double HardScore(Battle b, int s, BattleAction action, List<string> reasons = null)
         {
             var skill = HardSkill(b, s, action);
-            if (skill == null) return 0;
+            if (skill == null)
+            {
+                reasons?.Add(ExplainPass(b, s));
+                return 0;
+            }
+            if (action.Type == ActionType.Struggle) reasons?.Add("全部技能 PP 不足，评估硬撑及其反噬风险");
             var me = b.Active(s);
             var foe = b.Active(1 - s);
             var enemy = HardThreatAttack(b, 1 - s, action);
@@ -255,7 +287,11 @@ namespace StreamDuel.Core
             var incoming = HardPairDamage(b, 1 - s, enemy, action);
             int first = HardFirst(b, s, action, enemy);
             bool goesFirst = first == s;
-            if (b.HardAiPreEffectsInterrupt(s, skill, goesFirst ? Node.First : Node.Second)) return -1000;
+            if (b.HardAiPreEffectsInterrupt(s, skill, goesFirst ? Node.First : Node.Second))
+            {
+                reasons?.Add("按命中且条件满足的命中前效果估算，自身会下播并中断技能，评分 -1000");
+                return -1000;
+            }
             double accuracy = Math.Min(1, skill.Acc / 100.0);
             double dealt = Math.Min(damage.Expected, foe.Hp);
             double estimate = damage.Expected / Math.Max(1, foe.Hp);
@@ -263,10 +299,13 @@ namespace StreamDuel.Core
             // 保留普通难度的基础估值，只用准确的先后手、伤害和防护收益补充判断。
             double score = estimate >= 1 ? 1.6 + (goesFirst ? 0.6 : 0) : estimate;
             if (threat >= 1 && goesFirst && estimate >= 1) score += 1;
+            ExplainDamage(reasons, b, s, skill, estimate, score);
+            reasons?.Add("对照最大威胁行动的预估承伤占当前人气 " + AiNumber(threat * 100) + "%");
             double myHits = HardHitsToKo(b, 1 - s, damage.Min);
             double theirHits = HardHitsToKo(b, s, incoming.Min);
             bool winsRace = myHits < theirHits || (myHits == theirHits && goesFirst);
             if (damage.Min > 0 && winsRace) score += 0.1 / myHits;
+            if (damage.Min > 0 && winsRace) reasons?.Add("估算对攻回合数占优，评分 +" + AiNumber(0.1 / myHits));
 
             foreach (var effect in skill.Effects)
             {
@@ -356,9 +395,16 @@ namespace StreamDuel.Core
                     }
                 }
                 score += benefit * probability;
+                if (benefit != 0) reasons?.Add(ExplainEffect(effect) + "按命中与触发概率折算评分 " + AiNumber(benefit * probability));
             }
-            score += StylePreference(b, s, action);
-            if (!goesFirst && incoming.Min >= me.Hp) score *= 0.08;
+            double preference = StylePreference(b, s, action);
+            score += preference;
+            if (preference != 0) reasons?.Add("主播出招风格相对默认估值修正 " + AiNumber(preference));
+            if (!goesFirst && incoming.Min >= me.Hp)
+            {
+                score *= 0.08;
+                reasons?.Add("未确认先手且对方伤害下界达到自身人气，行动评分乘以 0.08");
+            }
             return score;
         }
 

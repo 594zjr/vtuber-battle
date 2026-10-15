@@ -160,16 +160,28 @@ namespace StreamDuel.Core
             return ChooseNormal(b, s, StyleWeights(b, s) ?? AiWeights.Default);
         }
 
-        static BattleAction ChooseNormal(Battle b, int s, AiWeights w)
+        static BattleAction ChooseNormal(Battle b, int s, AiWeights w, AiTrace trace = null)
         {
             var L = b.LegalFor(s); var p = b.Active(s); var f = b.Active(1 - s);
             if (L.Controlled != null)
             {
+                trace?.Add(BattleAction.Pass(), 0, ExplainPass(b, s), "受控换人由人气门槛与概率决定，不与技能评分比较");
                 if (L.Switches.Count > 0 && p.HpRatio > w.ControlledSwitchMinHpRatio && b.Random() < w.ControlledSwitchProbability)
-                    return BattleAction.SwitchTo(L.Switches.OrderByDescending(i => Matchup(b, s, i, w)).First());
+                    return BattleAction.SwitchTo(L.Switches.OrderByDescending(i =>
+                    {
+                        double score = Matchup(b, s, i, w);
+                        trace?.Add(BattleAction.SwitchTo(i), score, "通过受控换人概率；按对位评分挑选替补");
+                        return score;
+                    }).First());
+                trace?.Note("本次未通过受控换人的条件或概率判定");
                 return BattleAction.Pass();
             }
-            if (L.Struggle) return new BattleAction { Type = ActionType.Struggle };
+            if (L.Struggle)
+            {
+                var struggle = new BattleAction { Type = ActionType.Struggle };
+                trace?.Add(struggle, 0, "全部技能 PP 不足，普通策略直接选择硬撑");
+                return struggle;
+            }
             double threat = Threat(b, s);
             double bestV = double.MinValue; BattleAction best = BattleAction.Pass();
             foreach (var o in L.Skills)
@@ -177,19 +189,33 @@ namespace StreamDuel.Core
                 if (!o.Usable) continue;
                 var sk = b.Db.Skills[o.Id];
                 bool goFirst = o.Prio.Value > 0 || (o.Prio.Value == 0 && b.StatVal(p, "spd") > b.StatVal(f, "spd"));
-                double v = NormalSkillScore(b, s, sk, goFirst, threat, w);
-                v += b.Random() * w.RandomScoreRange;
+                var reasons = trace == null ? null : new List<string>();
+                double v = NormalSkillScore(b, s, sk, goFirst, threat, w, reasons);
+                double randomScore = b.Random() * w.RandomScoreRange;
+                v += randomScore;
+                if (trace != null)
+                {
+                    reasons.Add("本次随机扰动 +" + AiNumber(randomScore) + "；只在说明副本抽取");
+                    trace.Add(BattleAction.Skill(o.Index), v, reasons);
+                }
                 if (v > bestV) { bestV = v; best = BattleAction.Skill(o.Index); }
             }
             if (L.Switches.Count > 0 && threat >= w.SwitchMinThreatRatio && bestV < w.SwitchMaxActionScore)
             {
-                int c = L.Switches.OrderByDescending(i => Matchup(b, s, i, w)).First();
+                int c = L.Switches.OrderByDescending(i =>
+                {
+                    double score = Matchup(b, s, i, w);
+                    trace?.Add(BattleAction.SwitchTo(i), score, "受到的预估威胁较高，技能评分未达留场门槛", "此分为换人对位分；还须通过改善幅度与概率判定，不与技能分直接竞争");
+                    return score;
+                }).First();
                 if (Matchup(b, s, c, w) > Matchup(b, s, b.Sides[s].Active, w) + w.SwitchMinMatchupGain && b.Random() < w.SwitchProbability) return BattleAction.SwitchTo(c);
+                trace?.Note("本次换人未通过改善幅度或概率判定，保留技能选择");
             }
+            if (trace != null && trace.Options.Count == 0) trace.Add(best, 0, ExplainPass(b, s));
             return best;
         }
 
-        static double NormalSkillScore(Battle b, int s, SkillDef sk, bool goFirst, double threat, AiWeights w)
+        static double NormalSkillScore(Battle b, int s, SkillDef sk, bool goFirst, double threat, AiWeights w, List<string> reasons = null)
         {
             var p = b.Active(s); var f = b.Active(1 - s);
             bool foeLocked = b.ControlOf(f) != null || f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneControl);
@@ -200,9 +226,11 @@ namespace StreamDuel.Core
                 double est = Estimate(b, s, sk, goFirst) / Math.Max(1, f.Hp);
                 v = est >= 1 ? w.KnockoutScore + (goFirst ? w.FirstKnockoutBonus : 0) : est * w.DamageScoreMultiplier;
                 if (threat >= 1 && goFirst && est >= 1) v += w.ThreatenedFirstKnockoutBonus;
+                ExplainDamage(reasons, b, s, sk, est, v);
             }
             foreach (var e in sk.Effects)
             {
+                double before = v;
                 double ch = e.Chance / 100.0;
                 switch (e.Code)
                 {
@@ -249,26 +277,60 @@ namespace StreamDuel.Core
                         break;
                     }
                 }
+                if (reasons != null && v != before) reasons.Add(ExplainEffect(e) + "评分 " + AiNumber(v - before));
             }
+            if (reasons != null && sk.Power <= 0 && sk.Effects.Any(effect => effect.Code == "FIXED_DAMAGE"))
+                reasons.Add("普通策略未单独计入固定伤害效果，评分不代表技能总伤害");
+            if (reasons != null && reasons.Count == 0) reasons.Add("当前局面没有触发该技能的额外估值");
             return v;
         }
 
         public static BattleAction Choose(Battle b, int s, AiLevel level)
         {
-            if (level == AiLevel.Normal) return Choose(b, s);
-            if (level == AiLevel.Hard) return ChooseHard(b, s);
-            if (level == AiLevel.Expert) return ChooseExpert(b, s);
+            return ChooseWithTrace(b, s, level, null);
+        }
+
+        static BattleAction ChooseWithTrace(Battle b, int s, AiLevel level, AiTrace trace)
+        {
+            if (level == AiLevel.Normal)
+            {
+                var selected = ChooseNormal(b, s, StyleWeights(b, s) ?? AiWeights.Default, trace);
+                if (trace != null && b.Active(s).Def.AiStyle != null) trace.Note("采用当前主播的出招风格权重");
+                return selected;
+            }
+            if (level == AiLevel.Hard) return ChooseHard(b, s, trace);
+            if (level == AiLevel.Expert) return ChooseExpert(b, s, trace);
 
             var legal = b.LegalFor(s);
-            if (legal.Controlled != null) return BattleAction.Pass();
-            if (legal.Struggle) return new BattleAction { Type = ActionType.Struggle };
+            if (legal.Controlled != null)
+            {
+                trace?.Add(BattleAction.Pass(), 0, ExplainPass(b, s), "简单难度不主动换人");
+                return BattleAction.Pass();
+            }
+            if (legal.Struggle)
+            {
+                var struggle = new BattleAction { Type = ActionType.Struggle };
+                trace?.Add(struggle, 0, "全部技能 PP 不足，简单策略选择硬撑");
+                return struggle;
+            }
 
             var skills = legal.Skills.Where(option => option.Usable).ToList();
-            if (skills.Count == 0) return BattleAction.Pass();
+            if (skills.Count == 0)
+            {
+                trace?.Add(BattleAction.Pass(), 0, ExplainPass(b, s));
+                return BattleAction.Pass();
+            }
             if (b.Random() < 0.5)
-                return BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
+            {
+                var selected = BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
+                foreach (var option in skills) trace?.Add(BattleAction.Skill(option.Index), 0,
+                    "简单难度本次进入均匀随机分支；可用技能等分，每个概率为 1/" + skills.Count, "随机抽取在说明副本执行，原对战随机流不变");
+                return selected;
+            }
 
-            var action = ChooseNormal(b, s, AiWeights.Default);
+            var action = ChooseNormal(b, s, AiWeights.Default, trace);
+            trace?.Note("简单难度本次采用默认普通估值，忽略主播风格");
+            if (action.Type == ActionType.Switch) trace?.Note("简单难度不主动换人，原换人决定替换为首个可用技能");
             return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
         }
 

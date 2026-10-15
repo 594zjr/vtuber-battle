@@ -30,6 +30,7 @@ namespace StreamDuel.Cli
         public double? TurnSeconds;
         public double? BankSeconds;
         public bool Auto;
+        public bool Explain;
         public bool Ban;
         public bool Lead;
         public bool Hash;
@@ -98,6 +99,11 @@ namespace StreamDuel.Cli
                 if (option == "--auto")
                 {
                     options.Auto = true;
+                    continue;
+                }
+                if (option == "--explain")
+                {
+                    options.Explain = true;
                     continue;
                 }
                 if (option == "--export-team")
@@ -299,6 +305,13 @@ namespace StreamDuel.Cli
             if (options.ReplayMode && options.TurnSeconds.HasValue && !options.Help)
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
                     + " 不支持 --timer；回放使用已保存的选择，不重新计时。");
+            if (options.Explain && !options.Help)
+            {
+                if (options.ReplayMode || options.ListPacks || options.ListReplays)
+                    throw new ArgumentException("--explain 仅用于新对局的电脑选招，不能与回放或列表操作同用。");
+                if (options.Network && !options.Auto)
+                    throw new ArgumentException("联网 --explain 需要搭配 --auto，只显示本方电脑的选招，不分析对手的未公开行动。");
+            }
             return options;
         }
 

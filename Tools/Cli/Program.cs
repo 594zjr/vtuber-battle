@@ -140,15 +140,15 @@ namespace StreamDuel.Cli
                     }
                     else if (options.Auto)
                     {
-                        action = Ai.Choose(battle, 0, options.Level);
-                        foeAction = Ai.Choose(battle, 1, options.Level);
+                        action = ChooseAiAction(battle, 0, options);
+                        foeAction = ChooseAiAction(battle, 1, options);
                     }
                     else
                     {
                         var choice = ReadAction(battle);
                         if (!choice.HasValue) return Quit();
                         action = choice.Value;
-                        foeAction = Ai.Choose(battle, 1, options.Level);
+                        foeAction = ChooseAiAction(battle, 1, options);
                     }
                     int resolvedTurn = battle.Turn;
                     battle.ResolveTurn(action, foeAction);
@@ -183,6 +183,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --explain         新对局每次电脑选招时显示引擎评分前三项、中文理由及已选标记，不额外消耗战斗随机数。");
+            Console.WriteLine("                    仅解释选招，禁用/首发/补位不显示；联网须搭配 --auto 且只显示本方。回放、列表、分析、图鉴及房间搜索不支持。");
+            Console.WriteLine("                    计时包含解释计算时间；发生超时时，实际行动仍以默认提交和对战日志为准。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
