@@ -34,7 +34,7 @@ public class T55_NetTimerTests
 
         public string[] Messages(string type)
         {
-            return Sent.Where(message => Field(message, "type") == type).ToArray();
+            return NetWireTestTransport.Business(Sent).Where(message => Field(message, "type") == type).ToArray();
         }
     }
 
@@ -107,7 +107,7 @@ public class T55_NetTimerTests
         }
         using var hostHello = JsonDocument.Parse(Assert.Single(pair.A.Messages("hello")));
         using var guestHello = JsonDocument.Parse(Assert.Single(pair.B.Messages("hello")));
-        Assert.Equal(3, hostHello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(4, hostHello.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(1, hostHello.RootElement.GetProperty("timerVersion").GetInt32());
         Assert.Equal(2.5, hostHello.RootElement.GetProperty("timer").GetProperty("turnSeconds").GetDouble());
         Assert.Equal(7.25, hostHello.RootElement.GetProperty("timer").GetProperty("bankSeconds").GetDouble());

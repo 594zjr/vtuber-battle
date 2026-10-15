@@ -14,11 +14,18 @@ public class T62_QuickChatReviewTests
         readonly INetTransport inner;
         public readonly List<string> Received = new List<string>();
         public readonly List<string> Sent = new List<string>();
+        public Func<string, string> RewriteNext;
 
         public Transport(INetTransport inner) { this.inner = inner; }
 
         public void Send(string message)
         {
+            if (RewriteNext != null)
+            {
+                var rewrite = RewriteNext;
+                RewriteNext = null;
+                message = rewrite(message);
+            }
             Sent.Add(message);
             inner.Send(message);
         }
@@ -35,6 +42,7 @@ public class T62_QuickChatReviewTests
     {
         public readonly Transport A, B;
         public readonly NetSession Host, Guest;
+        public readonly NetWireTestTransport.PayloadSender HostPayload;
 
         public Pair(bool zeroTimer = false)
         {
@@ -45,6 +53,7 @@ public class T62_QuickChatReviewTests
             Host = new NetSession(db, A, true, HostTeam, "主机", 62,
                 zeroTimer ? 0 : (double?)null, zeroTimer ? 0 : (double?)null);
             Guest = new NetSession(db, B, false, GuestTeam, "客机", null);
+            HostPayload = new NetWireTestTransport.PayloadSender(Host, rewrite => A.RewriteNext = rewrite, A.Send);
             for (int i = 0; i < 8; i++) { Host.Poll(); Guest.Poll(); }
             Assert.Equal(NetState.Choose, Host.State);
             Assert.Equal(NetState.Choose, Guest.State);
@@ -69,13 +78,13 @@ public class T62_QuickChatReviewTests
         ulong hash = pair.Guest.Battle.StateHash();
         string record = pair.Guest.Battle.Record.ToJson();
         double nextRandom = pair.Guest.Battle.Clone().Random();
-        pair.A.Send(message);
+        pair.HostPayload.Send(message);
         pair.Guest.Poll();
 
         Assert.Equal(NetState.Choose, pair.Guest.State);
         Assert.Null(pair.Guest.Error);
         Assert.Empty(pair.Guest.ReceivedChats);
-        for (int i = 0; i < 6; i++) pair.A.Send(Chat(i));
+        for (int i = 0; i < 6; i++) pair.HostPayload.Send(Chat(i));
         pair.Guest.Poll();
 
         Assert.Equal(Enumerable.Range(0, 6), pair.Guest.ReceivedChats.Select(chat => chat.Index));
@@ -96,7 +105,7 @@ public class T62_QuickChatReviewTests
         var pair = new Pair();
         ulong hash = pair.Guest.Battle.StateHash();
         string record = pair.Guest.Battle.Record.ToJson();
-        pair.A.Send(message);
+        pair.HostPayload.Send(message);
 
         pair.Guest.Poll();
 
@@ -122,8 +131,7 @@ public class T62_QuickChatReviewTests
                 : Chat(i % 8);
             // 独立的合法空白前缀让每条消息可区分，精确检查跨 Poll 的顺序。
             message = new string(' ', i) + message;
-            messages.Add(message);
-            pair.A.Send(message);
+            messages.Add(pair.HostPayload.Send(message));
         }
         pair.Guest.MuteOpponent = true;
 
@@ -142,7 +150,8 @@ public class T62_QuickChatReviewTests
         Assert.True(pair.Guest.HasSubmitted);
         Assert.True(pair.Guest.Clock.TimedOut(pair.Guest.MySide));
         Assert.Equal(NetState.Waiting, pair.Guest.State);
-        string commit = Assert.Single(pair.B.Sent);
+        string commit = Assert.Single(NetWireTestTransport.Business(pair.B.Sent));
+        Assert.All(pair.B.Sent.Where(NetWireTestTransport.IsAck), ack => Assert.DoesNotContain("\"seq\"", ack));
         Assert.Contains("\"type\":\"commit\"", commit);
         var commitFields = Assert.IsType<Dictionary<string, object>>(MiniJson.Parse(commit));
         Assert.False(commitFields.ContainsKey("action"));

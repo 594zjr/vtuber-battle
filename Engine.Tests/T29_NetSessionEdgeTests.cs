@@ -15,6 +15,7 @@ public class T29_NetSessionEdgeTests
     {
         readonly Queue<string> incoming = new Queue<string>();
         readonly Queue<string> held = new Queue<string>();
+        long highestIncoming;
         public Transport Peer;
         public bool HoldHashes;
         public readonly List<string> Sent = new List<string>();
@@ -30,10 +31,30 @@ public class T29_NetSessionEdgeTests
         {
             if (incoming.Count == 0) { message = null; return false; }
             message = incoming.Dequeue();
+            try { highestIncoming = Math.Max(highestIncoming, NetWireTestTransport.Sequence(message)); }
+            catch (JsonException) { }
+            catch (InvalidOperationException) { }
             return true;
         }
 
-        public void Inject(string message) { incoming.Enqueue(message); }
+        public void Inject(string message)
+        {
+            // 已带 seq 的握手变体保留原序号；手写业务包分配新的序号。
+            try
+            {
+                if (NetWireTestTransport.Sequence(message) == 0)
+                    message = NetWireTestTransport.StampNew(message, ref highestIncoming);
+            }
+            catch (JsonException) { }
+            catch (InvalidOperationException) { }
+            incoming.Enqueue(message);
+        }
+
+        public void InjectNew(string message)
+        {
+            message = NetWireTestTransport.StampNew(message, ref highestIncoming);
+            incoming.Enqueue(message);
+        }
 
         public void ReleaseHash(Func<string, string> transform = null)
         {
@@ -47,7 +68,7 @@ public class T29_NetSessionEdgeTests
             while (held.Count > 0) ReleaseHash();
         }
 
-        public string[] Messages(string type) { return Sent.Where(message => TypeOf(message) == type).ToArray(); }
+        public string[] Messages(string type) { return NetWireTestTransport.Business(Sent).Where(message => TypeOf(message) == type).ToArray(); }
     }
 
     sealed class Pair
@@ -111,7 +132,7 @@ public class T29_NetSessionEdgeTests
             Assert.Equal(HostTeam, session.Battle.Sides[0].Team.Select(fighter => fighter.Def.Id));
             Assert.Equal(GuestTeam, session.Battle.Sides[1].Team.Select(fighter => fighter.Def.Id));
         }
-        foreach (var message in pair.HostTransport.Sent.Concat(pair.GuestTransport.Sent))
+        foreach (var message in NetWireTestTransport.Business(pair.HostTransport.Sent).Concat(NetWireTestTransport.Business(pair.GuestTransport.Sent)))
         {
             Assert.DoesNotContain("\n", message);
             Assert.DoesNotContain("\r", message);
@@ -395,10 +416,11 @@ public class T29_NetSessionEdgeTests
         var pair = new Pair();
         string message = hello ? pair.GuestTransport.Messages("hello").Single() :
             "{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\",\"digest\":\"" + new string('0', 64) + "\"}";
-        pair.HostTransport.Inject(message);
-        if (!hello) pair.HostTransport.Inject(message);
+        pair.HostTransport.InjectNew(message);
+        if (!hello) pair.HostTransport.InjectNew(message);
         pair.Pump();
         Assert.Equal(NetState.Error, pair.Host.State);
+        Assert.Contains(hello ? "重复发送握手" : "重复发送承诺", pair.Host.Error);
         Assert.Equal(NetState.Error, pair.Guest.State);
         Assert.Empty(pair.Host.Battle.Record.Events);
     }
@@ -412,7 +434,7 @@ public class T29_NetSessionEdgeTests
         var hello = json.RootElement;
         pair.HostTransport.Inject(JsonSerializer.Serialize(new
         {
-            type = "hello", version = NetSession.ProtocolVersion + 1, packId = hello.GetProperty("packId").GetString(),
+            type = "hello", seq = hello.GetProperty("seq").GetInt64(), version = NetSession.ProtocolVersion + 1, packId = hello.GetProperty("packId").GetString(),
             contentHash = hello.GetProperty("contentHash").GetString(),
             seed = (uint?)null, name = "客机", team = GuestTeam
         }));

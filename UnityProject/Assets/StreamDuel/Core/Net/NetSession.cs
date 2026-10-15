@@ -9,7 +9,7 @@ namespace StreamDuel.Core
 
     public sealed partial class NetSession
     {
-        public const int ProtocolVersion = 3;
+        public const int ProtocolVersion = 4;
         public NetState State { get; private set; } = NetState.Handshake;
         public Battle Battle { get; private set; }
         public int MySide { get; }
@@ -64,20 +64,25 @@ namespace StreamDuel.Core
 
         public void Poll()
         {
-            if (Faulted) return;
             try
             {
+                reliabilityPoll++;
+                if (transport is IPollableNetTransport pollable) pollable.Poll();
+                int processed = 0;
+                ProcessOrderedMessages(ref processed);
                 string message;
-                // 聊天洪泛不能占住调用线程，计时和界面需在下一批前继续推进。
-                for (int received = 0; received < 64 && !Faulted && transport.TryReceive(out message); received++)
+                // 线路包与有序业务分别有界，确认和乱序洪泛不能占住输入或计时线程。
+                for (int received = 0; received < 64 && transport.TryReceive(out message); received++)
                 {
-                    if (Receive(message)) Advance();
+                    ReceivePacket(message);
+                    ProcessOrderedMessages(ref processed);
                 }
+                RetryUnconfirmedMessages();
             }
             catch (TcpDisconnectedException ex)
             {
-                // 终局仍接收迟到的协议报错，只有排队消息处理完后的纯断线可以忽略。
-                if (State != NetState.Over) Fault(NetState.Error, ex.Message, false);
+                // 完成最终哈希还不等于线路已确认，未收尾时不能把 EOF 当作成功。
+                if (State != NetState.Over || HasPendingReliableMessages) Fault(NetState.Error, ex.Message, false);
             }
             catch (Exception ex)
             {
@@ -116,11 +121,8 @@ namespace StreamDuel.Core
             get { return State == NetState.Desync || State == NetState.Error; }
         }
 
-        private bool Receive(string message)
+        private bool Receive(Dictionary<string, object> obj)
         {
-            Dictionary<string, object> obj;
-            try { obj = NetJson.Object(message); }
-            catch (FormatException) when (HasQuickChatHeader(message)) { return false; }
             string type = NetJson.Text(obj, "type");
             if (type == "chat")
             {
@@ -285,7 +287,7 @@ namespace StreamDuel.Core
 
         private bool Send(string message)
         {
-            try { transport.Send(message); return true; }
+            try { SendReliable(message); return true; }
             catch (Exception ex)
             {
                 Fault(NetState.Error, "发送消息失败：" + ex.Message, false);
@@ -299,7 +301,7 @@ namespace StreamDuel.Core
             State = state;
             Error = reason;
             if (!notify) return;
-            try { transport.Send("{\"type\":\"error\",\"message\":" + NetJson.Quote(reason) + "}"); }
+            try { SendReliable("{\"type\":\"error\",\"message\":" + NetJson.Quote(reason) + "}"); }
             catch (Exception) { }
         }
 

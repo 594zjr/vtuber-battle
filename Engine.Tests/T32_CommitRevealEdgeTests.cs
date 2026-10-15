@@ -16,6 +16,7 @@ public class T32_CommitRevealEdgeTests
     {
         readonly Queue<string> incoming = new Queue<string>();
         readonly Queue<string> held = new Queue<string>();
+        long highestIncoming;
         public Transport Peer;
         public bool Hold, DuplicateReveals;
         public Func<string, string> Rewrite;
@@ -25,19 +26,32 @@ public class T32_CommitRevealEdgeTests
         {
             if (Rewrite != null) message = Rewrite(message);
             Sent.Add(message);
-            if (Hold) held.Enqueue(message);
+            if (Hold && !NetWireTestTransport.IsAck(message)) held.Enqueue(message);
             else Peer.incoming.Enqueue(message);
-            if (DuplicateReveals && Field(message, "type") == "reveal") Peer.incoming.Enqueue(message);
+            // 这里模拟恶意再次公开，而非协议 4 允许的同序号线路重发。
+            if (DuplicateReveals && Field(message, "type") == "reveal")
+                Peer.incoming.Enqueue(NetWireTestTransport.WithSequence(message, NetWireTestTransport.Sequence(message) + 1));
         }
 
         public bool TryReceive(out string message)
         {
             if (incoming.Count == 0) { message = null; return false; }
             message = incoming.Dequeue();
+            highestIncoming = Math.Max(highestIncoming, NetWireTestTransport.Sequence(message));
             return true;
         }
 
-        public void Inject(string message) { incoming.Enqueue(message); }
+        public void Inject(string message)
+        {
+            // 已带 seq 的握手变体保留原序号；手写业务包分配新的序号。
+            try
+            {
+                if (NetWireTestTransport.Sequence(message) == 0)
+                    message = NetWireTestTransport.StampNew(message, ref highestIncoming);
+            }
+            catch (JsonException) { }
+            incoming.Enqueue(message);
+        }
 
         public void ReleaseNext(string expectedType)
         {
@@ -49,7 +63,7 @@ public class T32_CommitRevealEdgeTests
 
         public string[] Messages(string type, string kind = null)
         {
-            return Sent.Where(message => Field(message, "type") == type && (kind == null || Field(message, "kind") == kind)).ToArray();
+            return NetWireTestTransport.Business(Sent).Where(message => Field(message, "type") == type && (kind == null || Field(message, "kind") == kind)).ToArray();
         }
     }
 
@@ -241,6 +255,7 @@ public class T32_CommitRevealEdgeTests
         pair.Pump();
 
         Assert.Equal(NetState.Error, pair.Host.State);
+        Assert.Contains("上一阶段哈希尚未确认", pair.Host.Error);
         Assert.Equal(NetState.Error, pair.Guest.State);
         Assert.Single(pair.Host.Battle.Record.Events);
         Assert.Single(pair.A.Messages("hash"));

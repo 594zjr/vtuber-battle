@@ -141,6 +141,15 @@ namespace StreamDuel.Cli
         static void FinishNetwork(NetSession session, TcpTransport connection)
         {
             Console.WriteLine("等待对手完成终局校验……");
+            var delivery = Stopwatch.StartNew();
+            while (session.HasPendingReliableMessages)
+            {
+                session.Poll();
+                CheckNetwork(session);
+                if (delivery.ElapsedMilliseconds >= 10000)
+                    throw new IOException("等待终局消息确认超时，对局未保存。");
+                Thread.Sleep(10);
+            }
             // 关闭发送方向后仍接收数据，保证对端最终哈希报错先于 EOF 被处理。
             connection.CompleteSending();
             var completion = Stopwatch.StartNew();
