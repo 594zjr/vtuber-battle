@@ -52,6 +52,7 @@ namespace StreamDuel.Core
             var attacker = ctx.P;
             int dealt = Damage(target, amount, ctx.Node, text, true, action: ctx);
             if (dealt <= 0 || attacker == target || attacker.Fainted || Phase == Phase.Over) return dealt;
+            if (target.Fainted) PersonaAfterKo(attacker, ctx.Node);
             foreach (var field in target.Fields)
             {
                 var definition = Db.Fields[field.Id];
