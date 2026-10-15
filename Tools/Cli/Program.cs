@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.ReproduceCode != null) return ReproduceBugReport(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
@@ -227,11 +228,16 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
             Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
+            Console.WriteLine("  --bug-report      新对局结束时输出 SDBUG1- 问题报告码；支持普通、计时、同屏及联网，联网须完成终局校验，提前退出不输出。");
+            Console.WriteLine("  --reproduce 码    复现 SDBUG1- 问题报告并比较状态与最近日志哈希；内容或版本差异会给出中文提示，不写战绩或新录像。");
+            Console.WriteLine("                    默认使用报告中的包（含混合包）；只可搭配 --pack 显式诊断、--pack-dir、--help，不能绕过包不匹配、未来录像或下架限制。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
             Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("/surrender 可在选招、补位、禁用和首发时投降并保存结果；/draw 提议和局，每 5 回合最多一次，电脑会自动回应。");
+            Console.WriteLine("/bug [备注] 在手动选择或联网等待期间导出问题报告后继续对局；不包含会话中尚未公开的对手选择。备注会清理不支持的字符。");
+            Console.WriteLine("--bug-report 与回看、列表、搜索、图鉴、分析及赛事入口互斥；问题报告包含对局记录和备注，不附带账号、设备或网络地址。");
             Console.WriteLine("联网收到求和后输入 /draw accept 同意或 /draw reject 拒绝，等待对手时也可输入指令；同屏模式暂不支持求和。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
             Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack/--packs、--pack-dir 和 --help。");

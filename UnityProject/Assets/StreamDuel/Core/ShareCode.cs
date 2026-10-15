@@ -16,7 +16,11 @@ namespace StreamDuel.Core
         public static string Encode(BattleRecord record)
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
-            string json = record.ToJson();
+            return EncodeText(record.ToJson(), Prefix);
+        }
+
+        internal static string EncodeText(string json, string prefix)
+        {
             if (json.Length > MaxJsonBytes || Utf8.GetByteCount(json) > MaxJsonBytes)
                 throw new FormatException("对战记录过大，分享码最多支持 1 MiB 的 JSON。");
             byte[] text = Utf8.GetBytes(json);
@@ -29,13 +33,13 @@ namespace StreamDuel.Core
                 uint checksum = Checksum(compressed, compressed.Length);
                 // 校验压缩字节并按小端追加，解压前即可拒绝传输损坏；这不是安全认证。
                 for (int i = 0; i < 4; i++) output.WriteByte((byte)(checksum >> (i * 8)));
-                return Prefix + Convert.ToBase64String(output.ToArray()).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+                return prefix + Convert.ToBase64String(output.ToArray()).TrimEnd('=').Replace('+', '-').Replace('/', '_');
             }
         }
 
         public static BattleRecord Decode(string code)
         {
-            try { return DecodeCore(code); }
+            try { return BattleRecord.FromJson(DecodeText(code, Prefix)); }
             catch (FormatException ex)
             {
                 throw new FormatException("分享码格式错误：" + ex.Message, ex);
@@ -46,19 +50,20 @@ namespace StreamDuel.Core
             }
         }
 
-        private static BattleRecord DecodeCore(string code)
+        internal static string DecodeText(string code, string prefix)
         {
             if (code == null) throw new FormatException("分享码不能为空。");
-            var clean = new StringBuilder(Math.Min(code.Length, MaxCodeCharacters));
+            int maxCharacters = MaxCodeCharacters + prefix.Length - Prefix.Length;
+            var clean = new StringBuilder(Math.Min(code.Length, maxCharacters));
             foreach (char c in code)
             {
                 if (char.IsWhiteSpace(c)) continue;
-                if (clean.Length >= MaxCodeCharacters) throw new FormatException("分享码过长。");
+                if (clean.Length >= maxCharacters) throw new FormatException("分享码过长。");
                 clean.Append(c);
             }
             string value = clean.ToString();
-            if (!value.StartsWith(Prefix, StringComparison.Ordinal)) throw new FormatException("分享码必须以 SD1- 开头。");
-            string encoded = value.Substring(Prefix.Length);
+            if (!value.StartsWith(prefix, StringComparison.Ordinal)) throw new FormatException("分享码必须以 " + prefix + " 开头。");
+            string encoded = value.Substring(prefix.Length);
             if (encoded.Length == 0 || encoded.Length % 4 == 1) throw new FormatException("分享码编码长度无效。");
             foreach (char c in encoded)
                 if (Base64Value(c) < 0) throw new FormatException("分享码包含非法编码字符。");
@@ -89,7 +94,7 @@ namespace StreamDuel.Core
                     }
                 }
                 if (input.Position != compressedLength) throw new FormatException("分享码压缩流末尾含多余数据。");
-                return BattleRecord.FromJson(Utf8.GetString(output.ToArray()));
+                return Utf8.GetString(output.ToArray());
             }
         }
 

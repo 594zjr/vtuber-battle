@@ -23,6 +23,12 @@ namespace StreamDuel.Core
             get { return BattleRecord.FromJson(battle.Record.ToJson()); }
         }
 
+        public string CreateBugReport(string note)
+        {
+            // 直接保留真实诊断状态；待交接的私密选择只在会话中，尚未写入 Battle。
+            return BugReport.Create(battle, note);
+        }
+
         /// <summary>只包含已结算的日志，条目和人气快照均与会话隔离。</summary>
         public IReadOnlyList<LogEntry> Log
         {

@@ -197,6 +197,7 @@ namespace StreamDuel.Cli
             var summary = BattleSummary.From(battle);
             Console.WriteLine(BattleSummary.From(display).ToText());
             PrintReview(display, mySide);
+            bool bugReportFailed = options.BugReportAtEnd && !PrintBugReport(battle, "");
             bool shareFailed = false;
             try
             {
@@ -253,7 +254,7 @@ namespace StreamDuel.Cli
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
+            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed && !bugReportFailed ? 0 : 1;
         }
     }
 }

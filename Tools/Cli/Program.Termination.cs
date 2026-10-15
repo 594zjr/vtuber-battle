@@ -10,6 +10,7 @@ namespace StreamDuel.Cli
         private static void PrintTerminationCommands(bool network = false)
         {
             Console.WriteLine("对战指令：/surrender 投降并结算；/draw 提议和局；q 退出未完成对局。");
+            Console.WriteLine("/bug [备注] 导出问题报告后继续对局。");
             if (network)
                 Console.WriteLine("收到求和后输入 /draw accept 同意，或 /draw reject 拒绝；等待对手时也可使用这些指令。");
         }
@@ -18,6 +19,11 @@ namespace StreamDuel.Cli
         {
             string command = line.Trim();
             if (!command.StartsWith("/", StringComparison.Ordinal)) return false;
+            if (IsBugCommand(command, out string note))
+            {
+                PrintBugReport(battle, note);
+                return true;
+            }
             if (command.Equals("/surrender", StringComparison.OrdinalIgnoreCase))
             {
                 battle.Surrender(side);
@@ -37,7 +43,7 @@ namespace StreamDuel.Cli
                 if (battle.Phase == Phase.Over) throw new BattleFinishedException();
                 return true;
             }
-            Console.WriteLine("可用指令：/surrender 投降；/draw 向电脑求和（电脑自动回应）。");
+            Console.WriteLine("可用指令：/surrender 投降；/draw 向电脑求和（电脑自动回应）；/bug [备注] 导出问题报告。");
             return true;
         }
 
@@ -45,12 +51,17 @@ namespace StreamDuel.Cli
         {
             string command = line.Trim();
             if (!command.StartsWith("/", StringComparison.Ordinal)) return false;
+            if (IsBugCommand(command, out string note))
+            {
+                PrintBugReport(() => session.CreateBugReport(note));
+                return true;
+            }
             if (command.Equals("/surrender", StringComparison.OrdinalIgnoreCase))
             {
                 session.Surrender();
                 throw new BattleFinishedException();
             }
-            Console.WriteLine("同屏模式暂不支持求和；输入 /surrender 投降，或继续选择。");
+            Console.WriteLine("同屏模式暂不支持求和；输入 /surrender 投降、/bug [备注] 导出问题报告，或继续选择。");
             return true;
         }
 
@@ -58,6 +69,13 @@ namespace StreamDuel.Cli
         {
             string command = line.Trim();
             if (!command.StartsWith("/", StringComparison.Ordinal)) return false;
+            if (IsBugCommand(command, out string note))
+            {
+                if (session.Battle.Phase == Phase.Over)
+                    Console.WriteLine("正在确认终局；确认完成后由 --bug-report 导出，当前不导出未确认的结束状态。");
+                else PrintBugReport(session.Battle, note);
+                return true;
+            }
             if (command.Equals("/surrender", StringComparison.OrdinalIgnoreCase))
             {
                 if (!session.CanSurrender)
@@ -95,7 +113,7 @@ namespace StreamDuel.Cli
                 }
                 return true;
             }
-            Console.WriteLine("可用指令：/surrender、/draw、/draw accept、/draw reject。");
+            Console.WriteLine("可用指令：/surrender、/draw、/draw accept、/draw reject、/bug [备注]。");
             return true;
         }
 
