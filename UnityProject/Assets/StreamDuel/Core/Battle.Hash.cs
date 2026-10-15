@@ -68,6 +68,14 @@ namespace StreamDuel.Core
             }
             foreach (int choice in banChoices) hash.Int(choice);
             hash.Bool(leadPickAfterBan);
+            // 空规则仍沿用旧哈希输入，只有启用修饰器时追加独立的编码域。
+            if (modifiers.Count > 0)
+            {
+                hash.Text("StreamDuel.Modifiers.v1");
+                hash.Int(modifiers.Count);
+                foreach (string id in modifiers) hash.Text(id);
+            }
+            HashTermination(hash);
             return hash.Value;
         }
 

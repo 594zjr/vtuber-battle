@@ -41,8 +41,8 @@ public class T57_NetRatingTests
         {
             A.Peer = B;
             B.Peer = A;
-            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 19, hostRating);
-            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null, guestRating);
+            Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 19, rating: hostRating);
+            Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", null, rating: guestRating);
         }
 
         public void Pump()
@@ -105,7 +105,7 @@ public class T57_NetRatingTests
         Assert.Equal(777, remote.Games);
         for (int i = 0; i < 4; i++) Assert.Equal(plain.Host.Battle.Random(), rated.Host.Battle.Random());
         using var hello = JsonDocument.Parse(rated.A.Sent[0]);
-        Assert.Equal(2, hello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(3, hello.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(1800, hello.RootElement.GetProperty("rating").GetProperty("rating").GetInt32());
         Assert.Equal(23, hello.RootElement.GetProperty("rating").GetProperty("games").GetInt32());
     }
@@ -118,7 +118,7 @@ public class T57_NetRatingTests
         a.Peer = b;
         b.Peer = a;
         var host = new NetSession(BattleTests.LoadPack("original"), a, true, HostTeam, "主机", 19,
-            new PlayerRating { Rating = 1900, Games = 50 });
+            rating: new PlayerRating { Rating = 1900, Games = 50 });
         var guest = new NetSession(BattleTests.LoadPack("original"), b, false, GuestTeam, "客机", null);
         Assert.Null(host.OpponentRating);
         for (int i = 0; i < 4; i++) { host.Poll(); guest.Poll(); }
@@ -130,7 +130,7 @@ public class T57_NetRatingTests
         Assert.Equal(50, guest.OpponentRating.Games);
         using var hello = JsonDocument.Parse(b.Sent[0]);
         Assert.False(hello.RootElement.TryGetProperty("rating", out _));
-        Assert.Equal(2, hello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(3, hello.RootElement.GetProperty("version").GetInt32());
     }
 
     [Theory]
@@ -185,7 +185,7 @@ public class T57_NetRatingTests
         var transport = new Transport();
         transport.Peer = new Transport();
         Assert.Throws<ArgumentOutOfRangeException>(() => new NetSession(BattleTests.LoadPack("original"),
-            transport, true, HostTeam, "主机", 19, new PlayerRating { Games = -1 }));
+            transport, true, HostTeam, "主机", 19, rating: new PlayerRating { Games = -1 }));
         Assert.Empty(transport.Sent);
     }
 }

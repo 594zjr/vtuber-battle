@@ -29,7 +29,7 @@ namespace StreamDuel.Core
 
         private static PlayerRating ReadRatingHello(Dictionary<string, object> hello)
         {
-            // 旧版协议 2 没有这份可选显示信息，按新档案的初始分数结算即可继续对战。
+            // 兼容同一协议内未发送可选评级的客户端，按新档案的初始分数结算。
             if (!hello.TryGetValue("rating", out var value)) return new PlayerRating();
             if (!(value is Dictionary<string, object> source)) throw new FormatException("握手排位信息必须是对象。");
             return new PlayerRating
