@@ -14,6 +14,7 @@ namespace StreamDuel.Cli
         public string[] Team = null;
         public string SaveDir = "saves";
         public string ReplayFile;
+        public string ReportFile;
         public bool Auto;
         public bool Ban;
         public bool Lead;
@@ -60,7 +61,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
-                    && option != "--save-dir" && option != "--replay" && option != "--pack-dir")
+                    && option != "--save-dir" && option != "--replay" && option != "--pack-dir" && option != "--report")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -68,6 +69,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--report":
+                        if (string.IsNullOrWhiteSpace(value))
+                            throw new ArgumentException("--report 需要非空的战报文件路径。");
+                        options.ReportFile = value;
+                        break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--replay 需要非空的回放文件路径。");
