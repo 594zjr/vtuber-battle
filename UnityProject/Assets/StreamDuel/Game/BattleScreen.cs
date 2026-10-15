@@ -92,16 +92,18 @@ namespace StreamDuel.Game
                 }
                 packs.Add(result.Db);
             }
-            fast = PlayerPrefs.GetInt("sd.fast", 0) == 1;
-            timerOn = PlayerPrefs.GetInt("sd.timer", 0) == 1;
-            string want = PlayerPrefs.GetString("sd.pack", packs[0].PackId);
+            LoadSettingsSafely();
+            fast = settings.FastPlay;
+            timerOn = settings.TurnTimer;
+            string want = settings.DefaultPack;
             LoadPack(packs.Any(p => p.PackId == want) ? want : packs[0].PackId);
         }
 
         void LoadPack(string id)
         {
             db = packs.First(p => p.PackId == id);
-            if (!SmokeRequested) PlayerPrefs.SetString("sd.pack", id);
+            settings.DefaultPack = id;
+            SaveSettingsSafely();
             var saved = PlayerPrefs.GetString("sd.pick." + id, "");
             pick = saved.Split(',').Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
             if (pick.Count == 0) RandomPick();
@@ -262,6 +264,7 @@ namespace StreamDuel.Game
             if (view == View.Team) DrawTeam();
             else if (b.Phase == Phase.Lead) DrawLead();
             else DrawBattle();
+            DrawSettingsNotice();
             GUI.matrix = Matrix4x4.identity;
             if (pending != null) { var a = pending; pending = null; a(); }
         }
@@ -485,9 +488,9 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
             if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
-            if (nf != fast) { fast = nf; PlayerPrefs.SetInt("sd.fast", fast ? 1 : 0); }
+            if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
             bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
-            if (nt != timerOn) { timerOn = nt; timerLeft = 10f; PlayerPrefs.SetInt("sd.timer", timerOn ? 1 : 0); }
+            if (nt != timerOn) { timerOn = nt; timerLeft = 10f; settings.TurnTimer = timerOn; SaveSettingsSafely(); }
             if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
             if (timerOn && !playing && b.Phase != Phase.Over) GUI.Label(new Rect(1340, 18, 200, 40), C(Mathf.CeilToInt(Mathf.Max(0, timerLeft)) + " 秒", Accent), sBig);
 
