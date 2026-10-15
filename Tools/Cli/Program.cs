@@ -87,10 +87,14 @@ namespace StreamDuel.Cli
                 Console.WriteLine();
                 Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
                 PrintTeams(battle);
+                var profile = ProfileStore.Record(battle, options.SaveDir);
+                var stats = profile.Packs[db.PackId];
+                Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
+                Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
                 return 0;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException
-                || ex is UnauthorizedAccessException || ex is KeyError)
+                || ex is UnauthorizedAccessException || ex is KeyError || ex is OverflowException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
@@ -99,12 +103,13 @@ namespace StreamDuel.Cli
 
         private static void PrintHelp()
         {
-            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto]");
+            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto] [--save-dir 目录]");
             Console.WriteLine("默认：原创包 original、普通难度 normal、种子 1；--level 支持 easy / normal。");
             Console.WriteLine("未指定 --team 时，按内容包顺序选择前六位；电脑先选剩余主播，再按我方顺序补足六位。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
-            Console.WriteLine("--auto 让双方按所选难度操作并输出整局；相同内容、参数和种子的输出完全一致。");
+            Console.WriteLine("--auto 让双方按所选难度操作并输出整局；相同内容、参数和种子的战斗日志完全一致。");
+            Console.WriteLine("每局结束累计你这一方的战绩；--save-dir 默认 ./saves，档案为该目录中的 profile.json，仅保存在本机。");
         }
 
         private static void PrintTeams(Battle battle)
