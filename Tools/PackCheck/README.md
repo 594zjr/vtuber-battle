@@ -8,6 +8,9 @@ dotnet run --project Tools/PackCheck -- --pack original
 dotnet run --project Tools/PackCheck -- --pack-dir ./custom-packs --list-packs
 dotnet run --project Tools/PackCheck -- --pack-dir ./custom-packs --pack my_pack
 dotnet run --project Tools/PackCheck -- --write-docs
+dotnet run --project Tools/PackCheck -- --codes
+dotnet run --project Tools/PackCheck -- --codes --pack original
+dotnet run --project Tools/PackCheck -- --codes --pack-dir ./custom-packs --pack my_pack
 ```
 
 默认检查全部内置内容包；`--pack-dir` 额外加载指定文件夹中的 JSON，不递归，目录不存在时没有外部包。相对目录以当前工作目录为基准。`--pack` 按包 id 选择，仍兼容内置文件名（不含 `.json`）；外部文件名可以与包 id 不同。工具直接读取当前工作树的内置源 JSON；从子目录或使用工程绝对路径启动也使用该工程所在的仓库。
@@ -25,3 +28,14 @@ dotnet run --project Tools/PackCheck -- --write-docs
 包 id 可用于精确选择，包括中文或点号；生成名单时，为保证输出路径安全，另要求 id 只含英文字母、数字、下划线和连字符，不能是 Windows 保留文件名，且名单文件名不区分大小写时不能重名。该文件名限制不影响加载、列出和普通检查。
 
 名单在本包定义的技能和人设名称旁显示 `〔本包独有〕`；本包人设经 `personaName/personaDesc/personaStatus` 复制后仍保留标记。仅给共用技能或共用人设改名不会添加标记。省略四个扩展对象或提供空对象时，名单输出保持原样。
+
+`--codes` 从 Core 的 `EffectCodes.All`、`PersonaCodes.All` 注册表取得代码全集，逐代码列出引用它的包 id/名称与技能或人设 id/名称，并逐项标记、汇总未使用代码。统计口径是所选包加载、合并、改名后的全部定义，包括基础技能、本包新增技能、硬撑、基础人设和主播复制的人设；即使没有主播选入某个定义，它仍算代码引用。同一技能内重复出现的代码只列一次。“未使用”只针对所选内容包，使用 `--pack` 后不代表其他包也未使用。代码、包与定义 id 使用 ordinal 稳定排序，显示名称取该包中的实际名称。
+
+代码报告支持 `--pack` 和 `--pack-dir`，与 `--list-packs`、`--write-docs` 冲突时返回错误。它执行内容加载、引擎校验和严格 JSON 校验，不代替默认模式的文案检查；所选包有加载错误时整体拒绝生成报告，不能把坏包误报为代码未使用。与普通模式忽略不存在的外部目录不同，`--codes` 明确指定的外部目录不存在时返回 1；目录内加载错误仍按所选包范围处理。成功报告不写文件、不改内容。
+
+代码报告 CLI 验收（PowerShell 7；产物保存在当前工作树的 `Build/T103/packcheck-codes/`）：
+
+```powershell
+dotnet build Tools/PackCheck
+pwsh -NoProfile -File Tools/PackCheck/check-codes.ps1
+```
