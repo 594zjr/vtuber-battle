@@ -134,6 +134,10 @@ function Assert-Csv([string]$Directory, [int]$TeamCount, [int]$Rounds, [string]$
         Assert-Check ($games -eq $wins + $draws + $losses) '阵容胜平负之和应等于真实对局数。'
         Assert-Check ($games + 2 * $byes -eq 2 * $Rounds) '每轮应打两局或轮空一次。'
         Assert-Check ([Math]::Abs($points - ($wins + 0.5 * $draws + 2 * $byes)) -lt 0.000001) '积分与胜平负、轮空不一致。'
+        if ($TeamCount -eq 2 -and $Rounds -eq 1) {
+            $expectedElo = 1500 + 24 * ($wins + 0.5 * $draws - 1)
+            Assert-Check ([Math]::Abs($elo - $expectedElo) -lt 0.000001) '单轮双队应按共同赛前期望 0.5、每局 K=24 更新 Elo。'
+        }
         $previousElo = $elo
         $totalElo += $elo; $totalPoints += $points; $totalGames += $games
         $totalWins += $wins; $totalDraws += $draws; $totalLosses += $losses; $totalByes += $byes
