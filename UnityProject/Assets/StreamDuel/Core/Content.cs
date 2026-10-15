@@ -143,7 +143,13 @@ namespace StreamDuel.Core
                 object secondType;
                 if (o.TryGetValue("type2", out secondType) && secondType != null && !(secondType is string))
                     throw new KeyError("主播 " + s.Id + " 的第二赛道 type2 必须是赛道 id 或 null");
-                foreach (var st in Obj(o, "stats")) s.Stats[st.Key] = (int)(double)st.Value;
+                foreach (var st in Obj(o, "stats"))
+                {
+                    if (!(st.Value is double value) || double.IsNaN(value) || double.IsInfinity(value)
+                        || value < int.MinValue || value > int.MaxValue || value != Math.Truncate(value))
+                        throw new KeyError("主播 " + s.Id + " 的属性 " + st.Key + " 必须是 int 范围内的整数");
+                    s.Stats[st.Key] = (int)value;
+                }
                 foreach (var sk in (List<object>)o["skills"]) s.Skills.Add((string)sk);
                 // 每位主播可以有自己的人设名字和说明：复制一份同机制的人设，挂在这位主播名下
                 string pName = Str(o, "personaName"), pDesc = Str(o, "personaDesc"), pStatus = Str(o, "personaStatus");
@@ -293,6 +299,8 @@ namespace StreamDuel.Core
             if (Streamers.Count < 6) throw new KeyError("内容包至少需要 6 位主播（一队 6 位），现在只有 " + Streamers.Count + " 位");
             foreach (var s in Streamers)
             {
+                foreach (string stat in new[] { "hp" }.Concat(StatKeys))
+                    if (!s.Stats.ContainsKey(stat)) throw new KeyError("主播 " + s.Id + " 缺少属性 " + stat);
                 if (!Types.ContainsKey(s.Type)) throw new KeyError("主播 " + s.Id + " 的赛道不存在");
                 if (s.Type2 != null)
                 {
