@@ -79,11 +79,13 @@ namespace StreamDuel.Core
             string existingId = null;
             foreach (var snapshot in ScanTournamentReplays(tournament).Where(item => item.PairingId == pairingId))
             {
+                if (existingId != null)
+                    throw new InvalidOperationException("本场对阵已有多份关联录像，不能任选一份作为归档成功结果。");
                 if (snapshot.Record == null || snapshot.Entry.IsCorrupt || snapshot.Entry.IsUnavailable
                     || snapshot.Record.ToJson() != recordJson || snapshot.Entry.Winner != summary.Winner
                     || snapshot.Entry.Turns != summary.Turns)
                     throw new InvalidOperationException("本场对阵已有不同或不可用的归档录像，不能覆盖或重复关联。");
-                if (existingId == null) existingId = snapshot.Entry.Id;
+                existingId = snapshot.Entry.Id;
             }
             return existingId;
         }

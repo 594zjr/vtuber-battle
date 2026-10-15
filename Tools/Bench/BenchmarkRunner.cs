@@ -20,10 +20,11 @@ namespace StreamDuel.Bench
         public int CompletedGames { get; }
         public string TerminalChecksum { get; }
         public List<MetricResult> Metrics { get; }
+        public ExpertBenchmarkResult Expert { get; }
 
         internal BenchmarkResult(ContentDb db, uint seed, bool quick, string workload,
             IList<string>[] teams, List<SnapshotResult> snapshots, int completedGames,
-            ulong terminalChecksum, List<MetricResult> metrics)
+            ulong terminalChecksum, List<MetricResult> metrics, ExpertBenchmarkResult expert)
         {
             PackId = db.PackId;
             ContentHash = db.ContentHash();
@@ -35,6 +36,7 @@ namespace StreamDuel.Bench
             CompletedGames = completedGames;
             TerminalChecksum = terminalChecksum.ToString("x16", CultureInfo.InvariantCulture);
             Metrics = metrics;
+            Expert = expert;
         }
     }
 
@@ -160,6 +162,8 @@ namespace StreamDuel.Bench
                     input => Ai.Choose(input.Battle, input.Side, level)));
             }
 
+            var expert = ExpertBenchmark.Run(positions, metrics, quick);
+
             var middle = positions[1];
             metrics.Add(Measure("battle.clone", "中盘 Battle.Clone", 20, quick ? 200 : 2000,
                 index => middle, battle => battle.Clone()));
@@ -177,11 +181,12 @@ namespace StreamDuel.Bench
                 + "计时包含 Battle 构造、双方普通 AI 行动/补位与完整结算，保留所有日志和回放历史；吞吐为样本数除以累计计时。"
                 + "AI 局面由种子 52001 的普通对普通对局确定，取开局、行动回合数中点及四分之三处，轮换双方且等量采样；"
                 + "每次在计时外 Clone 恢复，仅计时 Ai.Choose。Clone 和 StateHash 使用中盘完整历史。"
+                + expert.Workload
                 + "所有内置内容包的 JSON 在计时外预读；加载仅计解析、合并和校验，不含磁盘 IO。"
                 + "每项先预热：对局 2 次、每种 AI 6 次、Clone/StateHash 各 20 次、每包加载 3 次；"
                 + "不主动触发 GC，不扣计时器开销；P95 为最近秩 ceil(0.95*n)。"
                 + "TerminalChecksum 为测量对局的 Seed/Winner/Turn/StateHash 按顺序各写 8 字节小端序计算的 FNV-1a 64 位摘要。";
-            return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics);
+            return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics, expert);
         }
 
         static MetricResult Measure<TInput, TOutput>(string id, string label, int warmup, int count,

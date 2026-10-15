@@ -412,6 +412,34 @@ public class T110_TournamentReportTests
     }
 
     [Fact]
+    public void ArchiveRetryRejectsDuplicateAssociationsWithoutChoosingOrChangingEitherRecording()
+    {
+        using var files = new TestDirectory();
+        var fixture = Make(files, players: 2);
+        var pairing = Assert.Single(fixture.Tournament.NextRound());
+        var battle = BattleFor(fixture, pairing);
+        battle.Surrender(0);
+        string id = fixture.Library.SaveTournament(fixture.Tournament, pairing, battle);
+        fixture.Tournament.ReportResult(pairing, battle.Winner);
+        string duplicate = id + "_copy";
+        var copy = (Dictionary<string, object>)MiniJson.Parse(File.ReadAllText(Path.Combine(fixture.LibraryPath, id + ".json")));
+        ((Dictionary<string, object>)copy["library"])["id"] = duplicate;
+        File.WriteAllText(Path.Combine(fixture.LibraryPath, duplicate + ".json"), JsonSerializer.Serialize(copy));
+        string saved = fixture.Tournament.ToJson();
+        var before = Files(files.Root);
+
+        var error = Assert.Throws<InvalidOperationException>(() => fixture.Library.SaveTournament(fixture.Tournament, pairing, battle));
+        Assert.Contains("多份", error.Message, StringComparison.Ordinal);
+        Assert.Equal(saved, fixture.Tournament.ToJson());
+        AssertFilesEqual(before, files.Root);
+        using var report = JsonDocument.Parse(TournamentReport.Build(fixture.Tournament, fixture.Library).ToJson());
+        Assert.Equal("ambiguous", ReplayStatus(Matches(report.RootElement), pairing.Id));
+        AssertCoverage(report.RootElement, 1, 0, 0, 1);
+        AssertNoMetrics(report.RootElement);
+        AssertFilesEqual(before, files.Root);
+    }
+
+    [Fact]
     public void ReadOnlyLibraryRejectsAllMutationAndNeverCreatesMissingDirectoryOrLock()
     {
         using var files = new TestDirectory();
