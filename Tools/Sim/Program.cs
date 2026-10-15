@@ -169,6 +169,8 @@ namespace StreamDuel.Sim
             if (roundsSpecified && !options.Tune) throw new ArgumentException("--rounds 需要与 --tune 一起使用。");
             if (options.Tune && !gamesSpecified) options.Games = 400;
             if (options.Tune && options.Games % 2 != 0) throw new ArgumentException("调参的 --games 必须为正偶数，以便每组阵容交换双方各赛一局。");
+            if (options.Tune && (ulong)options.Rounds * (uint)options.Games + (uint)(options.Games / 2) > (ulong)uint.MaxValue + 1)
+                throw new ArgumentException("调参的轮数与局数组合超出种子范围，会重复训练或验证种子；请减少 --rounds 或 --games。");
             return options;
         }
 
