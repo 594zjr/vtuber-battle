@@ -13,6 +13,7 @@ namespace StreamDuel.Cli
         public string[] Team = null;
         public string SaveDir = "saves";
         public bool Auto;
+        public bool Hash;
         public bool Help;
 
         public static CliOptions Parse(string[] args)
@@ -26,6 +27,11 @@ namespace StreamDuel.Cli
                 if (option == "--auto")
                 {
                     options.Auto = true;
+                    continue;
+                }
+                if (option == "--hash")
+                {
+                    options.Hash = true;
                     continue;
                 }
                 if (option == "--help" || option == "-h")

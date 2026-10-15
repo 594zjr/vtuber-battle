@@ -12,24 +12,28 @@ namespace StreamDuel.Cli
             Profile profile;
             Directory.CreateDirectory(directory);
             string temporary = Path.Combine(directory, ".profile.json.tmp");
-            bool created = false;
-            try
+            // 锁独立于临时文件，进程退出会释放锁，遗留临时文件不会阻止下一次保存。
+            using (var profileLock = new FileStream(Path.Combine(directory, ".profile.lock"),
+                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
             {
-                // 先独占临时文件再读旧档，避免同时结束的两局都按同一份旧计数写回。
-                using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                bool created = false;
+                try
                 {
-                    created = true;
                     profile = File.Exists(path) ? Profile.FromJson(File.ReadAllText(path)) : new Profile();
                     profile.Record(battle, 0);
-                    using (var writer = new StreamWriter(stream, new UTF8Encoding(false))) writer.Write(profile.ToJson());
+                    using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        created = true;
+                        using (var writer = new StreamWriter(stream, new UTF8Encoding(false))) writer.Write(profile.ToJson());
+                    }
+                    // 持锁到替换及清理完成，其他进程不能在读改写之间插入保存。
+                    File.Move(temporary, path, true);
+                    created = false;
                 }
-                // 写完临时文件才替换旧档案，写入失败时仍保留上一次战绩。
-                File.Move(temporary, path, true);
-                created = false;
-            }
-            finally
-            {
-                if (created && File.Exists(temporary)) File.Delete(temporary);
+                finally
+                {
+                    if (created && File.Exists(temporary)) File.Delete(temporary);
+                }
             }
             return profile;
         }

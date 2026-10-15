@@ -87,7 +87,8 @@ public class T21_NewPersonaCodesTests
     public void StageOnHitRaisesStatWhenDamagedButAlive()
     {
         var db = WithPersona("T_STAGE_ON_HIT", ("def", 1)); // 参数名即能力名，值是升几级
-        Fixed(db, "test_poke", "foe", 5);
+        // 固定伤害按设计不触发被击中后人设，这里用必中、低威力的普通伤害验证触发。
+        db.Skills["test_poke"] = new SkillDef { Id = "test_poke", Name = "测试轻击", Type = "tech", Cat = "talent", Power = 1, Pp = 10, Prio = 5, Acc = 100 };
         var b = Make(db);
         b.Active(1).Skills[0] = new SkillSlot { Id = "test_poke", Pp = 10, Max = 10 };
         b.ResolveTurn(BattleAction.Pass(), BattleAction.Skill(0));

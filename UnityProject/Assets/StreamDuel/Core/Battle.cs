@@ -18,7 +18,7 @@ namespace StreamDuel.Core
     public enum Phase { Choose, Replace, Over, Lead }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
-    public struct BattleAction
+    public partial struct BattleAction
     {
         public ActionType Type; public int Index;
         public static BattleAction Skill(int i) { return new BattleAction { Type = ActionType.Skill, Index = i }; }
@@ -35,12 +35,15 @@ namespace StreamDuel.Core
     {
         public StreamerDef Def; public int Slot, Side, Hp, MaxHp, EnteredTurn = 1; public bool Fainted;
         public int LastSkillIndex = -1;
+        public bool FirstControlImmunityUsed, EndureUsed;
         public Dictionary<string, int> Stages = NewStages();
         public List<SkillSlot> Skills = new List<SkillSlot>();
         public List<StatusInst> Statuses = new List<StatusInst>();
         public List<FieldInst> Fields = new List<FieldInst>();
         public string Name { get { return Def.Name; } }
         public string Type { get { return Def.Type; } }
+        public string Type2 { get { return Def.Type2; } }
+        public bool HasType(string type) { return type == Type || type == Type2; }
         public double HpRatio { get { return (double)Hp / MaxHp; } }
         public int Pct { get { return (int)Math.Round(HpRatio * 100); } }
         public static Dictionary<string, int> NewStages() { return ContentDb.StatKeys.ToDictionary(k => k, k => 0); }
@@ -163,6 +166,7 @@ namespace StreamDuel.Core
                 if (p.Fields.Any(f => Db.Fields[f.Id].ImmuneControl)) { Add(node, p.Name + " 有「重连保护」，" + d.Name + "无效", "status", p.Side); return false; }
                 var cur = ControlOf(p);
                 if (cur != null) { Add(node, p.Name + " 已经处于「" + Db.Statuses[cur.Id].Name + "」，" + d.Name + "无效", "status", p.Side); return false; }
+                if (PersonaBlocksFirstControl(p, node)) return false;
                 p.Statuses.Add(new StatusInst { Id = id, Left = d.Skip });
                 Add(node, p.Name + " 陷入「" + d.Name + "」（控制类，将跳过 " + d.Skip + " 次行动）", "status", p.Side);
                 return true;
@@ -216,22 +220,32 @@ namespace StreamDuel.Core
             return real;
         }
 
-        int Damage(Fighter p, int amt, string node, string text, bool fromHit, bool triggerFaintPersona = true)
+        int Damage(Fighter p, int amt, string node, string text, bool fromHit, bool triggerFaintPersona = true, Ctx action = null, Fighter source = null)
         {
             if (p.Fainted) return 0;
             int real = Math.Min(amt, p.Hp);
+            bool endured = triggerFaintPersona && PersonaEndure(p, ref real);
             p.Hp -= real;
+            RecordDamage(p, source, real);
             Add(node, text.Replace("{n}", real.ToString()), "dmg", p.Side);
+            if (endured) Add(node, "【人设·" + PersonaOf(p).Name + "】" + p.Name + " 保留 1 点人气（本场对战唯一一次保命已用完）", "trait", p.Side);
             var afk = p.Statuses.FirstOrDefault(x => Db.Statuses[x.Id].WakeOnHit);
             if (afk != null && real > 0 && fromHit) { p.Statuses.Remove(afk); Add(node, p.Name + " 被打得回过神来了", "status", p.Side); }
-            if (p.Hp <= 0) Faint(p, node, triggerFaintPersona);
+            if (p.Hp <= 0) Faint(p, node, triggerFaintPersona, action);
             return real;
         }
 
-        void Faint(Fighter p, string node, bool triggerPersona = true)
+        void Faint(Fighter p, string node, bool triggerPersona = true, Ctx action = null)
         {
             p.Fainted = true; p.Hp = 0;
+            StatsFor(Active(1 - p.Side)).Kos++;
             Add(node, p.Name + " 下播了", "faint", p.Side);
+            if (action != null && action.P == p && !action.Interrupted)
+            {
+                action.Interrupted = true;
+                // 在终局判定前记中断，结束节点仍是本局最后一条日志。
+                Add(node, p.Name + " 下播，技能中断", "info", p.Side);
+            }
             if (triggerPersona) PersonaOnFaint(p, node);
             CheckOver();
         }
@@ -248,7 +262,7 @@ namespace StreamDuel.Core
         }
 
         // ================= 技能效果 =================
-        sealed class Ctx { public int S; public Fighter P, F; public SkillDef Skill; public string Node; public double PowerMul = 1; public int Dealt; public bool InterruptedByReflection; }
+        sealed class Ctx { public int S; public Fighter P, F; public SkillDef Skill; public string Node; public double PowerMul = 1; public int Dealt; public bool Interrupted; }
 
         public bool CondMet(Fighter p, Fighter f, string node, CondDef c, out string why)
         {
@@ -300,7 +314,7 @@ namespace StreamDuel.Core
                 case "STATUS": ApplyStatus(tgt, e.Status, ctx.Node); break;
                 case "STAGE": ChangeStages(tgt, e.Changes, ctx.Node); break;
                 case "HEAL": Heal(ctx.P, (int)(ctx.P.MaxHp * e.Frac), ctx.Node); break;
-                case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false); break;
+                case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false, action: ctx); break;
                 case "DRAIN": if (ctx.Dealt > 0) Heal(ctx.P, (int)(ctx.Dealt * e.Frac), ctx.Node, "吸粉："); break;
                 case "PP_REDUCE":
                 {
@@ -376,8 +390,8 @@ namespace StreamDuel.Core
             bool inter = skill.Cat == "interact";
             double A = StatVal(p, inter ? "atk" : "spa"), D = StatVal(f, inter ? "def" : "sdef");
             double power = skill.Power * powerMul, mul = 1;
-            if (skill.Type == p.Type) mul *= 1.5;
-            r.Eff = Db.TypeMul(skill.Type, f.Type); mul *= r.Eff;
+            if (p.HasType(skill.Type)) mul *= 1.5;
+            r.Eff = Db.TypeMul(skill.Type, f.Type, f.Type2); mul *= r.Eff;
             foreach (var st in p.Statuses)
             {
                 var sd = Db.Statuses[st.Id];
@@ -480,26 +494,37 @@ namespace StreamDuel.Core
             {
                 var slot = p.Skills[act.Index];
                 skill = Db.Skills[slot.Id];
-                if (PersonaFreePp(p)) Add(node, "【人设·" + PersonaOf(p).Name + "】6 号位队友在播，本次不消耗 PP", "trait", s);
+                bool freePp = PersonaFreePp(p);
+                if (slot.Pp <= 0 && !freePp)
+                {
+                    Add(node, p.Name + " 的「" + skill.Name + "」PP 已耗尽，行动失败", "info", s);
+                    return;
+                }
+                if (freePp) Add(node, "【人设·" + PersonaOf(p).Name + "】6 号位队友在播，本次不消耗 PP", "trait", s);
                 else slot.Pp = Math.Max(0, slot.Pp - 1);
                 p.LastSkillIndex = act.Index;
             }
             Add(node, p.Name + " 使用「" + skill.Name + "」", "act", s);
+            RecordSkillUse(p, skill.Id);
             if (f.Fainted) { Add(node, "没有目标", "info", s); return; }
             if (skill.Acc < 100 && rng.Next() * 100 >= skill.Acc) { Add(node, "没有命中（命中率 " + skill.Acc + "%）", "miss", s); return; }
 
             var ctx = new Ctx { S = s, P = p, F = f, Skill = skill, Node = node };
-            foreach (var e in skill.Effects) if (e.At == "pre" && !ctx.InterruptedByReflection && Phase != Phase.Over) RunEffect(ctx, e);
-            if (Phase == Phase.Over || ctx.InterruptedByReflection) return;
+            foreach (var e in skill.Effects) if (e.At == "pre" && !ctx.Interrupted && Phase != Phase.Over) RunEffect(ctx, e);
+            if (Phase == Phase.Over || ctx.Interrupted) return;
             if (skill.Power > 0 && !f.Fainted)
             {
                 var r = CalcDamage(s, skill, ctx.PowerMul, false);
                 if (skill.Cat == "talent") p.Fields.RemoveAll(x => Db.Fields[x.Id].Consume && Db.Fields[x.Id].TalentMul != 1);
                 string effTxt = r.Eff > 1 ? "，赛道克制" : r.Eff < 1 ? "，赛道被克" : "";
                 ctx.Dealt = DamageWithReflection(ctx, f, r.Dmg, f.Name + " 人气 -{n}" + effTxt + (r.Notes.Count > 0 ? "（" + string.Join("，", r.Notes) + "）" : ""));
-                if (Phase != Phase.Over) PersonaAfterHit(f, p, skill, node);
+                if (Phase != Phase.Over && !ctx.Interrupted)
+                {
+                    if (ctx.Dealt > 0) PersonaStageOnHit(f, node);
+                    PersonaAfterHit(f, p, skill, node);
+                }
             }
-            foreach (var e in skill.Effects) if (e.At == "post" && !ctx.InterruptedByReflection && Phase != Phase.Over) RunEffect(ctx, e);
+            foreach (var e in skill.Effects) if (e.At == "post" && !ctx.Interrupted && Phase != Phase.Over) RunEffect(ctx, e);
         }
 
         // ================= 回合结束 =================
@@ -562,7 +587,11 @@ namespace StreamDuel.Core
             for (int i = 0; i < actors.Count && Phase != Phase.Over; i++) DoAction(actors[i], acts[actors[i]], i == 0 ? Node.First : Node.Second);
 
             // 4 回合结束
-            if (Phase != Phase.Over) foreach (int s in SpeedOrder()) TurnEndFor(s);
+            if (Phase != Phase.Over)
+            {
+                RecordTurnEnd();
+                foreach (int s in SpeedOrder()) TurnEndFor(s);
+            }
 
             if (Phase != Phase.Over && Turn >= TurnCap)
             {
