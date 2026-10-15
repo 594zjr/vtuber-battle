@@ -57,5 +57,6 @@ dotnet test Engine.Tests
 
 ## 提交
 
-- 一个任务一个 PR（或一个提交），标题写任务编号，例如 `T-03 新效果码 PP_REDUCE / FIXED_DAMAGE`。
+- 仓库：https://github.com/594zjr/vtuber-battle 。每个任务从最新 `origin/main` 开分支 `task/T-xx`，推送后开 PR 到 main；不要直接推 main，不要自己合并。同时做多个任务时每个任务用单独的 `git worktree` 文件夹（见 `docs/codex-tasks/SETUP.md`）。
+- 一个任务一个 PR，标题写任务编号，例如 `T-03 新效果码 PP_REDUCE / FIXED_DAMAGE`。
 - PR 描述写：做了什么、改了哪些文件、测试结果。
