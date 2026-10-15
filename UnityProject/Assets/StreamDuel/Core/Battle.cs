@@ -15,7 +15,7 @@ namespace StreamDuel.Core
             TurnEnd = "回合结束", Replace = "补位", Over = "结束", TurnHeader = "回合";
     }
 
-    public enum Phase { Choose, Replace, Over }
+    public enum Phase { Choose, Replace, Over, Lead }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
     public struct BattleAction
@@ -99,7 +99,7 @@ namespace StreamDuel.Core
         public readonly bool[] ActedFirst = new bool[2];
         readonly Rng rng;
 
-        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null)
+        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null, bool leadPick = false)
         {
             Db = db;
             Seed = seed ?? (uint)Environment.TickCount;
@@ -108,6 +108,7 @@ namespace StreamDuel.Core
             {
                 Seed = Seed,
                 PackId = db.PackId,
+                LeadPick = leadPick,
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
             for (int s = 0; s < 2; s++)
@@ -115,8 +116,8 @@ namespace StreamDuel.Core
                 Sides[s] = new SideState { Name = names[s] };
                 for (int i = 0; i < teams[s].Count; i++) Sides[s].Team.Add(MakeFighter(teams[s][i], i + 1, s));
             }
-            Add(Node.Start, "对决开始", "turn");
-            foreach (int s in SpeedOrder()) Enter(s, Node.Start);
+            if (leadPick) Phase = Phase.Lead;
+            else StartBattle();
         }
 
         Fighter MakeFighter(string id, int slot, int side)
