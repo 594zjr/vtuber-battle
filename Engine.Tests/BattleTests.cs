@@ -6,6 +6,9 @@ using Xunit;
 
 public class BattleTests
 {
+    // 供其它测试文件复用
+    internal static ContentDb LoadPack(string pack) => Load(pack);
+
     static string Res(string rel) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Content", rel));
     static ContentDb Load(string pack) => ContentDb.FromJson(Res("StreamDuelRules.json"), Res(Path.Combine("Packs", pack + ".json")));
     static readonly ContentDb Db = Load("original");

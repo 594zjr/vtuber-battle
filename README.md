@@ -15,6 +15,11 @@
 - 许可分两部分：**代码**用 MIT（见 [LICENSE](LICENSE)）；**内容包**（`Resources/Packs/`）用 CC BY-NC-SA 4.0，禁止商业使用，fork 后同样受约束（见 [Packs/LICENSE.md](UnityProject/Assets/StreamDuel/Resources/Packs/LICENSE.md)）。
 - 要下架某位主播：删掉内容包里对应的条目即可。
 
+## 开发分工
+
+- 设计、任务单、验收测试：[docs/design.md](docs/design.md)、[docs/TASKS.md](docs/TASKS.md)、`Engine.Tests/`。
+- 写代码的 AI（GPT / Codex）先读 [AGENTS.md](AGENTS.md)。
+
 ## 怎么试玩
 
 1. 用 Unity Hub 选「添加 → 从磁盘添加项目」，选中 `UnityProject` 文件夹。

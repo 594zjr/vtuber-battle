@@ -10,6 +10,11 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Pending/ 里是还没实现的任务的验收测试。做某个任务时把对应文件移出 Pending/。 -->
+    <Compile Remove="Pending/**" />
+    <None Include="Pending/**" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
     <None Include="../UnityProject/Assets/StreamDuel/Resources/**/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Content" />
   </ItemGroup>
