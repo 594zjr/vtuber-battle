@@ -146,7 +146,7 @@ namespace StreamDuel.Core
             for (int i = 0; i < b.Log.Count; i++)
             {
                 var entry = b.Log[i];
-                if (entry != null && !result[i]) result[i] = templates.Other(entry);
+                if (entry != null && !result[i]) result[i] = templates.Other(entry, FighterName(b, entry));
             }
             return result;
         }
@@ -158,6 +158,15 @@ namespace StreamDuel.Core
             return ev.Slot < 0 || ev.Slot >= team.Count ? null : team[ev.Slot].Name;
         }
 
+        static string FighterName(Battle b, LogEntry entry)
+        {
+            int side = entry.Side;
+            if (side < 0 || side >= b.Sides.Length || entry.SnapActive == null || side >= entry.SnapActive.Length) return null;
+            int slot = entry.SnapActive[side];
+            var team = b.Sides[side].Team;
+            return slot < 0 || slot >= team.Count ? null : team[slot].Name;
+        }
+
         // 这些来源尚无独立事件，只解析引擎明确写出的模板，不从战斗当前状态推测历史。
         sealed class ImportantTemplates
         {
@@ -167,24 +176,44 @@ namespace StreamDuel.Core
             readonly HashSet<string> dotFields = new HashSet<string>(StringComparer.Ordinal);
             readonly HashSet<string> reflectFields = new HashSet<string>(StringComparer.Ordinal);
             readonly HashSet<string> weakShields = new HashSet<string>(StringComparer.Ordinal);
-            readonly HashSet<string> multiplierFields = new HashSet<string>(StringComparer.Ordinal);
             readonly HashSet<string> markFields = new HashSet<string>(StringComparer.Ordinal);
+            readonly List<NoteSource> noteSources = new List<NoteSource>();
+            readonly List<string> personaPrefixes = new List<string>();
             bool hasControlShield;
+
+            sealed class NoteSource
+            {
+                public string Prefix;
+                public bool Persona, Important;
+            }
 
             public ImportantTemplates(ContentDb db)
             {
                 foreach (var status in db.Statuses.Values)
+                {
                     (status.IsControl ? controlNames : weakNames).Add(status.Name);
+                    if (status.InteractMul != 1)
+                        noteSources.Add(new NoteSource { Prefix = status.Name + " ×" });
+                }
+                foreach (var persona in db.Personas.Values)
+                {
+                    personaPrefixes.Add("【人设·" + persona.Name + "】");
+                    noteSources.Add(new NoteSource { Prefix = "人设·" + persona.Name + "（", Persona = true, Important = true });
+                }
                 foreach (var field in db.Fields.Values)
                 {
                     if (field.Heal > 0) healFields.Add(field.Name);
                     if (field.Dot > 0) dotFields.Add(field.Name);
                     if (field.ReflectDamage > 0) reflectFields.Add(field.Name);
                     if (field.ImmuneWeak) weakShields.Add(field.Name);
-                    if (field.TalentMul != 1 || field.DmgTakenMul != 1) multiplierFields.Add(field.Name);
+                    if (field.TalentMul != 1 || field.DmgTakenMul != 1)
+                        noteSources.Add(new NoteSource { Prefix = field.Name + " ×", Important = true });
                     if (field.Kind == "mark") markFields.Add(field.Name);
                     hasControlShield |= field.ImmuneControl;
                 }
+                noteSources.Add(new NoteSource { Prefix = "暴击 ×", Important = true });
+                // 名称可包含日志分隔符；先消费完整的最长名称，不能把名称里的逗号当成下一条来源。
+                noteSources.Sort((a, b) => b.Prefix.Length.CompareTo(a.Prefix.Length));
             }
 
             public bool Heal(string text, int amount, string name)
@@ -204,22 +233,13 @@ namespace StreamDuel.Core
                 string suffix = name + " 人气 -" + number;
                 if (name != null && text.EndsWith(suffix, StringComparison.Ordinal) &&
                     QuotedPrefix(text.Substring(0, text.Length - suffix.Length), "」反弹：", reflectFields)) return true;
-                int index = text.LastIndexOf(" 人气 -" + number, StringComparison.Ordinal);
-                if (index >= 0)
+                if (name != null && text.StartsWith(suffix, StringComparison.Ordinal))
                 {
-                    var tail = text.Substring(index + " 人气 -".Length + number.Length);
+                    var tail = text.Substring(suffix.Length);
                     if (tail.StartsWith("，赛道克制", StringComparison.Ordinal) ||
                         tail.StartsWith("，赛道被克", StringComparison.Ordinal)) return true;
-                    int notes = tail.IndexOf('（');
-                    if (notes >= 0 && tail.EndsWith("）", StringComparison.Ordinal))
-                    {
-                        foreach (var part in tail.Substring(notes + 1, tail.Length - notes - 2).Split('，'))
-                        {
-                            if (part.StartsWith("人设·", StringComparison.Ordinal) && part.Contains("）×")) return true;
-                            int mul = part.LastIndexOf(" ×", StringComparison.Ordinal);
-                            if (mul >= 0 && multiplierFields.Contains(part.Substring(0, mul))) return true;
-                        }
-                    }
+                    if (tail.StartsWith("（", StringComparison.Ordinal) && tail.EndsWith("）", StringComparison.Ordinal) &&
+                        ImportantNotes(tail.Substring(1, tail.Length - 2))) return true;
                 }
                 string cause = name + " 因「";
                 string damageEnd = "」人气 -" + number;
@@ -228,26 +248,67 @@ namespace StreamDuel.Core
                     dotFields.Contains(text.Substring(cause.Length, text.Length - cause.Length - damageEnd.Length));
             }
 
-            public bool Other(LogEntry entry)
+            bool ImportantNotes(string notes)
+            {
+                int offset = 0;
+                while (offset < notes.Length)
+                {
+                    NoteSource matched = null;
+                    int next = -1;
+                    foreach (var source in noteSources)
+                    {
+                        if (source.Prefix.Length > notes.Length - offset ||
+                            string.CompareOrdinal(notes, offset, source.Prefix, 0, source.Prefix.Length) != 0) continue;
+                        int number = offset + source.Prefix.Length;
+                        if (source.Persona)
+                        {
+                            int endReason = notes.IndexOf("）×", number, StringComparison.Ordinal);
+                            if (endReason < 0) continue;
+                            number = endReason + 2;
+                        }
+                        int separator = notes.IndexOf('，', number);
+                        int end = separator < 0 ? notes.Length : separator;
+                        if (!double.TryParse(notes.Substring(number, end - number).Replace(',', '.'),
+                            NumberStyles.Float, CultureInfo.InvariantCulture, out _)) continue;
+                        matched = source;
+                        next = end + 1;
+                        break;
+                    }
+                    if (matched == null) return false;
+                    if (matched.Important) return true;
+                    offset = next;
+                }
+                return false;
+            }
+
+            public bool Other(LogEntry entry, string name)
             {
                 var text = entry.Text ?? "";
                 if (entry.Kind == "trait")
                     return HasPersonaPrefix(text) && !text.EndsWith("% 判定：未触发）", StringComparison.Ordinal);
-                if (entry.Kind == "status")
+                if (entry.Kind == "status" && name != null && text.StartsWith(name + " ", StringComparison.Ordinal))
                 {
-                    if (text.EndsWith(" 刚回过神来，本回合来不及行动", StringComparison.Ordinal)) return true;
-                    int start = text.LastIndexOf(" 处于「", StringComparison.Ordinal);
-                    int end = text.LastIndexOf("」，无法行动", StringComparison.Ordinal);
-                    if (start >= 0 && end > start && controlNames.Contains(text.Substring(start + 4, end - start - 4))) return true;
-                    const string shield = " 有「重连保护」，";
-                    start = text.LastIndexOf(shield, StringComparison.Ordinal);
-                    if (hasControlShield && start >= 0 && text.EndsWith("无效", StringComparison.Ordinal) &&
-                        controlNames.Contains(text.Substring(start + shield.Length, text.Length - start - shield.Length - 2))) return true;
-                    start = text.LastIndexOf(" 的「", StringComparison.Ordinal);
-                    end = text.LastIndexOf("」被", StringComparison.Ordinal);
-                    if (start >= 0 && end > start && text.EndsWith("挡下", StringComparison.Ordinal))
-                        return weakNames.Contains(text.Substring(start + 3, end - start - 3)) &&
-                            weakShields.Contains(text.Substring(end + 2, text.Length - end - 4));
+                    var body = text.Substring(name.Length + 1);
+                    if (body == "刚回过神来，本回合来不及行动") return true;
+                    foreach (var control in controlNames)
+                    {
+                        string prefix = "处于「" + control + "」，无法行动";
+                        if (body == prefix) return true;
+                        prefix += "（还要跳过 ";
+                        if (body.Length > prefix.Length + 3 && body.StartsWith(prefix, StringComparison.Ordinal) &&
+                            body.EndsWith(" 次）", StringComparison.Ordinal) &&
+                            int.TryParse(body.Substring(prefix.Length, body.Length - prefix.Length - 3), out int left) && left > 0) return true;
+                    }
+                    const string shield = "有「重连保护」，";
+                    if (hasControlShield && body.StartsWith(shield, StringComparison.Ordinal) && body.EndsWith("无效", StringComparison.Ordinal) &&
+                        controlNames.Contains(body.Substring(shield.Length, body.Length - shield.Length - 2))) return true;
+                    if (body.EndsWith("挡下", StringComparison.Ordinal))
+                        foreach (var weak in weakNames)
+                        {
+                            string prefix = "的「" + weak + "」被";
+                            if (body.StartsWith(prefix, StringComparison.Ordinal) && body.Length >= prefix.Length + 2 &&
+                                weakShields.Contains(body.Substring(prefix.Length, body.Length - prefix.Length - 2))) return true;
+                        }
                 }
                 if (entry.Kind == "check" && text.StartsWith("〔命中前判定〕", StringComparison.Ordinal))
                 {
@@ -264,16 +325,19 @@ namespace StreamDuel.Core
                 return false;
             }
 
-            static bool HasPersonaPrefix(string text)
+            bool HasPersonaPrefix(string text)
             {
-                return text != null && text.StartsWith("【人设·", StringComparison.Ordinal) && text.IndexOf('】', 4) > 4;
+                if (text == null) return false;
+                foreach (var prefix in personaPrefixes)
+                    if (text.StartsWith(prefix, StringComparison.Ordinal)) return true;
+                return false;
             }
 
             static bool QuotedPrefix(string text, string suffix, HashSet<string> names)
             {
                 if (string.IsNullOrEmpty(text) || text[0] != '「') return false;
-                int end = text.IndexOf(suffix, StringComparison.Ordinal);
-                return end > 1 && names.Contains(text.Substring(1, end - 1));
+                return text.EndsWith(suffix, StringComparison.Ordinal) && text.Length >= suffix.Length + 1 &&
+                    names.Contains(text.Substring(1, text.Length - suffix.Length - 1));
             }
         }
     }

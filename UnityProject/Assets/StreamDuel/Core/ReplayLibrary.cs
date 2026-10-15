@@ -19,6 +19,8 @@ namespace StreamDuel.Core
         public string Note;
         public bool IsCorrupt;
         public string Error;
+        public bool IsUnavailable;
+        public string UnavailableReason;
 
         // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
         public TextInputResult[] NameInputs
@@ -60,10 +62,11 @@ namespace StreamDuel.Core
         readonly string prefix;
         readonly int maxCount;
         readonly Func<DateTimeOffset> clock;
+        readonly PackPolicy policy;
         readonly StringComparison pathComparison;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
 
-        public ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null)
+        public ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null, PackPolicy policy = null)
         {
             if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("录像目录不能为空。", nameof(directory));
             if (maxCount < 1) throw new ArgumentOutOfRangeException(nameof(maxCount), "录像上限必须至少为 1。");
@@ -72,6 +75,7 @@ namespace StreamDuel.Core
             this.maxCount = maxCount;
             // 时钟仅用于本地录像命名与筛选，不参与战斗或随机流。
             this.clock = clock ?? (() => DateTimeOffset.UtcNow);
+            this.policy = policy ?? PackPolicy.LoadDefault();
             pathComparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             EnsureDirectory();
         }
@@ -80,6 +84,7 @@ namespace StreamDuel.Core
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (s == null) throw new ArgumentNullException(nameof(s));
+            RejectUnavailable(Replay.PolicyError(policy, r));
             if (r.Version > BattleRecord.CurrentVersion)
                 throw new FormatException(Replay.Check(null, r).Reason);
             if (r.Teams == null || r.Teams.Length != 2 || r.Teams.Any(team => team == null))
@@ -124,7 +129,8 @@ namespace StreamDuel.Core
             ValidateId(id);
             using (OpenLock())
             {
-                ReadEntry(id, out var record);
+                var entry = ReadEntry(id, out var record);
+                RejectUnavailable(entry.UnavailableReason);
                 return record;
             }
         }
@@ -145,6 +151,7 @@ namespace StreamDuel.Core
             using (OpenLock())
             {
                 var entry = ReadEntry(id, out var record);
+                RejectUnavailable(entry.UnavailableReason);
                 entry.Note = NormalizeNote(note);
                 WriteAtomic(id + ".json", WithMetadata(record.ToJson(), entry));
                 RefreshAndPrune();
@@ -152,6 +159,11 @@ namespace StreamDuel.Core
         }
 
         static string NormalizeNote(string note) { return string.IsNullOrWhiteSpace(note) ? null : note; }
+
+        static void RejectUnavailable(string reason)
+        {
+            if (reason != null) throw new InvalidOperationException(reason);
+        }
 
         string NextId(string stem)
         {
@@ -182,8 +194,9 @@ namespace StreamDuel.Core
         void RefreshAndPrune()
         {
             var entries = Scan();
-            int count = entries.Count(entry => !entry.IsCorrupt);
-            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && entry.Note == null)
+            // 下架不代表文件损坏，也不能成为自动删除用户原始录像的理由。
+            int count = entries.Count(entry => !entry.IsCorrupt && !entry.IsUnavailable);
+            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && !entry.IsUnavailable && entry.Note == null)
                 .OrderBy(entry => entry.Date).ThenBy(entry => entry.Id, StringComparer.Ordinal).ToList())
             {
                 if (count <= maxCount) break;
@@ -243,12 +256,14 @@ namespace StreamDuel.Core
             return Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
         }
 
-        static ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
+        ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
         {
+            string reason = Replay.PolicyError(policy, record);
             return new ReplayEntry
             {
                 Id = id, Date = date, PackId = record.PackId, Names = record.Names ?? new[] { "你", "对手" },
-                Teams = record.Teams, Winner = winner, Turns = turns, Note = note
+                Teams = record.Teams, Winner = winner, Turns = turns, Note = note,
+                IsUnavailable = reason != null, UnavailableReason = reason
             };
         }
 
@@ -292,7 +307,9 @@ namespace StreamDuel.Core
                 json.Append(",\"names\":[").Append(string.Join(",", entry.Names.Select(Quote))).Append(']');
                 json.Append(",\"teams\":[").Append(string.Join(",", entry.Teams.Select(team => "[" + string.Join(",", team.Select(Quote)) + "]"))).Append(']');
                 json.Append(",\"isCorrupt\":").Append(entry.IsCorrupt ? "true" : "false");
-                json.Append(",\"error\":").Append(Quote(entry.Error)).Append('}');
+                json.Append(",\"error\":").Append(Quote(entry.Error));
+                json.Append(",\"isUnavailable\":").Append(entry.IsUnavailable ? "true" : "false");
+                json.Append(",\"unavailableReason\":").Append(Quote(entry.UnavailableReason)).Append('}');
             }
             WriteAtomic("index.json", json.Append("]}").ToString());
         }

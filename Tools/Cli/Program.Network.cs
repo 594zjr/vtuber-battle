@@ -232,7 +232,7 @@ namespace StreamDuel.Cli
             bool libraryFailed = false;
             try
             {
-                new ReplayLibrary(ReplayLibraryDirectory(options)).Save(battle.Record, summary);
+                new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy).Save(battle.Record, summary);
                 Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
             }
             catch (ReplayLibraryMaintenanceException ex)
