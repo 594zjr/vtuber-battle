@@ -23,6 +23,9 @@ namespace StreamDuel.Cli
         public string TeamCode;
         public bool ExportTeam;
         public string SaveDir = "saves";
+        public string BackupFile;
+        public string RestoreFile;
+        public bool Overwrite;
         public string ReplayFile;
         public string ReplayCode;
         public bool ReplayBestEffort;
@@ -54,6 +57,7 @@ namespace StreamDuel.Cli
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
         public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
         public bool AnalysisMode { get { return CalcAttacker != null || MatchupTeamA != null; } }
+        public bool BackupMode { get { return BackupFile != null || RestoreFile != null; } }
 
         public static CliOptions Parse(string[] args)
         {
@@ -65,6 +69,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--overwrite")
+                {
+                    if (options.Overwrite) throw new ArgumentException("--overwrite 不能重复指定。");
+                    options.Overwrite = true;
+                    continue;
+                }
                 if (option == "--hotseat")
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
@@ -174,7 +184,8 @@ namespace StreamDuel.Cli
                 if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament"
-                    && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
+                    && option != "--save-dir" && option != "--backup" && option != "--restore"
+                    && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
@@ -183,6 +194,13 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--backup":
+                    case "--restore":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException(option + " 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(option + " 需要非空的备份 JSON 文件路径。");
+                        if (option == "--backup") options.BackupFile = value;
+                        else options.RestoreFile = value;
+                        break;
                     case "--tournament":
                         if (options.TournamentFile != null) throw new ArgumentException("--tournament 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament 需要非空的赛事 JSON 文件路径。");
@@ -292,6 +310,19 @@ namespace StreamDuel.Cli
                         options.TeamCode = value;
                         break;
                 }
+            }
+            if (options.BackupFile != null && options.RestoreFile != null)
+                throw new ArgumentException("--backup 与 --restore 不能同时使用，请选择导出或恢复。");
+            if (options.Overwrite && options.RestoreFile == null && !options.Help)
+                throw new ArgumentException("--overwrite 只能与 --restore 同用，不能用于覆盖已有备份文件。");
+            if (options.BackupMode && !options.Help)
+            {
+                var unsupported = provided.Where(option => option != "--backup" && option != "--restore"
+                    && option != "--overwrite" && option != "--save-dir" && option != "--help" && option != "-h")
+                    .Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("备份与恢复是独立操作，只支持 --save-dir，以及恢复时的 --overwrite；不能与 "
+                        + string.Join("、", unsupported) + " 同用。");
             }
             if (options.Advice && !options.Help)
             {
