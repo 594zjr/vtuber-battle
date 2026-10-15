@@ -14,6 +14,7 @@ namespace StreamDuel.Core
             public BattleAction Action;
             public double Score;
             public double Preference;
+            public List<string> Reasons;
             public readonly List<Battle> Outcomes = new List<Battle>();
         }
 
@@ -45,12 +46,15 @@ namespace StreamDuel.Core
             return actions;
         }
 
-        static BattleAction ChooseExpert(Battle live, int s)
+        static BattleAction ChooseExpert(Battle live, int s, AiTrace trace = null)
         {
             ExpertValidate(live, s);
             if (live.Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
             var root = ExpertRoot(live);
-            var options = ExpertActions(root, s).Select(action => new ExpertOption { Action = action }).ToList();
+            var options = ExpertActions(root, s).Select(action => new ExpertOption
+            {
+                Action = action, Reasons = trace == null ? null : new List<string>()
+            }).ToList();
 
             // 每个候选使用相同的采样起点，避免候选遍历顺序改变随机收益。
             for (int sample = 0; sample < ExpertSamples; sample++)
@@ -73,6 +77,8 @@ namespace StreamDuel.Core
             {
                 option.Preference = StylePreference(root, s, option.Action) * 0.25;
                 option.Score += option.Preference;
+                option.Reasons?.Add("第一层用相同随机起点模拟 " + ExpertSamples + " 个样本，局面均分（含风格）" + AiNumber(option.Score));
+                if (option.Preference != 0) option.Reasons?.Add("主播风格偏好 " + AiNumber(option.Preference));
             }
             var finalists = options.OrderByDescending(option => option.Score).Take(ExpertBeam).ToList();
             double cutoff = finalists.Last().Score;
@@ -82,7 +88,16 @@ namespace StreamDuel.Core
             {
                 double future = option.Outcomes.Average(next => ExpertRollout(next, s));
                 option.Score = option.Score * 0.3 + future * 0.7 + option.Preference * 0.7;
+                option.Reasons?.Add("入围第二层，后续局面均分 " + AiNumber(future) + "；按第一层 30% 与后续 70% 合成，并保留风格偏好");
             }
+            if (trace != null)
+                foreach (var option in options)
+                {
+                    option.Reasons.Add(finalists.Contains(option)
+                        ? "参与最终选择；近似同分时用本次随机流决定"
+                        : "未入围第二层，不参与最终选择；此处保留第一层分数，不能与两层分直接比较");
+                    trace.Add(option.Action, option.Score, option.Reasons);
+                }
             return HardPick(live, finalists, option => option.Score).Action;
         }
 

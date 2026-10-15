@@ -200,6 +200,8 @@ namespace StreamDuel.Cli
             action = foeAction = default;
             var timer = new LocalTimer(clock, battle);
             var actions = new BattleAction[2];
+            var explanations = new AiExplanation[2];
+            var aiChoices = new BattleAction[2];
             if (!options.Auto)
             {
                 input.DiscardCompleted();
@@ -211,7 +213,11 @@ namespace StreamDuel.Cli
                 timer.Pump();
                 if (!clock.TimedOut(side))
                 {
-                    if (side != 0 || options.Auto) actions[side] = Ai.Choose(battle, side, options.Level);
+                    if (side != 0 || options.Auto)
+                    {
+                        actions[side] = ChooseAiAction(battle, side, options, out explanations[side]);
+                        aiChoices[side] = actions[side];
+                    }
                     else
                     {
                         try
@@ -235,6 +241,10 @@ namespace StreamDuel.Cli
             }
             action = actions[0];
             foeAction = actions[1];
+            // 计时模式先替电脑选招；双方选择完成后再展示，不能提前向手动玩家透露行动。
+            for (int side = 0; side < explanations.Length; side++)
+                if (explanations[side] != null)
+                    PrintAiExplanation(battle, side, options.Level, explanations[side], aiChoices[side], actions[side]);
             return true;
         }
 

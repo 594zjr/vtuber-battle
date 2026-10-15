@@ -102,7 +102,7 @@ namespace StreamDuel.Cli
                     {
                         if (choosingState == NetState.Choose)
                         {
-                            BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
+                            BattleAction? action = options.Auto ? ChooseAiAction(battle, session.MySide, options)
                                 : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
                             if (!action.HasValue) return Quit();
                             pump.Pump();
