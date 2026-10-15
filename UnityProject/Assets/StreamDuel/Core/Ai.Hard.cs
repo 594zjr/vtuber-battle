@@ -428,6 +428,7 @@ namespace StreamDuel.Core
             Record = new BattleRecord
             {
                 Version = source.Record.Version, ContentHash = source.Record.ContentHash,
+                RulesVersion = source.Record.RulesVersion,
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
                 BanOne = source.Record.BanOne,
                 Modifiers = source.Record.Modifiers == null ? null : new List<string>(source.Record.Modifiers),

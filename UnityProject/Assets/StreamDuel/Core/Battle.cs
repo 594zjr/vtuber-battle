@@ -111,6 +111,9 @@ namespace StreamDuel.Core
         public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
         {
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            if (opt.RulesVersion < 1 || opt.RulesVersion > BattleRecord.CurrentVersion)
+                throw new ArgumentOutOfRangeException(nameof(opt), "对战规则版本必须在 1 到 3 之间。");
+            RulesVersion = opt.RulesVersion;
             modifiers = BattleModifiers.Normalize(opt.Modifiers);
             Db = db;
             Seed = opt.Seed ?? (uint)Environment.TickCount;
@@ -118,6 +121,7 @@ namespace StreamDuel.Core
             leadPickAfterBan = opt.LeadPick;
             Record = new BattleRecord
             {
+                Version = RulesVersion,
                 ContentHash = db.ContentHash(),
                 Seed = Seed,
                 PackId = db.PackId,

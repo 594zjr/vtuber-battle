@@ -61,8 +61,9 @@ namespace StreamDuel.Core
 
         void RecordTermination(BattleRecordEvent entry)
         {
-            // 仅新增行为要求新版读取器，普通对局继续输出原有 v2 格式。
+            // 终止事件升级的是录像格式，显式旧规则对局的结算不能随之改变。
             Record.Version = Math.Max(Record.Version, BattleRecord.TerminationVersion);
+            if (RulesVersion < BattleRecord.TerminationVersion) Record.RulesVersion = RulesVersion;
             entry.RngState = rng.State;
             Record.Events.Add(entry);
         }

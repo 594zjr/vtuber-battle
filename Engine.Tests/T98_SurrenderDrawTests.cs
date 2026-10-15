@@ -286,10 +286,10 @@ public class T98_SurrenderDrawTests
     [InlineData(AiLevel.Normal)]
     [InlineData(AiLevel.Hard)]
     [InlineData(AiLevel.Expert)]
-    public void ExistingAiLevelsNeverInitiateSurrenderAndNormalGamesRemainVersionTwo(AiLevel level)
+    public void ExistingAiLevelsNeverInitiateSurrenderAndNormalGamesUseVersionThree(AiLevel level)
     {
         var battle = Make();
-        Assert.Equal(2, battle.Record.Version);
+        Assert.Equal(3, battle.Record.Version);
         for (int turn = 0; turn < 2; turn++)
         {
             var left = Ai.Choose(battle, 0, level);
@@ -300,8 +300,8 @@ public class T98_SurrenderDrawTests
             for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
                 if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, level));
         }
-        Assert.Equal(2, battle.Record.Version);
-        Assert.Equal(2, BattleRecord.FromJson(battle.Record.ToJson()).Version);
+        Assert.Equal(3, battle.Record.Version);
+        Assert.Equal(3, BattleRecord.FromJson(battle.Record.ToJson()).Version);
         Assert.True(Replay.Check(battle.Db, battle.Record).CanReplay);
     }
 

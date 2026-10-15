@@ -252,7 +252,7 @@ public class T30_ContentHashEdgeTests
     }
 
     [Fact]
-    public void SameContentWithReorderedSourceReplaysTheVersionTwoRecordExactly()
+    public void SameContentWithReorderedSourceReplaysTheVersionThreeRecordExactly()
     {
         var db = BattleTests.LoadPack("original");
         var b = Make(db);
@@ -264,7 +264,7 @@ public class T30_ContentHashEdgeTests
 
         var replayed = Replay.Run(replayDb, record);
 
-        Assert.Equal(2, record.Version);
+        Assert.Equal(3, record.Version);
         Assert.Equal(db.ContentHash(), record.ContentHash);
         Assert.Equal(json, replayed.Record.ToJson());
         Assert.Equal(b.StateHash(), replayed.StateHash());
@@ -328,7 +328,7 @@ public class T30_ContentHashEdgeTests
     public void ExplicitPositiveVersionsAreReadWithoutAddingAnUnsupportedVersionRule(int version)
     {
         var db = BattleTests.LoadPack("original");
-        string json = Make(db).Record.ToJson().Replace("\"version\":2", "\"version\":" + version.ToString(CultureInfo.InvariantCulture));
+        string json = Make(db).Record.ToJson().Replace("\"version\":3", "\"version\":" + version.ToString(CultureInfo.InvariantCulture));
 
         var record = BattleRecord.FromJson(json);
 
@@ -346,7 +346,7 @@ public class T30_ContentHashEdgeTests
     public void InvalidVersionValuesAreRejected(string value)
     {
         string json = Make(BattleTests.LoadPack("original")).Record.ToJson();
-        json = json.Replace("\"version\":2", "\"version\":" + value);
+        json = json.Replace("\"version\":3", "\"version\":" + value);
 
         Assert.Throws<FormatException>(() => BattleRecord.FromJson(json));
     }

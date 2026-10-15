@@ -48,17 +48,17 @@ public class T93_ReplayCompatTests
     }
 
     [Fact]
-    public void CurrentVersionSupportsThreeWhileOrdinaryNewBattlesStillUseTwo()
+    public void CurrentAndDefaultVersionsAreThreeForNewBattles()
     {
         var db = BattleTests.LoadPack("original");
-        // T-98 新增终局事件使用 v3；没有新事件的普通录像继续保留 v2。
+        // T-99 的默认上限规则升级为 v3，历史 v1/v2 由各自样例继续锁定。
         Assert.Equal(3, BattleRecord.CurrentVersion);
-        Assert.Equal(2, BattleRecord.DefaultVersion);
-        Assert.Equal(2, new BattleRecord().Version);
+        Assert.Equal(3, BattleRecord.DefaultVersion);
+        Assert.Equal(3, new BattleRecord().Version);
         var battle = Make(db);
-        Assert.Equal(2, battle.Record.Version);
+        Assert.Equal(3, battle.Record.Version);
         Assert.Equal(db.ContentHash(), battle.Record.ContentHash);
-        Assert.Equal(2, BattleRecord.FromJson(battle.Record.ToJson()).Version);
+        Assert.Equal(3, BattleRecord.FromJson(battle.Record.ToJson()).Version);
         var compatibility = Replay.Check(db, battle.Record);
         Assert.True(compatibility.CanReplay);
         Assert.Equal(string.Empty, compatibility.Reason);

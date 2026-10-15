@@ -9,6 +9,7 @@ namespace StreamDuel.Core
         // 判胜状态不从可编辑的统计快照或录像历史反推，AI 的局部副本也需要保留它。
         readonly long[] totalDamageDealt = new long[2];
 
+        public int RulesVersion { get; private set; }
         public int EffectiveTurnCap { get { return HasModifier("turn_cap_60") ? 60 : TurnCap; } }
         public string EndReason { get; private set; } = "";
 
@@ -16,9 +17,9 @@ namespace StreamDuel.Core
         {
             Phase = Phase.Over;
             EndReason = "回合上限";
-            if (!HasModifier("turn_cap_60"))
+            if (RulesVersion < 3 && !HasModifier("turn_cap_60"))
             {
-                // 默认规则的迁移需要升级录像与联网协议，先保留旧记录的结算和日志。
+                // 旧录像继续使用原结算与日志，不能因当前默认版本升级而改变历史结果。
                 double r0 = Sides[0].Team.Sum(p => p.HpRatio), r1 = Sides[1].Team.Sum(p => p.HpRatio);
                 Winner = r0 == r1 ? -1 : r0 > r1 ? 0 : 1;
                 Add(Node.Over, "达到 " + TurnCap + " 回合上限，按剩余人气判定", "turn");
@@ -64,6 +65,7 @@ namespace StreamDuel.Core
 
         void CopyTurnCapState(Battle source)
         {
+            RulesVersion = source.RulesVersion;
             EndReason = source.EndReason;
             Array.Copy(source.totalDamageDealt, totalDamageDealt, totalDamageDealt.Length);
         }

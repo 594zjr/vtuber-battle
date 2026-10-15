@@ -22,10 +22,11 @@ namespace StreamDuel.Core
     public sealed class BattleRecord
     {
         public const int CurrentVersion = 3;
-        public const int DefaultVersion = 2;
+        public const int DefaultVersion = 3;
         public const int TerminationVersion = 3;
 
         public int Version { get; set; } = DefaultVersion;
+        public int? RulesVersion { get; set; }
         public string ContentHash { get; set; }
         public uint Seed { get; set; }
         public string PackId { get; set; }
@@ -38,10 +39,13 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
+            ValidateRulesVersion(Version, RulesVersion);
             var sb = new StringBuilder();
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
             sb.Append(",\"version\":").Append(Version.ToString(CultureInfo.InvariantCulture));
+            if (RulesVersion.HasValue && RulesVersion.Value != Version)
+                sb.Append(",\"rulesVersion\":").Append(RulesVersion.Value.ToString(CultureInfo.InvariantCulture));
             if (ContentHash != null)
             {
                 sb.Append(",\"contentHash\":");
@@ -130,6 +134,9 @@ namespace StreamDuel.Core
                 PackId = ReadString(Required(root, "packId"), "packId"),
                 Teams = new IList<string>[2]
             };
+            if (root.TryGetValue("rulesVersion", out var rulesVersion))
+                record.RulesVersion = (int)ReadInteger(rulesVersion, "rulesVersion", 1, 3);
+            ValidateRulesVersion(record.Version, record.RulesVersion);
             if (root.TryGetValue("contentHash", out var contentHash))
                 record.ContentHash = ReadString(contentHash, "contentHash");
             if (root.TryGetValue("leadPick", out var leadPick))
@@ -194,6 +201,12 @@ namespace StreamDuel.Core
                 record.Events.Add(e);
             }
             return record;
+        }
+
+        internal static void ValidateRulesVersion(int version, int? rulesVersion)
+        {
+            if (rulesVersion.HasValue && (rulesVersion.Value < 1 || rulesVersion.Value > 3 || rulesVersion.Value > version))
+                throw new FormatException("rulesVersion 必须是 1 至 3 的整数，且不能高于录像版本。");
         }
 
         internal static void ValidateEventVersion(int version, BattleRecordEvent entry)
@@ -287,13 +300,27 @@ namespace StreamDuel.Core
 
         static Battle RunEvents(ContentDb db, BattleRecord r)
         {
-            var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
-                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
+            var battle = CreateBattle(db, r);
             foreach (var e in r.Events)
             {
                 BattleRecord.ValidateEventVersion(r.Version, e);
                 ApplyEvent(battle, e);
             }
+            return battle;
+        }
+
+        internal static Battle CreateBattle(ContentDb db, BattleRecord r)
+        {
+            BattleRecord.ValidateRulesVersion(r.Version, r.RulesVersion);
+            var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
+                new BattleOptions
+                {
+                    Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers,
+                    RulesVersion = r.RulesVersion ?? Math.Min(r.Version, 3)
+                });
+            // 规则在构造时冻结；录像格式因终止事件升级后，仍须保留原先使用的规则。
+            battle.Record.Version = r.Version;
+            battle.Record.RulesVersion = r.RulesVersion;
             return battle;
         }
 

@@ -55,13 +55,19 @@ public class T99_TurnCapTests
         };
     }
 
-    static Battle Make(bool capped = true, ContentDb db = null, bool ban = false, bool lead = false)
+    static Battle Make(bool capped = true, ContentDb db = null, bool ban = false, bool lead = false, int? rulesVersion = null)
     {
         return new Battle(db ?? Content(), Teams, new[] { "甲方", "乙方" }, new BattleOptions
         {
-            Seed = 99, BanOne = ban, LeadPick = lead,
+            Seed = 99, BanOne = ban, LeadPick = lead, RulesVersion = rulesVersion ?? (capped ? 3 : 2),
             Modifiers = capped ? new List<string> { "turn_cap_60" } : null
         });
+    }
+
+    static Battle MakeDefault(ContentDb db = null)
+    {
+        // 不显式填规则版本，才能验证调用方未指定版本时真正采用的新默认值。
+        return new Battle(db ?? Content(), Teams, new[] { "甲方", "乙方" }, new BattleOptions { Seed = 99 });
     }
 
     static void Pass(Battle battle) { battle.ResolveTurn(BattleAction.Pass(), BattleAction.Pass()); }
@@ -92,7 +98,7 @@ public class T99_TurnCapTests
         Assert.Equal(battle.Log.Count - 1, end.LogIndex);
         Assert.Equal(Node.Over, battle.Log.Last().Node);
         if (keyword != null) Assert.Contains(keyword, battle.Log.Last().Text);
-        if (battle.EffectiveTurnCap == 60 || reason != "回合上限")
+        if (battle.EffectiveTurnCap == 60 || battle.RulesVersion >= 3 || reason != "回合上限")
             Assert.Contains(winner < 0 ? "平局" : battle.Sides[winner].Name, battle.Log.Last().Text);
         int logs = battle.Log.Count, events = battle.Events.Count, recordEvents = battle.Record.Events.Count;
         Assert.Throws<InvalidOperationException>(() => Pass(battle));
@@ -114,7 +120,7 @@ public class T99_TurnCapTests
     }
 
     [Fact]
-    public void ModifierIsExplicitAndTheDefaultStaysAt120WithVersionTwo()
+    public void ModifierIsExplicitAndLegacyVersionTwoStaysAt120()
     {
         var normal = Make(false);
         var capped = Make();
@@ -122,6 +128,8 @@ public class T99_TurnCapTests
         Assert.Equal(120, normal.EffectiveTurnCap);
         Assert.Equal(60, capped.EffectiveTurnCap);
         Assert.Equal(2, normal.Record.Version);
+        Assert.Equal(2, normal.RulesVersion);
+        Assert.Equal(3, capped.RulesVersion);
         Assert.DoesNotContain("turn_cap_60", normal.Record.ToJson());
         Assert.Equal(new[] { "turn_cap_60" }, capped.Record.Modifiers);
         var definition = Assert.Single(BattleModifiers.All, item => item.Id == "turn_cap_60");
@@ -149,11 +157,13 @@ public class T99_TurnCapTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public void MoreSurvivorsWinsEvenWithLessRemainingHp(int winner)
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public void MoreSurvivorsWinsEvenWithLessRemainingHp(int winner, bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         foreach (var fighter in battle.Sides[winner].Team) fighter.Hp = 1;
         var fainted = battle.Sides[1 - winner].Team.Last();
         fainted.Hp = 0;
@@ -165,11 +175,13 @@ public class T99_TurnCapTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public void HpRatioPrecedesDamageAndDoesNotCompareRawHp(int winner)
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public void HpRatioPrecedesDamageAndDoesNotCompareRawHp(int winner, bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         HitThenHeal(battle, 1 - winner);
         foreach (var fighter in battle.Sides[winner].Team) { fighter.MaxHp = 100; fighter.Hp = 51; }
         foreach (var fighter in battle.Sides[1 - winner].Team) { fighter.MaxHp = 1000; fighter.Hp = 500; }
@@ -181,10 +193,12 @@ public class T99_TurnCapTests
         Assert.DoesNotContain("按累计伤害判定", battle.Log.Last().Text);
     }
 
-    [Fact]
-    public void ExactHpComparisonDetectsADifferenceBelowDoublePrecision()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExactHpComparisonDetectsADifferenceBelowDoublePrecision(bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         battle.Active(0).Hp = battle.Active(1).Hp = 1;
         battle.Active(0).MaxHp = int.MaxValue - 1;
         battle.Active(1).MaxHp = int.MaxValue;
@@ -194,10 +208,12 @@ public class T99_TurnCapTests
         Ended(battle, 0, "回合上限", "人气");
     }
 
-    [Fact]
-    public void MathematicallyEqualFractionsRemainATieDespiteFloatingPointSummation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MathematicallyEqualFractionsRemainATieDespiteFloatingPointSummation(bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         foreach (var fighter in battle.Sides[0].Team) { fighter.Hp = 1; fighter.MaxHp = 10; }
         for (int slot = 0; slot < 6; slot++)
         {
@@ -211,11 +227,13 @@ public class T99_TurnCapTests
     }
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public void ActualDamageBreaksTheTieAfterTheOpponentHeals(int winner)
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public void ActualDamageBreaksTheTieAfterTheOpponentHeals(int winner, bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         HitThenHeal(battle, winner);
         Assert.All(battle.Sides.SelectMany(side => side.Team), fighter => Assert.Equal(fighter.MaxHp, fighter.Hp));
         Assert.Equal(100, BattleSummary.From(battle).Sides[winner].Sum(stats => stats.DamageDealt));
@@ -224,10 +242,12 @@ public class T99_TurnCapTests
         Ended(battle, winner, "回合上限", "伤害");
     }
 
-    [Fact]
-    public void SelfDamageDoesNotOutscoreRealDamageToTheOpponent()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SelfDamageDoesNotOutscoreRealDamageToTheOpponent(bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         battle.ResolveTurn(BattleAction.Skill(2), BattleAction.Skill(0));
         battle.ResolveTurn(BattleAction.Skill(1), BattleAction.Pass());
         var summary = BattleSummary.From(battle);
@@ -238,10 +258,12 @@ public class T99_TurnCapTests
         Ended(battle, 1, "回合上限", "伤害");
     }
 
-    [Fact]
-    public void EqualSurvivorsRatiosAndActualDamageEndInADraw()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EqualSurvivorsRatiosAndActualDamageEndInADraw(bool useDefault)
     {
-        var battle = Make();
+        var battle = useDefault ? MakeDefault() : Make();
         HitThenHeal(battle, 0);
         HitThenHeal(battle, 1);
         Assert.Equal(100, BattleSummary.From(battle).Sides[0].Sum(stats => stats.DamageDealt));
@@ -305,7 +327,7 @@ public class T99_TurnCapTests
     }
 
     [Fact]
-    public void Default120RetainsItsLegacyHpDecisionAndExactEndingLog()
+    public void ExplicitLegacy120RetainsItsHpDecisionAndExactEndingLog()
     {
         var battle = Make(false);
         foreach (var fighter in battle.Sides[0].Team) fighter.Hp = 1;
@@ -418,7 +440,7 @@ public class T99_TurnCapTests
         Assert.Equal(selfDamage.ActedFirst, enemyDamage.ActedFirst);
         Assert.Equal(selfDamage.Need, enemyDamage.Need);
         for (int draw = 0; draw < 4; draw++) Assert.Equal(selfDamage.Random(), enemyDamage.Random());
-        // 默认规则的相等对照证明伤害归因以外的哈希状态已对齐。
+        // 旧规则的相等对照证明伤害归因以外的哈希状态已对齐。
         if (capped) Assert.NotEqual(selfDamage.StateHash(), enemyDamage.StateHash());
         else Assert.Equal(selfDamage.StateHash(), enemyDamage.StateHash());
     }
@@ -439,13 +461,15 @@ public class T99_TurnCapTests
         Ended(battle, 0, "回合上限", "伤害");
     }
 
-    [Fact]
-    public void TurnCapWinnerNameIsCleanedOnlyInTheDisplayProjection()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TurnCapWinnerNameIsCleanedOnlyInTheDisplayProjection(bool useDefault)
     {
         string rawName = "甲方\n\u200b超长超长超长超长超长超长名字";
         var battle = new Battle(Content(), Teams, new[] { rawName, "乙方" }, new BattleOptions
         {
-            Seed = 99, Modifiers = new List<string> { "turn_cap_60" }
+            Seed = 99, Modifiers = useDefault ? null : new List<string> { "turn_cap_60" }
         });
         HitThenHeal(battle, 0);
         AtCap(battle);
@@ -465,6 +489,370 @@ public class T99_TurnCapTests
         Assert.Equal(rawName, battle.Sides[0].Name);
     }
 
+    [Fact]
+    public void UnspecifiedRulesUseVersionThreeAndTheOriginal120TurnLimit()
+    {
+        var options = new BattleOptions { Seed = 99 };
+        var battle = new Battle(Content(), Teams, new[] { "甲方", "乙方" }, options);
+        Assert.Equal(3, options.RulesVersion);
+        Assert.Equal(3, BattleRecord.DefaultVersion);
+        Assert.Equal(3, new BattleRecord().Version);
+        Assert.Equal(3, battle.RulesVersion);
+        Assert.Equal(3, battle.Record.Version);
+        Assert.Null(battle.Record.RulesVersion);
+        Assert.DoesNotContain("\"rulesVersion\"", battle.Record.ToJson());
+        Assert.Equal(120, battle.EffectiveTurnCap);
+        Assert.Equal(3, new Battle(battle.Db, Teams, new[] { "甲方", "乙方" }, 99u).RulesVersion);
+        var property = typeof(Battle).GetProperty(nameof(Battle.RulesVersion));
+        Assert.NotNull(property);
+        Assert.Null(property.GetSetMethod());
+        options.RulesVersion = 2;
+        Assert.Equal(3, battle.RulesVersion);
+        HitThenHeal(battle, 0);
+        while (battle.Turn < 120) Pass(battle);
+        Assert.Equal(Phase.Choose, battle.Phase);
+        Assert.Equal("", battle.EndReason);
+        Assert.DoesNotContain(battle.Events, item => item.Kind == BattleEventKind.End);
+        Pass(battle);
+        Ended(battle, 0, "回合上限", "累计伤害");
+        Assert.Equal(120, battle.Turn);
+        Assert.Equal(120, BattleSummary.From(battle).Turns);
+        TerminationCopiesMatch(battle);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(int.MaxValue)]
+    public void NewBattlesRejectUnsupportedRulesVersions(int version)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Battle(Content(), Teams,
+            new[] { "甲方", "乙方" }, new BattleOptions { Seed = 99, RulesVersion = version }));
+    }
+
+    [Fact]
+    public void TheSameLegal120TurnActionsUseVersionThreeDamageAndVersionTwoLegacyDecisions()
+    {
+        var db = Content();
+        var current = MakeDefault(db);
+        var legacy = Make(false, db);
+        HitThenHeal(current, 0);
+        HitThenHeal(legacy, 0);
+        while (current.Phase != Phase.Over) { Pass(current); Pass(legacy); }
+        Ended(current, 0, "回合上限", "累计伤害");
+        Ended(legacy, -1, "回合上限");
+        Assert.Equal("达到 120 回合上限，按剩余人气判定", legacy.Log.Last().Text);
+        Assert.Equal(120, current.Record.Events.Count(item => item.Type == BattleRecordEventType.Turn));
+        Assert.Equal(FullLog(current).Take(current.Log.Count - 1), FullLog(legacy).Take(legacy.Log.Count - 1));
+        string currentJson = current.Record.ToJson();
+        var oldRecord = BattleRecord.FromJson(currentJson);
+        oldRecord.Version = 2;
+        Assert.Null(oldRecord.RulesVersion);
+        Assert.Equal(legacy.Record.ToJson(), oldRecord.ToJson());
+        var oldReplay = Replay.Run(db, BattleRecord.FromJson(oldRecord.ToJson()));
+        Assert.Equal(2, oldReplay.RulesVersion);
+        Assert.Equal(legacy.StateHash(), oldReplay.StateHash());
+        Assert.Equal(FullLog(legacy), FullLog(oldReplay));
+        Assert.Equal(FullEvents(legacy), FullEvents(oldReplay));
+        Ended(oldReplay, -1, "回合上限");
+        Assert.Equal(currentJson, current.Record.ToJson());
+        TerminationCopiesMatch(current);
+        TerminationCopiesMatch(legacy);
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void FullAndHardClonesKeepFrozenRulesDespiteExternallyEditedRecordMetadata(int version, bool aiCopy)
+    {
+        var battle = Make(false, rulesVersion: version);
+        HitThenHeal(battle, 0);
+        int changedVersion = version == 3 ? 2 : 3;
+        battle.Record.Version = changedVersion;
+        battle.Record.RulesVersion = changedVersion;
+        var copy = aiCopy
+            ? (Battle)typeof(Battle).GetMethod("CopyForHardAi", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(battle, null)
+            : battle.Clone();
+        Assert.Equal(version, battle.RulesVersion);
+        Assert.Equal(version, copy.RulesVersion);
+        Assert.Equal(changedVersion, copy.Record.Version);
+        Assert.Equal((int?)changedVersion, copy.Record.RulesVersion);
+        copy.Record.Version = version;
+        copy.Record.RulesVersion = null;
+        Assert.Equal(changedVersion, battle.Record.Version);
+        Assert.Equal((int?)changedVersion, battle.Record.RulesVersion);
+        AtCap(copy);
+        int winner = version == 3 ? 0 : -1;
+        Ended(copy, winner, "回合上限", version == 3 ? "累计伤害" : "剩余人气");
+        Assert.Equal(Phase.Choose, battle.Phase);
+        Assert.Equal("", battle.EndReason);
+        AtCap(battle);
+        Ended(battle, winner, "回合上限", version == 3 ? "累计伤害" : "剩余人气");
+        Assert.Equal(version, battle.Clone().RulesVersion);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void ReplayCursorFreezesRulesAndItsInputRecordAcrossSeekSnapshots(int version)
+    {
+        var battle = Make(false, rulesVersion: version);
+        HitThenHeal(battle, 0);
+        while (battle.Phase != Phase.Over) Pass(battle);
+        var record = BattleRecord.FromJson(battle.Record.ToJson());
+        var cursor = new ReplayCursor(battle.Db, record, snapshotEvery: 7);
+        record.Version = version == 3 ? 2 : 3;
+        record.RulesVersion = record.Version;
+        record.Events.Clear();
+        Assert.Equal(120, cursor.MaxTurn);
+        foreach (int turn in new[] { 0, 2, 7, 63, 119 })
+        {
+            cursor.Seek(turn);
+            Assert.Equal(version, cursor.Current.RulesVersion);
+            Assert.Equal(version, cursor.Current.Record.Version);
+            Assert.Null(cursor.Current.Record.RulesVersion);
+            Assert.Equal("", cursor.Current.EndReason);
+        }
+        Assert.True(cursor.Next());
+        Ended(cursor.Current, version == 3 ? 0 : -1, "回合上限");
+        Assert.Equal(battle.StateHash(), cursor.Current.StateHash());
+        Assert.Equal(FullLog(battle), FullLog(cursor.Current));
+        Assert.Equal(FullEvents(battle), FullEvents(cursor.Current));
+        Assert.True(cursor.Prev());
+        Assert.Equal(version, cursor.Current.RulesVersion);
+        Assert.Equal("", cursor.Current.EndReason);
+        cursor.ToEnd();
+        Assert.Equal(version, cursor.Current.RulesVersion);
+        Assert.Equal(battle.Record.ToJson(), cursor.Current.Record.ToJson());
+        Assert.Equal(battle.StateHash(), cursor.Current.StateHash());
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    public void AgreementFormatUpgradePreservesTheOriginal120TurnRules(int version, bool reject)
+    {
+        var battle = Make(false, rulesVersion: version);
+        HitThenHeal(battle, 0);
+        battle.OfferDraw(1);
+        if (reject) battle.RespondDraw(0, false);
+        Assert.Equal(3, battle.Record.Version);
+        Assert.Equal(version, battle.RulesVersion);
+        Assert.Equal(version < 3 ? (int?)version : null, battle.Record.RulesVersion);
+        Assert.Equal(!reject, battle.HasDrawOffer(1));
+        Assert.Equal("", battle.EndReason);
+        string json = battle.Record.ToJson();
+        if (version < 3) Assert.Contains("\"rulesVersion\":" + version, json);
+        else Assert.DoesNotContain("\"rulesVersion\"", json);
+        var parsed = BattleRecord.FromJson(json);
+        Assert.Equal(battle.Record.RulesVersion, parsed.RulesVersion);
+        Assert.True(Replay.Check(battle.Db, parsed).CanReplay);
+        Assert.Equal(version, Replay.Run(battle.Db, parsed).RulesVersion);
+        Assert.Equal(version, battle.Clone().RulesVersion);
+        Assert.Equal(battle.Record.RulesVersion, battle.Clone().Record.RulesVersion);
+        while (battle.Phase != Phase.Over) Pass(battle);
+        Ended(battle, version == 3 ? 0 : -1, "回合上限");
+        Assert.Equal(120, battle.Turn);
+        Assert.Equal(100, BattleSummary.From(battle).Sides[0].Sum(stats => stats.DamageDealt));
+        TerminationCopiesMatch(battle);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void OrdinaryRecordsOmitRedundantRulesOverridesAndReplayTheirFormatRules(int version)
+    {
+        var battle = Make(false, rulesVersion: version);
+        HitThenHeal(battle, 0);
+        Assert.Null(battle.Record.RulesVersion);
+        string json = battle.Record.ToJson();
+        Assert.DoesNotContain("\"rulesVersion\"", json);
+        battle.Record.RulesVersion = version;
+        Assert.Equal(json, battle.Record.ToJson());
+        var parsed = BattleRecord.FromJson(json);
+        Assert.Null(parsed.RulesVersion);
+        var replay = Replay.Run(battle.Db, parsed);
+        Assert.Equal(version, replay.RulesVersion);
+        Assert.Equal(battle.StateHash(), replay.StateHash());
+        Assert.Equal(FullLog(battle), FullLog(replay));
+    }
+
+    [Theory]
+    [InlineData(2, 1)]
+    [InlineData(3, 1)]
+    [InlineData(3, 2)]
+    public void ExplicitOlderRulesOverridesSurviveJsonReplayAndCursor(int format, int rules)
+    {
+        var battle = Make(false, rulesVersion: rules);
+        HitThenHeal(battle, 0);
+        while (battle.Phase != Phase.Over) Pass(battle);
+        battle.Record.Version = format;
+        battle.Record.RulesVersion = rules;
+        string json = battle.Record.ToJson();
+        Assert.Contains("\"rulesVersion\":" + rules, json);
+        var parsed = BattleRecord.FromJson(json);
+        Assert.Equal((int?)rules, parsed.RulesVersion);
+        Assert.Equal(format, parsed.Version);
+        Assert.Equal(json, parsed.ToJson());
+        Assert.True(Replay.Check(battle.Db, parsed).CanReplay);
+        TerminationCopiesMatch(battle);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("4")]
+    [InlineData("2147483648")]
+    [InlineData("2.5")]
+    [InlineData("\"2\"")]
+    [InlineData("true")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    public void JsonRejectsNonIntegerOrUnsupportedRulesOverrides(string value)
+    {
+        string json = MakeDefault().Record.ToJson();
+        json = json.Substring(0, json.Length - 1) + ",\"rulesVersion\":" + value + "}";
+        Assert.Throws<FormatException>(() => BattleRecord.FromJson(json));
+    }
+
+    [Theory]
+    [InlineData(3, 0)]
+    [InlineData(3, -1)]
+    [InlineData(3, 4)]
+    [InlineData(3, int.MaxValue)]
+    [InlineData(1, 2)]
+    [InlineData(1, 3)]
+    [InlineData(2, 3)]
+    public void EveryRecordEntryPointRejectsUnsupportedOrNewerThanFormatRules(int format, int rules)
+    {
+        var battle = MakeDefault();
+        var record = battle.Record;
+        record.Version = format;
+        string json = record.ToJson();
+        record.RulesVersion = rules;
+        Assert.Throws<FormatException>(() => record.ToJson());
+        Assert.Throws<FormatException>(() => Replay.Run(battle.Db, record));
+        var check = Replay.Check(battle.Db, record);
+        Assert.False(check.CanReplay);
+        Assert.False(string.IsNullOrWhiteSpace(check.Reason));
+        json = json.Substring(0, json.Length - 1) + ",\"rulesVersion\":" + rules + "}";
+        Assert.Throws<FormatException>(() => BattleRecord.FromJson(json));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ExplicitSixtyTurnModifierKeepsFourTierDecisionEvenForLegacyRules(int version)
+    {
+        var battle = Make(rulesVersion: version);
+        HitThenHeal(battle, 0);
+        while (battle.Phase != Phase.Over) Pass(battle);
+        Assert.Equal(version, battle.RulesVersion);
+        Assert.Equal(version, battle.Record.Version);
+        Assert.Equal(60, battle.Turn);
+        Ended(battle, 0, "回合上限", "累计伤害");
+        TerminationCopiesMatch(battle);
+    }
+
+    sealed class VersionTransport : INetTransport
+    {
+        readonly Queue<string> incoming = new Queue<string>();
+        public VersionTransport Peer;
+        public void Send(string message) { Peer.incoming.Enqueue(message); }
+        public bool TryReceive(out string message)
+        {
+            message = incoming.Count == 0 ? null : incoming.Dequeue();
+            return message != null;
+        }
+    }
+
+    static void PumpVersionSessions(NetSession host, NetSession guest)
+    {
+        for (int step = 0; step < 20; step++) { host.Poll(); guest.Poll(); }
+        Assert.Null(host.Error);
+        Assert.Null(guest.Error);
+    }
+
+    static void NetworkTurn(NetSession host, NetSession guest, BattleAction first, BattleAction second)
+    {
+        Assert.Equal(NetState.Choose, host.State);
+        Assert.Equal(NetState.Choose, guest.State);
+        host.Submit(first);
+        guest.Submit(second);
+        PumpVersionSessions(host, guest);
+        Assert.Equal(host.Battle.StateHash(), guest.Battle.StateHash());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NetworkProtocolsThreeAndFourUseTheSameDefaultRulesAsLocalBattles(bool termination)
+    {
+        var db = Content();
+        var first = new VersionTransport();
+        var second = new VersionTransport();
+        first.Peer = second;
+        second.Peer = first;
+        var host = new NetSession(db, first, true, Teams[0], "甲方", 99, enableTermination: termination);
+        var guest = new NetSession(db, second, false, Teams[1], "乙方", null, enableTermination: termination);
+        PumpVersionSessions(host, guest);
+        Assert.Equal(termination ? 4 : 3, host.SessionProtocolVersion);
+        Assert.Equal(host.SessionProtocolVersion, guest.SessionProtocolVersion);
+        Assert.Equal(3, host.Battle.RulesVersion);
+        Assert.Equal(3, guest.Battle.RulesVersion);
+        Assert.Equal(3, host.Battle.Record.Version);
+        Assert.Equal(3, guest.Battle.Record.Version);
+        Assert.Null(host.Battle.Record.RulesVersion);
+        Assert.Null(guest.Battle.Record.RulesVersion);
+        NetworkTurn(host, guest, BattleAction.Skill(0), BattleAction.Pass());
+        NetworkTurn(host, guest, BattleAction.Pass(), BattleAction.Skill(1));
+        if (termination)
+        {
+            Assert.True(host.CanOfferDraw);
+            host.OfferDraw();
+            PumpVersionSessions(host, guest);
+            Assert.True(guest.CanRespondDraw);
+            guest.RespondDraw(false);
+            PumpVersionSessions(host, guest);
+            Assert.Equal(3, host.Battle.Record.Version);
+            Assert.Equal(3, guest.Battle.Record.Version);
+            Assert.Equal(3, host.Battle.RulesVersion);
+            Assert.Equal(3, guest.Battle.RulesVersion);
+            Assert.Null(host.Battle.Record.RulesVersion);
+            Assert.Null(guest.Battle.Record.RulesVersion);
+            Assert.Equal("", host.Battle.EndReason);
+        }
+        while (host.Battle.Phase != Phase.Over)
+            NetworkTurn(host, guest, BattleAction.Pass(), BattleAction.Pass());
+        Assert.Equal(NetState.Over, host.State);
+        Assert.Equal(NetState.Over, guest.State);
+        Assert.Equal(3, host.Battle.RulesVersion);
+        Assert.Equal(3, guest.Battle.RulesVersion);
+        Assert.Equal(3, host.Battle.Record.Version);
+        Assert.Equal(3, guest.Battle.Record.Version);
+        Assert.Null(host.Battle.Record.RulesVersion);
+        Assert.Null(guest.Battle.Record.RulesVersion);
+        Assert.Equal(120, host.Battle.Turn);
+        Assert.Equal(100, BattleSummary.From(host.Battle).Sides[0].Sum(stats => stats.DamageDealt));
+        Assert.Equal(host.Battle.Record.ToJson(), guest.Battle.Record.ToJson());
+        Assert.Equal(FullLog(host.Battle), FullLog(guest.Battle));
+        Ended(host.Battle, 0, "回合上限", "累计伤害");
+        Ended(guest.Battle, 0, "回合上限", "累计伤害");
+        TerminationCopiesMatch(host.Battle);
+    }
+
     static void TerminationCopiesMatch(Battle battle)
     {
         string record = battle.Record.ToJson();
@@ -480,6 +868,7 @@ public class T99_TurnCapTests
         cursor.ToEnd();
         foreach (var copy in new[] { battle.Clone(), replay, stepped, cursor.Current })
         {
+            Assert.Equal(battle.RulesVersion, copy.RulesVersion);
             Assert.Equal(battle.Phase, copy.Phase);
             Assert.Equal(battle.Winner, copy.Winner);
             Assert.Equal(battle.EndReason, copy.EndReason);
@@ -596,7 +985,7 @@ public class T99_TurnCapTests
         string second = "乙 同意和局，双方平局\u202e" + new string('名', 18);
         var battle = new Battle(Content(), Teams, new[] { first, second }, new BattleOptions
         {
-            Seed = 99, Modifiers = capped ? new List<string> { "turn_cap_60" } : null
+            Seed = 99, RulesVersion = capped ? 3 : 2, Modifiers = capped ? new List<string> { "turn_cap_60" } : null
         });
         HitThenHeal(battle, 0);
         int logStart = battle.Log.Count;

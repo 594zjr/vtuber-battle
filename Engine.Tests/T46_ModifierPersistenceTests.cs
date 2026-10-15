@@ -71,7 +71,7 @@ public class T46_ModifierPersistenceTests
     [Fact]
     public void MissingAndEmptyModifiersKeepLegacyRecordAndBattleBehavior()
     {
-        string oldJson = RecordJson().Replace(",\"version\":2", "");
+        string oldJson = RecordJson().Replace(",\"version\":3", "");
         var oldRecord = BattleRecord.FromJson(oldJson);
         Assert.Equal(1, oldRecord.Version);
         Assert.Null(oldRecord.Modifiers);
