@@ -17,6 +17,7 @@ namespace StreamDuel.Sim
             public string PackDirectory;
             public int Games = 5000;
             public uint Seed = 1;
+            public AiLevel Level = AiLevel.Normal;
             public bool Help;
             public bool ListPacks;
             public bool Tune;
@@ -46,10 +47,12 @@ namespace StreamDuel.Sim
                 var options = ParseOptions(args);
                 if (options.Help)
                 {
-                    Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1 [--pack-dir <文件夹>] [--list-packs]");
+                    Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1 [--level normal] [--pack-dir <文件夹>] [--list-packs]");
                     Console.WriteLine("调参：dotnet run --project Tools/Sim -- --tune --rounds 20 --games 400 --seed 1；省略 games 时调参默认 400 局。");
                     Console.WriteLine("调参 games 必须为正偶数；每轮扰动 1～3 个权重（±30%），挑战当前最好权重；胜率严格超过 55% 才替换。双方交替换边，平局不计胜场。");
                     Console.WriteLine("调参标准输出只写最终权重 JSON；标准错误写每轮结果及独立种子集对 Default 的胜率。不会自动采用权重或改写文件。");
+                    Console.WriteLine("--level 支持 easy（简单）/ normal（普通）/ hard（困难）/ expert（专家），默认 normal；双方行动和补位使用同一难度。");
+                    Console.WriteLine("--tune 固定搜索普通难度的评分权重，不能与 --level 同时使用。");
                     Console.WriteLine("默认：--pack original，--games 5000，--seed 1；games 为正整数，seed 为 0..4294967295。");
                     Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出。--pack 使用包 id，兼容内置文件名；id 冲突时内置优先并提示。");
                     Console.WriteLine("games 按入选队伍计数（包括未上场的后排）；wins 为所在队伍获胜次数，平局不计胜场。");
@@ -81,7 +84,7 @@ namespace StreamDuel.Sim
                 {
                     var teams = DrawTeams(roster, teamRandom);
                     var battle = new Battle(db, teams, new[] { "甲方", "乙方" }, unchecked(options.Seed + (uint)game));
-                    int turns = RunBattle(battle);
+                    int turns = RunBattle(battle, options.Level);
                     var summary = BattleSummary.From(battle);
                     if (battle.Winner == -1) draws++;
                     for (int side = 0; side < 2; side++)
@@ -117,6 +120,7 @@ namespace StreamDuel.Sim
             var options = new Options();
             bool gamesSpecified = false;
             bool roundsSpecified = false;
+            bool levelSpecified = false;
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
@@ -135,7 +139,7 @@ namespace StreamDuel.Sim
                     options.Tune = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed" && option != "--rounds")
+                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed" && option != "--rounds" && option != "--level")
                     throw new ArgumentException("未知选项：" + option + "；使用 --help 查看用法。");
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
                     throw new ArgumentException(option + " 缺少参数值。");
@@ -164,8 +168,18 @@ namespace StreamDuel.Sim
                         if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Seed))
                             throw new ArgumentException("--seed 必须是 0..4294967295 的整数。");
                         break;
+                    case "--level":
+                        if (value == "easy") options.Level = AiLevel.Easy;
+                        else if (value == "normal") options.Level = AiLevel.Normal;
+                        else if (value == "hard") options.Level = AiLevel.Hard;
+                        else if (value == "expert") options.Level = AiLevel.Expert;
+                        else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
+                        levelSpecified = true;
+                        break;
                 }
             }
+            if (options.Tune && levelSpecified)
+                throw new ArgumentException("--tune 固定搜索普通难度的评分权重，不能与 --level 同时使用；请移除 --level。");
             if (roundsSpecified && !options.Tune) throw new ArgumentException("--rounds 需要与 --tune 一起使用。");
             if (options.Tune && !gamesSpecified) options.Games = 400;
             if (options.Tune && options.Games % 2 != 0) throw new ArgumentException("调参的 --games 必须为正偶数，以便每组阵容交换双方各赛一局。");
@@ -234,7 +248,7 @@ namespace StreamDuel.Sim
             return shuffled.Take(count).ToArray();
         }
 
-        private static int RunBattle(Battle battle)
+        private static int RunBattle(Battle battle, AiLevel level)
         {
             int turns = 0;
             while (battle.Phase != Phase.Over)
@@ -243,12 +257,12 @@ namespace StreamDuel.Sim
                 {
                     for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
                     {
-                        if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side));
+                        if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, level));
                     }
                     continue;
                 }
 
-                var actions = new[] { Ai.Choose(battle, 0), Ai.Choose(battle, 1) };
+                var actions = new[] { Ai.Choose(battle, 0, level), Ai.Choose(battle, 1, level) };
                 battle.ResolveTurn(actions[0], actions[1]);
                 turns++;
             }

@@ -394,6 +394,40 @@ try {
         $ipv6Evidence.status = 'UNSUPPORTED'
         Write-Output 'IPv6：Socket.OSSupportsIPv6=false，平台不支持，未执行该项。'
     }
+
+    $expertDirectory = Join-Path $runDirectory '07-expert'
+    [void][IO.Directory]::CreateDirectory($expertDirectory)
+    $expertHostSave = Join-Path $expertDirectory 'host-save'
+    $expertGuestSave = Join-Path $expertDirectory 'guest-save'
+    $expertHostReport = Join-Path $expertDirectory 'host-report.md'
+    $expertGuestReport = Join-Path $expertDirectory 'guest-report.md'
+    $expert = Start-Pair '07-expert' $expertHostSave $expertGuestSave -Auto `
+        -HostExtra @('--level', 'expert', '--report', $expertHostReport) `
+        -GuestExtra @('--level', 'expert', '--report', $expertGuestReport)
+    $expertHostResult = Wait-Cli $expert.Host 0
+    $expertGuestResult = Wait-Cli $expert.Guest 0
+    $expertHash = Final-Hash $expertHostResult.Out
+    Assert-Check ($expertHash -ceq (Final-Hash $expertGuestResult.Out)) '专家 AI 双进程的最终状态哈希不同。'
+    foreach ($result in @($expertHostResult, $expertGuestResult)) {
+        Assert-Check ($result.Err.Length -eq 0 -and $result.Out.Contains('对局结束：')) '专家 AI 联网对局未正常完成。'
+        Assert-Check ($result.Out.Contains('战报已保存：')) '专家 AI 联网对局未报告战报保存成功。'
+    }
+    $expertWinner = $null
+    foreach ($save in @($expertHostSave, $expertGuestSave)) {
+        $files = @(Replay-Files $save)
+        Assert-Check ($files.Count -eq 1) '专家 AI 对局每端应恰好保存一份回放。'
+        $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
+        $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
+        Assert-Check ($replayed.Phase -eq [StreamDuel.Core.Phase]::Over) '专家 AI 回放没有重新结算到终局。'
+        Assert-Check ($replayed.StateHash().ToString('x16', [Globalization.CultureInfo]::InvariantCulture) -ceq $expertHash) '专家 AI 回放最终哈希与本次联网对局不同。'
+        if ($null -eq $expertWinner) { $expertWinner = $replayed.Winner }
+        Assert-Check ($expertWinner -eq $replayed.Winner) '专家 AI 两份回放的胜者不同。'
+    }
+    Assert-Profile $expertHostSave 0 $hostTeam $expertWinner
+    Assert-Profile $expertGuestSave 1 $guestTeam $expertWinner
+    $null = Assert-ReportsEqual $expertHostReport $expertGuestReport
+    $checks.Add('双方 --level expert 真实双进程：exit 0、终局哈希一致、各一份回放可复现、按本局胜者记录 MySide 档案、两端战报相同')
+
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $runDirectory 'saves'))) '验收进程误写了默认存档目录。'
 }
 catch { $failure = $_ }

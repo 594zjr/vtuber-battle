@@ -111,7 +111,9 @@ namespace StreamDuel.Cli
                     case "--level":
                         if (value == "easy") options.Level = AiLevel.Easy;
                         else if (value == "normal") options.Level = AiLevel.Normal;
-                        else throw new ArgumentException("--level 只能是 easy（简单）或 normal（普通）。");
+                        else if (value == "hard") options.Level = AiLevel.Hard;
+                        else if (value == "expert") options.Level = AiLevel.Expert;
+                        else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
                         break;
                     case "--seed":
                         if (value.Length == 0 || !value.All(c => c >= '0' && c <= '9') ||

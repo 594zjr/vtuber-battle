@@ -7,9 +7,9 @@ namespace StreamDuel.Core
 {
     public enum NetState { Handshake, Choose, Replace, Waiting, Over, Desync, Error }
 
-    public sealed class NetSession
+    public sealed partial class NetSession
     {
-        public const int ProtocolVersion = 1;
+        public const int ProtocolVersion = 2;
         public NetState State { get; private set; } = NetState.Handshake;
         public Battle Battle { get; private set; }
         public int MySide { get; }
@@ -94,20 +94,14 @@ namespace StreamDuel.Core
             string wire;
             try { wire = action.ToWire(); }
             catch (FormatException ex) { throw new InvalidOperationException("不能提交该行动编码。", ex); }
-            actions[MySide] = action;
-            HasSubmitted = true;
-            State = NetState.Waiting;
-            if (Send("{\"type\":\"action\",\"turn\":" + Number(turn) + ",\"action\":" + NetJson.Quote(wire) + "}")) Advance();
+            CommitSelection("action", wire);
         }
 
         public void SubmitReplace(int to)
         {
             if (State != NetState.Replace || HasSubmitted || !ValidReplacement(MySide, to))
                 throw new InvalidOperationException("现在不能提交该补位，或本阶段已经提交。");
-            replacements[MySide] = to;
-            HasSubmitted = true;
-            State = NetState.Waiting;
-            if (Send("{\"type\":\"replace\",\"turn\":" + Number(turn) + ",\"to\":" + Number(to) + "}")) Advance();
+            CommitSelection("replace", BattleAction.SwitchTo(to).ToWire());
         }
 
         private bool Terminal
@@ -144,19 +138,8 @@ namespace StreamDuel.Core
             if (hashes.Count > 0) throw new FormatException("上一阶段哈希尚未确认，不能提前提交下一阶段。");
             int messageTurn = (int)NetJson.Integer(obj, "turn", 1, int.MaxValue);
             if (messageTurn != turn) throw new FormatException("消息回合不匹配：当前 " + Number(turn) + "，收到 " + Number(messageTurn) + "。");
-            int peer = 1 - MySide;
-            if (type == "action")
-            {
-                if (phase != Phase.Choose || actions[peer].HasValue) throw new FormatException("行动阶段不匹配或对方重复提交行动。");
-                actions[peer] = BattleAction.FromWire(NetJson.Text(obj, "action"));
-            }
-            else if (type == "replace")
-            {
-                int to = (int)NetJson.Integer(obj, "to", 0, int.MaxValue);
-                if (phase != Phase.Replace || replacements[peer].HasValue || !ValidReplacement(peer, to))
-                    throw new FormatException("补位阶段不匹配、对方重复提交或补位位置非法。");
-                replacements[peer] = to;
-            }
+            if (type == "commit") ReceiveCommit(obj);
+            else if (type == "reveal") ReceiveReveal(obj);
             else throw new FormatException("未知协议消息类型：" + type);
         }
 
@@ -206,6 +189,8 @@ namespace StreamDuel.Core
         private void Advance()
         {
             if (Terminal || Battle == null || hashes.Count > 0) return;
+            RevealIfReady();
+            if (Faulted) return;
             if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
@@ -271,6 +256,7 @@ namespace StreamDuel.Core
             // 等哈希期间也可能预先请求 AI 建议，下一阶段仍从已保存的结算点开始。
             Battle.RestoreReplayRng(rngCheckpoint);
             HasSubmitted = false;
+            ResetCommitReveal();
             for (int side = 0; side < 2; side++)
             {
                 actions[side] = null;

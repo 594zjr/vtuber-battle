@@ -346,23 +346,29 @@
 
 行动编码为 `S0`～`S4`（技能）、`W0`～`W5`（换人）或 `P`（跳过），区分大小写且不允许空白或额外字符。硬撑和受控跳过仍由 `Normalize` 派生，不作为发送的行动编码。
 
-### 10.1 同步会话与协议版本 1
+### 10.1 同步会话与协议版本 2
 
-`Core/Net/` 中的 `NetSession` 负责握手、收集双方选择、结算和哈希确认；`INetTransport` 只传递字符串消息，要求每个方向先进先出、不丢不重。`LoopbackPair.Create` 提供线程安全的两端内存队列，不连接真实网络；`TcpTransport` 提供本机或可信局域网的 UTF-8 按行传输。会话的 `Poll`、`Submit`、`SubmitReplace` 由同一调用线程依次执行；每次 `Poll` 处理当前可收到的消息。先承诺后公开由后续任务接入。
+`Core/Net/` 中的 `NetSession` 负责握手、收集双方承诺和公开选择、结算及哈希确认；`INetTransport` 只传递字符串消息，要求每个方向先进先出、不丢不重。`LoopbackPair.Create` 提供线程安全的两端内存队列，不连接真实网络；`TcpTransport` 提供本机或可信局域网的 UTF-8 按行传输。会话的 `Poll`、`Submit`、`SubmitReplace` 由同一调用线程依次执行；每次 `Poll` 处理当前可收到的消息。
 
-构造参数为内容库、传输端、是否主机、本方六人队伍、名字、可选种子。主机固定为 `MySide = 0`，客机为 `1`；两端的队伍和名字始终按 `[主机, 客机]` 排列。种子只由主机决定，传入 null 时主机在构造时用 `Environment.TickCount` 生成一次；客机传入的种子不参与对战。握手完成前 `Battle` 为 null。双方协议版本、内容包 id 和 `ContentDb.ContentHash()` 必须一致，两支队伍均须通过 `TeamCheck.Validate(db, null, team)`；本方参数非法时直接报错，不开始对战。hello 必须带 `contentHash`，按 ordinal 字符串比较；不一致在构造对战前报“内容不一致”并列出双方指纹，通知另一端。会话保存发出 hello 时的指纹，握手期间本地内容变化也会拒绝；开局后调用者不得改动共享内容库。版本 1 不启用禁用和首发阶段。
+构造参数为内容库、传输端、是否主机、本方六人队伍、名字、可选种子。主机固定为 `MySide = 0`，客机为 `1`；两端的队伍和名字始终按 `[主机, 客机]` 排列。种子只由主机决定，传入 null 时主机在构造时用 `Environment.TickCount` 生成一次；客机传入的种子不参与对战。握手完成前 `Battle` 为 null。双方协议版本、内容包 id 和 `ContentDb.ContentHash()` 必须一致，两支队伍均须通过 `TeamCheck.Validate(db, null, team)`；本方参数非法时直接报错，不开始对战。hello 必须带 `contentHash`，按 ordinal 字符串比较；不一致在构造对战前报“内容不一致”并列出双方指纹，通知另一端。会话保存发出 hello 时的指纹，握手期间本地内容变化也会拒绝；开局后调用者不得改动共享内容库。版本 2 不启用禁用和首发阶段，拒绝版本 1 握手及其明文 action/replace 消息。
 
 每条发送消息均为一行紧凑 JSON，不含尾部换行；行分隔由传输实现负责，字符串内的换行、引号和反斜杠均转义：
 
 | type | 格式示例 | 含义 |
 |---|---|---|
-| `hello` | `{"type":"hello","version":1,"packId":"original","contentHash":"63a758a4fa663be9","seed":42,"name":"主机","team":["bell","enka","shiori","lumi","hane","momo"]}` | 两端各发一次；客机的 `seed` 必须为 null，主机为 uint 整数。检查版本、内容包与指纹、角色及队伍后开局 |
-| `action` | `{"type":"action","turn":1,"action":"S2"}` | 提交当前回合行动，使用 `BattleAction.ToWire()` 编码 |
-| `replace` | `{"type":"replace","turn":2,"to":3}` | 提交本方补位，`to` 为从 0 开始的本方队伍下标 |
+| `hello` | `{"type":"hello","version":2,"packId":"original","contentHash":"63a758a4fa663be9","seed":42,"name":"主机","team":["bell","enka","shiori","lumi","hane","momo"]}` | 两端各发一次；客机的 `seed` 必须为 null，主机为 uint 整数。检查版本、内容包与指纹、角色及队伍后开局 |
+| `commit` | `{"type":"commit","turn":1,"kind":"action","digest":"<64位小写十六进制>"}` | 锁定当前选择，仅发送摘要；`kind` 为 `action` 或 `replace` |
+| `reveal` | `{"type":"reveal","turn":1,"kind":"action","action":"S2","nonce":"<32位小写十六进制>"}` | 所有本阶段参与方的承诺齐备后公开编码和随机串；补位使用 `kind: "replace"` 与 `action: "W3"`（队伍下标从 0 开始） |
 | `hash` | `{"type":"hash","turn":1,"hash":"0123456789abcdef"}` | 每次本地 `ResolveTurn` 或 `Replace` 后立即发送该操作结果的状态哈希 |
 | `error` | `{"type":"error","message":"中文原因"}` | 终止会话；对方收到后也进入 Error，不再回复 error |
 
-`NetState` 与提交规则：`Handshake` 等握手；`Choose` 可提交一次行动；`Replace` 仅本方需要补位时可提交一次；`Waiting` 等对手选择或哈希；`Over` 表示最终哈希也已确认；`Desync` 表示双方哈希不同；`Error` 表示协议、队伍或传输错误。`HasSubmitted` 在本阶段本方提交后为 true，哈希确认并开放下一阶段时清零。错误阶段、重复提交、不可编码动作或非法补位的本地调用抛 `InvalidOperationException`，不发送消息；远端重复、过期、越阶段或格式错误则进入 Error 并发送原因。合法的 AI 派生硬撑/受控跳过由会话转换为 P，结算时仍交给 Core 的 Normalize 判断。
+`NetState` 与提交规则：`Handshake` 等握手；`Choose` 可提交一次行动；`Replace` 仅本方需要补位时可提交一次；`Waiting` 等承诺、公开选择或哈希；`Over` 表示最终哈希也已确认；`Desync` 表示双方哈希不同；`Error` 表示协议、队伍或传输错误。`HasSubmitted` 在本阶段本方提交后为 true，哈希确认并开放下一阶段时清零。错误阶段、重复提交、不可编码动作或非法补位的本地调用抛 `InvalidOperationException`，不发送消息；远端重复、过期、越阶段或格式错误则进入 Error 并发送原因。合法的 AI 派生硬撑/受控跳过由会话转换为 P，结算时仍交给 Core 的 Normalize 判断。
+
+承诺摘要为 `SHA-256(UTF-8(行动编码 + "|" + nonce))`，输出 64 位小写十六进制。每次本方有效提交用 `System.Security.Cryptography.RandomNumberGenerator` 产生 16 字节，再编码为 32 位小写十六进制 nonce；不会从 `Battle.Rng` 取得或向其写入随机数。这是 T-32 唯一允许的额外随机源，用于使承诺无法按有限行动集合直接枚举；nonce 与摘要均不参与战斗、日志、回放或状态哈希，因此相同种子和选择仍产生相同对战结果。
+
+双方行动或同时补位时，本端发送自己的 commit 且收到对方 commit 后，才发送自己的 reveal；每个方向先进先出的传输保证接收方先收到该方的 commit。只有一方需要补位时，仅该方发送 commit，紧接着发送 reveal，不等待无需补位的一方提交。收到 reveal 必须已有该方承诺，所有参与方承诺均齐备，且回合、kind、行动编码和 nonce 格式合法。重算摘要与已保存承诺不同则进入 Error，原因包含“承诺”。未经验证的公开选择不参与结算；重复 commit/reveal、提前公开、无需补位方的提交一律报错。每阶段哈希确认后清除全部承诺和公开记录，下一阶段重新提交。
+
+版本 2 的摘要按任务约定只包含行动与 nonce，回合、kind 在消息外层校验，发送方和会话身份未纳入摘要。它能检测承诺后更换行动或 nonce，但不能阻止对端复制已收到的 digest，再复制其公开的相同行动编码和 nonce；也不解决故意断开连接。是否增加摘要上下文绑定属于后续协议决策。
 
 进入 Over 后继续调用 Poll 仍会接收远端 error 并转入 Error，避免只有一端最终哈希被篡改时，另一端忽略稍晚到达的错误通知；Over 不允许新的行动、补位或握手。
 

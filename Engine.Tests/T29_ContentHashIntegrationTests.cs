@@ -66,7 +66,7 @@ public class T29_ContentHashIntegrationTests
         {
             using var hello = JsonDocument.Parse(Assert.Single(transport.Sent));
             Assert.Equal("hello", hello.RootElement.GetProperty("type").GetString());
-            Assert.Equal(1, hello.RootElement.GetProperty("version").GetInt32());
+            Assert.Equal(2, hello.RootElement.GetProperty("version").GetInt32());
             Assert.Equal(hostDb.ContentHash(), hello.RootElement.GetProperty("contentHash").GetString());
         }
 
