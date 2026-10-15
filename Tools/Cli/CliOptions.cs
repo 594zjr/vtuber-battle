@@ -8,11 +8,13 @@ namespace StreamDuel.Cli
     internal sealed class CliOptions
     {
         public string Pack = "original";
+        public string PackDirectory;
         public AiLevel Level = AiLevel.Normal;
         public uint Seed = 1;
         public string[] Team = null;
         public bool Auto;
         public bool Help;
+        public bool ListPacks;
 
         public static CliOptions Parse(string[] args)
         {
@@ -27,12 +29,17 @@ namespace StreamDuel.Cli
                     options.Auto = true;
                     continue;
                 }
+                if (option == "--list-packs")
+                {
+                    options.ListPacks = true;
+                    continue;
+                }
                 if (option == "--help" || option == "-h")
                 {
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team")
+                if (option != "--pack" && option != "--pack-dir" && option != "--level" && option != "--seed" && option != "--team")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -41,11 +48,12 @@ namespace StreamDuel.Cli
                 switch (option)
                 {
                     case "--pack":
-                        if (value.Length == 0 || !value.All(c =>
-                            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                            (c >= '0' && c <= '9') || c == '_' || c == '-'))
-                            throw new ArgumentException("--pack 应为内容包文件名（不含 .json），只允许英文字母、数字、下划线和连字符。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack 需要非空内容包 id。");
                         options.Pack = value;
+                        break;
+                    case "--pack-dir":
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack-dir 需要非空文件夹路径。");
+                        options.PackDirectory = value;
                         break;
                     case "--level":
                         if (value == "easy") options.Level = AiLevel.Easy;

@@ -11,6 +11,13 @@ namespace StreamDuel.PackCheck
 {
     internal static class Program
     {
+        private sealed class PackEntry
+        {
+            public PackLoadResult Result;
+            public string Path;
+            public bool BuiltIn;
+        }
+
         private static int Main(string[] args)
         {
             Console.OutputEncoding = new UTF8Encoding(false);
@@ -18,21 +25,32 @@ namespace StreamDuel.PackCheck
             try
             {
                 string packId = null;
+                string packDirectory = null;
                 bool writeDocs = false;
+                bool listPacks = false;
                 for (int i = 0; i < args.Length; i++)
                 {
                     switch (args[i])
                     {
                         case "--help":
                         case "-h":
-                            Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--write-docs]");
-                            Console.WriteLine("默认检查全部内容包；--pack 只检查指定文件名（不含 .json）。错误返回 1，提醒不影响退出码。");
+                            Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--pack-dir <文件夹>] [--list-packs] [--write-docs]");
+                            Console.WriteLine("默认检查全部内容包；--pack 按包 id 选择，兼容内置文件名（不含 .json）。错误返回 1，提醒不影响退出码。");
+                            Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出，id 冲突时内置优先并提示。");
                             Console.WriteLine("--write-docs 在所选内容包全部通过检查后，更新对应 docs/roster/<packId>.md。");
                             return 0;
                         case "--pack":
-                            if (++i >= args.Length || !SafeId(args[i]))
-                                throw new ArgumentException("--pack 需要内容包文件名（不含 .json），仅允许英文字母、数字、下划线和连字符。");
+                            if (++i >= args.Length || string.IsNullOrWhiteSpace(args[i]) || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
+                                throw new ArgumentException("--pack 需要非空内容包 id。");
                             packId = args[i];
+                            break;
+                        case "--pack-dir":
+                            if (++i >= args.Length || string.IsNullOrWhiteSpace(args[i]) || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
+                                throw new ArgumentException("--pack-dir 需要非空文件夹路径。");
+                            packDirectory = args[i];
+                            break;
+                        case "--list-packs":
+                            listPacks = true;
                             break;
                         case "--write-docs":
                             writeDocs = true;
@@ -47,14 +65,6 @@ namespace StreamDuel.PackCheck
                 string rulesPath = Path.Combine(resources, "StreamDuelRules.json");
                 string rules = ReadJson(rulesPath);
                 string packsDirectory = Path.Combine(resources, "Packs");
-                string[] paths = packId == null
-                    ? Directory.GetFiles(packsDirectory, "*.json").OrderBy(p => p, StringComparer.Ordinal).ToArray()
-                    : new[] { Path.Combine(packsDirectory, packId + ".json") };
-                if (paths.Length == 0) throw new IOException("内容包目录没有 JSON 文件：" + packsDirectory);
-
-                string[] sensitiveWords = File.ReadAllLines(Path.Combine(root, "Tools", "PackCheck", "sensitive_words.txt"))
-                    .Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal))
-                    .Distinct(StringComparer.Ordinal).ToArray();
                 var documents = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int errors = 0;
@@ -65,26 +75,75 @@ namespace StreamDuel.PackCheck
                     Console.WriteLine((error ? "[错误] " : "[提醒] ") + location + "：" + message);
                 };
 
-                foreach (string path in paths)
+                var entries = PackLoader.LoadDirectory(rules, packsDirectory)
+                    .Select(result => new PackEntry { Result = result, Path = Path.Combine(packsDirectory, result.FileName), BuiltIn = true }).ToList();
+                var builtInIds = new HashSet<string>(entries.Where(entry => entry.Result.Db != null)
+                    .Select(entry => entry.Result.Db.PackId), StringComparer.Ordinal);
+                if (packDirectory != null)
                 {
-                    string location = Path.GetRelativePath(root, path).Replace('\\', '/');
-                    ContentDb db;
+                    foreach (var result in PackLoader.LoadDirectory(rules, packDirectory))
+                    {
+                        string path = Path.Combine(packDirectory, result.FileName);
+                        if (result.Db != null && builtInIds.Contains(result.Db.PackId))
+                            report(false, path, "外部内容包 id「" + result.Db.PackId + "」与内置包重复，已使用内置包。");
+                        else entries.Add(new PackEntry { Result = result, Path = path });
+                    }
+                }
+                if (packId != null && !listPacks)
+                {
+                    var matches = entries.Where(entry => entry.Result.Db != null && entry.Result.Db.PackId == packId).ToList();
+                    if (matches.Count == 0)
+                        matches = entries.Where(entry => entry.BuiltIn &&
+                            string.Equals(Path.GetFileNameWithoutExtension(entry.Result.FileName), packId, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (matches.Count == 0)
+                        matches = entries.Where(entry => !entry.BuiltIn && entry.Result.Db == null &&
+                            Path.GetFileNameWithoutExtension(entry.Result.FileName) == packId).ToList();
+                    if (matches.Count == 0) throw new ArgumentException("找不到内容包「" + packId + "」；使用 --list-packs 查看可用内容包。");
+                    entries = matches;
+                }
+                if (entries.Count == 0) throw new IOException("内容包目录没有 JSON 文件：" + packsDirectory);
+                foreach (var entry in entries)
+                {
+                    if (entry.Result.Db == null) continue;
                     try
                     {
-                        string pack = ReadJson(path);
-                        // FromJson 会调用引擎内建 Validate，工具不复制或放宽规则。
-                        db = ContentDb.FromJson(rules, pack);
+                        // MiniJson 允许部分非标准语法，检查工具继续执行原有严格 JSON 校验。
+                        ReadJson(entry.Path);
                     }
                     catch (Exception ex) when (IsContentError(ex))
                     {
-                        report(true, location, ex.Message);
+                        entry.Result.Db = null;
+                        entry.Result.Error = ex.Message;
+                    }
+                }
+                if (listPacks)
+                {
+                    foreach (var entry in entries)
+                    {
+                        var result = entry.Result;
+                        if (result.Db == null) report(true, entry.Path, result.Error);
+                        else Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (entry.BuiltIn ? "内置" : "外部") + "〕（" + result.FileName + "）");
+                    }
+                    return errors == 0 ? 0 : 1;
+                }
+
+                string[] sensitiveWords = File.ReadAllLines(Path.Combine(root, "Tools", "PackCheck", "sensitive_words.txt"))
+                    .Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal))
+                    .Distinct(StringComparer.Ordinal).ToArray();
+                foreach (var entry in entries)
+                {
+                    string location = Path.GetRelativePath(root, Path.GetFullPath(entry.Path)).Replace('\\', '/');
+                    var db = entry.Result.Db;
+                    if (db == null)
+                    {
+                        report(true, location, entry.Result.Error);
                         continue;
                     }
 
                     int packErrors = errors;
-                    if (!SafeId(db.PackId))
-                        report(true, location + " $.id", "内容包 id 只能包含英文字母、数字、下划线和连字符，且不能使用 Windows 保留文件名。");
-                    else if (!seenIds.Add(db.PackId))
+                    if (writeDocs && !SafeId(db.PackId))
+                        report(true, location + " $.id", "生成名单时内容包 id 只能包含英文字母、数字、下划线和连字符，且不能使用 Windows 保留文件名。");
+                    else if (writeDocs && !seenIds.Add(db.PackId))
                         report(true, location + " $.id", "内容包 id 对应的名单文件重名（不区分大小写）：" + db.PackId);
                     PackValidator.Check(db, location, sensitiveWords, report);
                     if (writeDocs && errors == packErrors)
@@ -112,7 +171,7 @@ namespace StreamDuel.PackCheck
                         Console.WriteLine("已生成：docs/roster/" + document.Key + ".md");
                     }
                 }
-                Console.WriteLine("检查完成：" + paths.Length + " 个内容包，" + errors + " 个错误，" + warnings + " 个提醒。");
+                Console.WriteLine("检查完成：" + entries.Count + " 个内容包，" + errors + " 个错误，" + warnings + " 个提醒。");
                 return errors == 0 ? 0 : 1;
             }
             catch (Exception ex) when (IsContentError(ex))

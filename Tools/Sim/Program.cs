@@ -14,9 +14,11 @@ namespace StreamDuel.Sim
         private sealed class Options
         {
             public string Pack = "original";
+            public string PackDirectory;
             public int Games = 5000;
             public uint Seed = 1;
             public bool Help;
+            public bool ListPacks;
         }
 
         private sealed class StreamerStats
@@ -38,8 +40,9 @@ namespace StreamDuel.Sim
                 var options = ParseOptions(args);
                 if (options.Help)
                 {
-                    Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1");
+                    Console.WriteLine("用法：dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1 [--pack-dir <文件夹>] [--list-packs]");
                     Console.WriteLine("默认：--pack original，--games 5000，--seed 1；games 为正整数，seed 为 0..4294967295。");
+                    Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出。--pack 使用包 id，兼容内置文件名；id 冲突时内置优先并提示。");
                     Console.WriteLine("games 按入选队伍计数（包括未上场的后排）；wins 为所在队伍获胜次数，平局不计胜场。");
                     Console.WriteLine("winrate 为 wins/games（0..1），avg_turns 为这些对局的平均回合数；双方都有同一主播时分别计数。");
                     Console.WriteLine("uses 只统计实际执行的技能（含未命中、免扣 PP、硬撑），未执行的选择不计入；未使用项为 0。");
@@ -48,9 +51,8 @@ namespace StreamDuel.Sim
                 }
 
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
-                var db = ContentDb.FromJson(
-                    File.ReadAllText(Path.Combine(content, "StreamDuelRules.json")),
-                    File.ReadAllText(Path.Combine(content, "Packs", options.Pack + ".json")));
+                var db = LoadPack(content, options);
+                if (options.ListPacks) return 0;
                 var streamers = db.Streamers.ToDictionary(s => s.Id, s => new StreamerStats { Streamer = s });
                 var skills = db.Skills.Values.Concat(new[] { db.Struggle }).ToDictionary(s => s.Id);
                 var uses = skills.Keys.ToDictionary(id => id, id => 0L);
@@ -102,18 +104,25 @@ namespace StreamDuel.Sim
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--games" && option != "--seed")
+                if (option == "--list-packs")
+                {
+                    options.ListPacks = true;
+                    continue;
+                }
+                if (option != "--pack" && option != "--pack-dir" && option != "--games" && option != "--seed")
                     throw new ArgumentException("未知选项：" + option + "；使用 --help 查看用法。");
-                if (++i >= args.Length) throw new ArgumentException(option + " 缺少参数值。");
+                if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
+                    throw new ArgumentException(option + " 缺少参数值。");
                 string value = args[i];
                 switch (option)
                 {
                     case "--pack":
-                        if (value.Length == 0 || !value.All(c =>
-                            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                            (c >= '0' && c <= '9') || c == '_' || c == '-'))
-                            throw new ArgumentException("--pack 应为内容包文件名（不含 .json），只允许英文字母、数字、下划线和连字符。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack 需要非空内容包 id。");
                         options.Pack = value;
+                        break;
+                    case "--pack-dir":
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack-dir 需要非空文件夹路径。");
+                        options.PackDirectory = value;
                         break;
                     case "--games":
                         if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Games) || options.Games <= 0)
@@ -126,6 +135,43 @@ namespace StreamDuel.Sim
                 }
             }
             return options;
+        }
+
+        private static ContentDb LoadPack(string content, Options options)
+        {
+            string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"));
+            var builtIn = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"));
+            var packs = new List<PackLoadResult>();
+            foreach (var result in builtIn)
+            {
+                if (result.Db == null) Console.Error.WriteLine("[错误] 内置内容包 " + result.FileName + "：" + result.Error);
+                else packs.Add(result);
+            }
+            var builtInIds = new HashSet<string>(packs.Select(result => result.Db.PackId), StringComparer.Ordinal);
+            if (options.PackDirectory != null)
+            {
+                foreach (var result in PackLoader.LoadDirectory(rules, options.PackDirectory))
+                {
+                    if (result.Db == null)
+                        Console.Error.WriteLine("[错误] 外部内容包 " + result.FileName + "：" + result.Error);
+                    else if (builtInIds.Contains(result.Db.PackId))
+                        Console.Error.WriteLine("[提醒] 外部内容包 " + result.FileName + " 的 id「" + result.Db.PackId + "」与内置包重复，已使用内置包。");
+                    else packs.Add(result);
+                }
+            }
+            if (options.ListPacks)
+            {
+                foreach (var result in packs)
+                    Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (builtIn.Contains(result) ? "内置" : "外部") + "〕（" + result.FileName + "）");
+                return null;
+            }
+
+            var selected = packs.FirstOrDefault(result => result.Db.PackId == options.Pack);
+            if (selected == null)
+                selected = builtIn.FirstOrDefault(result => result.Db != null &&
+                    string.Equals(Path.GetFileNameWithoutExtension(result.FileName), options.Pack, StringComparison.OrdinalIgnoreCase));
+            if (selected == null) throw new ArgumentException("找不到内容包「" + options.Pack + "」；使用 --list-packs 查看可用内容包。");
+            return selected.Db;
         }
 
         private static IList<string>[] DrawTeams(string[] roster, Random random)
