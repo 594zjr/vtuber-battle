@@ -87,6 +87,8 @@ namespace StreamDuel.Core
         public Dictionary<string, SeasonDef> Seasons = new Dictionary<string, SeasonDef>();
         public SkillDef Struggle;
         public string PackId, PackName, PackNotice;
+        ArtManifest art;
+        public ArtManifest Art { get { return art ?? (art = new ArtManifest(this)); } }
 
         public StreamerDef Streamer(string id)
         {
@@ -185,6 +187,7 @@ namespace StreamDuel.Core
                 }
                 db.Seasons[kv.Key] = season;
             }
+            db.art = ArtManifest.Read(db, pack);
             db.Validate();
             return db;
         }
@@ -330,6 +333,7 @@ namespace StreamDuel.Core
                     }
                 }
             }
+            Art.Validate();
         }
 
         static IEnumerable<KeyValuePair<string, object>> Obj(Dictionary<string, object> o, string k)

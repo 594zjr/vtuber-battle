@@ -317,6 +317,37 @@
 - `TeamCheck.Validate(db, seasonId, team)` 返回中文错误列表：队伍必须正好 6 位、不重复、主播均存在，并遵守赛季的禁用池与所有限制池。已知主播用显示名报错，限制池错误说明池子成员和上限。
 - `seasonId` 为 `null` 时只检查人数、重复和主播存在性；未知赛季返回一条错误。该检查供组队界面调用。
 
+#### 可选资源清单 `art`
+
+内容包顶层可以声明立绘资源键、强调色、技能特效和状态图标；省略 `art` 或写成 `{}` 时全部使用默认值，`ContentDb.Art` 仍不为 null：
+
+```json
+"art": {
+  "portraitDir": "Portraits/original",
+  "streamers": { "bell": { "accent": "#ffcc33", "portrait": "bell_v2" } },
+  "skillFx": { "full_volume": "wave" },
+  "statusIcons": { "stall": "clock" }
+}
+```
+
+`ArtManifest` 仅提供资源键和显示默认值，不读取文件，不调用 Unity，不改变对战或随机数。调用方法时，未知主播、技能、状态或直播间效果 id 抛出中文 `KeyError`。
+
+| 方法 | 显式配置 | 默认值 |
+|---|---|---|
+| `PortraitPath(streamerId)` | `portraitDir` + `/` + `streamers.<id>.portrait` | `Portraits/<packId>/<streamerId>`；用于 `Resources.Load`，不带文件扩展名 |
+| `Accent(streamerId)` | `streamers.<id>.accent` | 主播主赛道的 `TypeDef.Color`；格式为 `#RRGGBB` |
+| `SkillFx(skillId)` | `skillFx.<id>` | 互动 `slash`、才艺 `beam`；状态技能先检查回复效果取 `heal`，再检查保护类直播间效果取 `shield`，其余 `sparkle` |
+| `StatusIcon(id)` | `statusIcons.<id>` | 控制状态 `lock`、弱化状态 `down`；保护类效果 `shield`、印记 `mark`、回合类效果 `clock` |
+
+显式配置优先。技能默认先按分类区分攻击和状态技能；状态技能的回复效果包括 `HEAL`、`DRAIN` 或 `FIELD` 引用 `Heal > 0` 的效果，保护指 `FIELD` 引用 `Kind == "protect"` 的效果，同时具备时选 `heal`。回合类减伤效果仍按 `turn` 处理，不按 id 或名字猜分类；需要其它外观可显式覆盖。独立的硬撑技能 `struggle` 也支持查询和特效覆盖。状态与直播间效果有各自的 id 空间；同名时默认先查状态，显式 `statusIcons` 同时作用于该名字。
+
+- `FxIds`：`slash`、`burst`、`wave`、`sparkle`、`beam`、`ring`、`shield`、`heal`。
+- `IconIds`：`lock`、`down`、`up`、`shield`、`mark`、`clock`、`heart`、`star`。
+- `art` 及各映射必须是对象，已填写的目录、资源键、颜色、特效和图标必须是字符串；省略表示默认，`null` 不代替省略。`streamers`、`skillFx`、`statusIcons` 的键必须引用本包合并后存在的定义，特效/图标值必须在上述列表中。
+- 路径使用 `/` 分隔的相对资源键，支持子目录，不接受空值、首尾空格、空路径段、`.` 段、任意 `..`、冒号、反斜线、大小写任意的 `http`、控制字符或 `<>"|?*`。立绘最后一段是无扩展名的文件名，不含点号。由包 id 和主播 id 产生的默认路径同样校验，路径解析不访问文件系统。
+- `ContentDb.Validate()` 校验这些配置，错误包含内容包 id、字段及相关定义 id；`Tools/PackCheck` 通过同一校验链输出错误并返回非零退出码。规则文件中用于默认强调色的颜色也必须符合 `#RRGGBB`。
+- `art` 是可替换的展示配置，不加入现有 `ContentHash()` 或状态哈希；仅换立绘、特效或图标不会令已有回放、联网内容指纹失效。四个内置内容包保持缺省配置，仓库不新增头像图片。
+
 ## 7. 内容包与同人规则
 
 - `original`：全部原创。`fan_*`：同人包，只用公开艺名和公开人设，形象自制，**不得**含官方素材、现实事件、中之人、负面或擦边内容。
