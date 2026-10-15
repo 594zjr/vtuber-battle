@@ -59,7 +59,7 @@ dotnet test Engine.Tests
 
 ## 分支、PR 与合并（多个 Codex 窗口同时工作）
 
-仓库：https://github.com/594zjr/vtuber-battle ，默认分支 `main`。本机主文件夹 `D:\vtuber-battle`，每个窗口用自己的 worktree：`D:\vtuber-battle-wt\<名字>`。**只在这些文件夹里操作**，不得读写电脑上其他目录（尤其 `D:\游戏`、`D:\seer`）。
+仓库：https://github.com/594zjr/vtuber-battle ，默认分支 `main`。本机主文件夹 `D:\vtuber-battle`，每个窗口用自己的 worktree：`D:\vtuber-battle-wt\<名字>`。**只在这些文件夹里操作**，不得读写电脑上其他目录（尤其 `D:\游戏`、`D:\seer`）。例外（2026-10-15 用户允许）：可以启动本机已安装的 Unity 编辑器（`C:\Program Files\Unity\Hub\Editor\6000.6.5f1\`、Unity Hub）并让它读写自己的缓存、许可和日志目录（例如 `%LOCALAPPDATA%\Unity`、`%APPDATA%\Unity`、`C:\ProgramData\Unity`）；工程、源码、构建日志、截图等验收产物仍只放在上面这些文件夹里。**不得安装或升级 Unity**，不得改 Unity 的全局设置。
 
 **任务窗口（写代码的）**
 1. 领任务：`git fetch origin --prune`，在 `docs/TASKS.md` 里找编号最小的、状态为 ⬜、依赖都已 ✅、且远端没有 `origin/task/T-xx` 分支的任务。立刻 `git push origin origin/main:refs/heads/task/T-xx` 占位（别的窗口看到这个分支就不会再领）。

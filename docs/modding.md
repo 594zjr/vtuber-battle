@@ -60,8 +60,13 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 | `personaName` | 可选字符串 | 仅为这位主播复制并改名人设 |
 | `personaDesc` | 可选字符串 | 仅为这位主播复制并改写人设说明，不能改变代码的作用 |
 | `personaStatus` | 可选状态 id 或 `null` | 复制人设并替换它引用的状态；只有使用 `status` 的人设码才有对应行为 |
+| `aiStyle` | 可选字符串或 `null` | 电脑出招风格：`aggressive`（猛攻）、`defensive`（稳守）、`tricky`（花招）；名称区分大小写，未知值拒绝加载 |
 
 三个人设覆盖字段都会保留原人设的代码和参数；`null` 表示不替换，不是清空原状态。新 id 不要使用加载器为人设副本保留的 `主播id#原人设id` 形式。
+
+例如在主播对象中加入 `"aiStyle": "aggressive"`：猛攻偏重伤害和击倒、较少换人；稳守偏重回复、防护和改善对位的换人；花招偏重状态、驱散和削减 PP。省略 `aiStyle` 或设为 `null` 时保留原有电脑行为；本次不为现有主播配置风格。
+
+普通、困难和专家难度在选招时读取当前场上主播的风格，换人后重新读取；简单难度忽略风格。普通难度的风格预设优先于调用者传入的权重，困难和专家把风格相对默认估值的差额加入原有评分。风格只改变选择偏好，不改变技能、人设、合法行动或实际结算规则。`AiStyles.Get(name)` 每次返回独立权重，修改返回值不会污染预设；未知名称返回 `null`，但内容包校验会拒绝未知的 `aiStyle`。
 
 `Describe.Persona` 对 `T_KO_HEAL/T_FIRST_CONTROL_IMMUNE/T_ENDURE/T_ALLY_PP_ON_ENTER/T_STAGE_ON_HIT` 会按代码和参数生成标准时机与说明；这些标准说明不会被 `personaDesc` 覆盖。填写自定义文字时仍须与真实行为一致。
 

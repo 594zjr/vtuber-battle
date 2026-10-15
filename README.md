@@ -31,17 +31,23 @@
 3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
 
+顶部「主菜单」可进入新的 UI Toolkit 框架，组队、对战、结算、回看、设置、联网目前为独立占位页；「旧版对战」返回原有可玩界面，打开菜单期间原对战暂停。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。当前 Input System 1.20.1 使用 Both 兼容旧 IMGUI，待 T-67 替换旧画面后切为 New。Unity 6000.6.5f1 启动时仍会提示旧输入系统弃用；用户于 2026-10-15 批准仅此提示暂留至 T-67，其他错误和警告仍须修复。
+
+编辑器 Play 中重编译脚本时，纯 C# 对战状态不能跨域重载恢复，画面会重新接线并回到旧版组队页；普通菜单切换或组件停用再启用仍保留当前页面参数。
+
 ## Windows 打包
 
 在仓库根目录运行下面的命令；`Unity.exe` 使用 6000.6.5f1 编辑器的可执行文件，可将它所在目录加入 PATH，或替换为完整路径：
 
 ```powershell
-Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod BuildScript.BuildWindows -logFile build.log
+Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod UiProjectSetup.BuildWindows -logFile build.log
 ```
 
 产物位于 `UnityProject/Build/Windows/StreamDuel.exe`，运行时需保留同目录的全部构建文件。构建目录已加入 Git 忽略；构建日志写入仓库根目录的 `build.log`。
 
 `BuildScript.BuildWindows` 会先调用 `BuildScript.PrepareProject`：缺少主场景时创建合法空场景，并将它设为构建列表第 0 位；已有主场景和其他构建场景会保留。也可以在编辑器菜单「开播对决 → 准备主场景」或「开播对决 → 构建 Windows」执行。构建失败会抛出错误，让批处理命令返回失败状态。
+
+`UiProjectSetup.BuildWindows` 先生成或更新 UI Toolkit 的面板和字体引用，再调用上述构建；已提交的资源可直接打开运行。编辑器菜单「开播对决 → 准备界面资源」可重新接线。
 
 Windows 包的自动冒烟验收（需要正常图形桌面，不加 `-batchmode` / `-nographics`）：
 
@@ -51,6 +57,10 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 它通过现有界面入口切换内容包、选择首发并完成一局，截图和回放保存在指定目录新建的 `run-*` 子目录；`result.json` 记录结果，成功退出 0，失败或 180 秒超时退出 1。验收中的内容包切换和自动组队不覆盖玩家已保存的包选择与队伍。运行截图需要检查中文与排版；报告只统计 `BattleScreen.Start` 之后的日志，启动错误还须检查完整 Player 日志。此入口不替代鼠标、滚动和限时操作的人工验收；不传参数时正常进入组队页。
 
+`--ui-smoke-test <绝对输出目录>` 单独验证新界面路由、返回、生命周期与 1280×720 / 1920×1080 布局，保存实际渲染截图和报告；使用程序触发的导航事件，不等同于人工鼠标验收。两种验收模式均只加载内置包，使用内存设置，不读写玩家档案或 PlayerPrefs 阵容。
+
+编辑器验收可用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`，整局对战则将参数改为 `--smoke-test <绝对输出目录>`，可另加 `--smoke-size 1920x1080`（默认 `1280x720`，不加 `-batchmode` / `-quit`）；它先在 Edit 模式初始化 Unity 搜索索引，再打开主场景进入 Play。完成后和停止 Play 清理后均采集 Console，写入 `UnityProject/Logs/T59/editor-console.json` 并退出。Console 红黄计数任一非零或清理等待超时都返回失败，不清除或过滤日志；更早的启动提示另查完整 Editor 日志，截图仍须复核。
+
 ## 结构
 
 | 位置 | 内容 |
@@ -58,7 +68,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 | `UnityProject/Assets/StreamDuel/Core/` | 对战规则引擎，纯 C#，不依赖 Unity（以后也能放到服务器上） |
 | `UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json` | 规则数据：技能、状态、直播间效果、人设、赛道克制 |
 | `UnityProject/Assets/StreamDuel/Resources/Packs/*.json` | 内容包：主播名单，可给技能、状态、人设换显示名，机制不变 |
-| `UnityProject/Assets/StreamDuel/Game/` | 第一版画面（Unity 自带的即时 GUI，零美术资源） |
+| `UnityProject/Assets/StreamDuel/Game/` | UI Toolkit 路由、分目录占位界面、舞台接口，以及迁移期间保留的 IMGUI 对战 |
 | `Engine/`、`Engine.Tests/` | 不开 Unity 也能编译和测试规则：`dotnet test Engine.Tests` |
 
 模糊测试：`dotnet test Engine.Tests --filter FullyQualifiedName~FuzzTests` 默认对每个内容包跑 300 局随机合法组队、随机禁用/首发、六项修饰器的随机组合和任意回合行动（包括非法选择），逐步检查人气、PP、能力、控制状态、阶段与结束节点，再完整回放并比较状态哈希。启用 `stage_cap_3` 时，能力等级还须满足 ±3 上限；每包必须覆盖每项修饰器的启用和关闭、无修饰器与多项组合，以及换到已下播者、受控出招和零 PP 出招，计数写入测试输出。设置环境变量 `SD_FUZZ=2000` 可跑每包 2000 局；变量必须是不小于 300 的整数，运行后清除即可恢复默认。失败断言包含内容包、固定种子、当时操作和记录 JSON。
@@ -77,6 +87,8 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
 
+队伍分享：`dotnet run --project Tools/Cli -- --pack original --team bell,enka,shiori,lumi,hane,momo --export-team` 在开局前打印 `SDT1-` 队伍码并继续对战；输入 `q` 可退出。用 `dotnet run --project Tools/Cli -- --team-code "SDT1-…" --auto` 导入并开打，省略 `--pack` 时自动加载码内内容包；显式指定的 `--pack` 必须匹配，外部包还需 `--pack-dir`。`--team-code` 与 `--team` 互斥，坏码、包不匹配和非法成员会在开局前报错。`--export-team` 导出的是禁用及首发调整前的本方六人顺序；与导入同用时保留预设名称，可配合手动、自动和联网对战。这两个参数都不能与 `--replay`、`--replay-code` 或 `--list-packs` 同用。
+
 `--level` 支持 `easy`（简单）、`normal`（普通）、`hard`（困难）、`expert`（专家），默认普通；电脑行动和补位使用所选难度。专家对战示例：`dotnet run --project Tools/Cli -- --pack original --level expert --seed 1`；加 `--auto` 可观看双方专家电脑对战。
 
 - `dotnet run --project Tools/Cli -- --glossary`：列出当前内容包的赛道克制、状态、直播间效果、人设和通用对战规则。可用 `--glossary "卡麦"` 按标题或正文搜索（不区分大小写），并配合 `--pack`、`--pack-dir` 查询其他包；此模式只查阅说明，不开始对战或写入存档。
@@ -92,7 +104,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 ## 联网对战（命令行）
 
-仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 指定六人阵容，省略时按本端 `--seed` 自动组队。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
+仅在可信的本机或局域网使用：TCP 消息没有加密，没有账号、服务器、匹配或 NAT 穿透。双方须使用相同版本的引擎、规则和内容包，握手会校验内容指纹；双方各自用 `--team` 或 `--team-code` 指定六人阵容，省略时按本端 `--seed` 自动组队。导入的队伍在监听或连接前校验，`--export-team` 打印的是本端队伍。房主的 `--seed` 决定对战随机种子；客机的 `--seed` 仅用于本地自动组队，不决定对战随机种子。
 
 在两个命令行窗口分别运行：
 
@@ -106,6 +118,29 @@ dotnet run --project Tools/Cli -- --join 127.0.0.1:7777 --pack original --team k
 `--host 0` 由系统分配端口并显示实际值。房主等待连接时可按 Ctrl+C 退出。加入连接或握手等待超过 10 秒会报错；对战中的人工选招没有倒计时。连接建立后仍用原有数字菜单选技能、换人和补位，每次提交显示“等待对手……”。输入 `q` 或输入结束退出；另一端会提示“对方已断开”，未完成的对局不保存回放或战绩，等待输入时也能检测断线。
 
 两端可分别加 `--auto` 让本方 AI 选择，便于回环测试；`--hash` 显示已确认阶段的状态哈希，结束时打印最终哈希。本端最终哈希校验通过后关闭发送方向，继续接收对端最后的错误或关闭通知；双方正常完成这一流程后，各端按自己的胜负保存档案和完整回放。终局收尾超过 10 秒会报错且不保存，也可用 `--report` 导出本局战报、`--share` 打印分享码；同机两个窗口建议使用不同的 `--save-dir`，避免把两位玩家的战绩混到一个档案。联网暂不支持 `--ban`、`--lead`、`--replay`、`--replay-code`、`--list-packs`，不能同时使用 `--host` 和 `--join`。
+
+### 可选对战计时
+
+加 `--timer 10,30` 后，每次选招或补位有 10 秒基本时间，超出部分从本方全局 30 秒余额扣除；提交后停表，下一阶段重置基本时间但不恢复总时间。命令行显示倒计时，超时提交默认跳过，补位超时选择编号最小的可上场队友。默认跳过仍按当前状态结算：受控则跳过，全部技能无 PP 时按既有规则使用硬撑。
+
+```powershell
+dotnet run --project Tools/Cli -- --pack original --seed 1 --timer 10,30
+dotnet run --project Tools/Cli -- --host 7777 --pack original --timer 10,30
+dotnet run --project Tools/Cli -- --join 127.0.0.1:7777 --pack original
+```
+
+联网预算由房主声明，客机采用房主设置；双方都需要支持计时的版本。超时端自行提交默认行动，对方再宽限 10 秒仍未收到提交则报掉线；已承诺但不公开、结算后不确认哈希也会超时报错。计时不覆盖开局禁用和首发选择，不能与 `--replay` 或 `--replay-code` 同用。完整接口与等待规则见[设计文档 10.3 节](docs/design.md#103-对战计时)。
+
+也可以通过局域网广播发现房间：
+
+```powershell
+# 房主：自动分配 TCP 端口；可加 --host 7777 指定端口
+dotnet run --project Tools/Cli -- --lan-host "周末对战" --pack original --save-dir ./saves/host
+# 另一窗口：搜索 5 秒后，复制所选房间显示的 --join 参数加入
+dotnet run --project Tools/Cli -- --lan-list
+```
+
+房主等待连接期间每秒向 IPv4 局域网的 UDP 47777 端口广播一次，接到对手后停止；房名最多保留 24 个 UTF-16 字符单位，末尾不会截断一个代理对。搜索命令独立运行，不加载内容包、不保存档案，也不与其他参数合用。结果包括本次 5 秒内见过的房间、地址、协议、规则及内容指纹；超过 3 秒未更新的房间标为失联，协议不兼容的房间也不提供加入命令。加入仍需选择相同内容包，并由原有握手核对指纹；当前广播规则为 `casual`（基础对战）。同机只能有一个搜索监听器，端口被占用时会显示中文错误。广播不能跨越阻止广播的路由器或隔离网络，未发现时仍可使用原来的 `--join 地址:端口`。
 
 ## 自制内容包
 
