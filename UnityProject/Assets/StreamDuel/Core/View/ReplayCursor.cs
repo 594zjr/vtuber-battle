@@ -121,6 +121,7 @@ namespace StreamDuel.Core
             return new BattleRecord
             {
                 Version = source.Version,
+                RulesVersion = source.RulesVersion,
                 ContentHash = source.ContentHash,
                 Seed = source.Seed,
                 PackId = source.PackId,

@@ -19,6 +19,7 @@ namespace StreamDuel.Core
         public List<FighterStats>[] Sides;
         public int Winner = -1;
         public int Turns;
+        public string EndReason = "";
         readonly string[] sideNames = new string[2];
         readonly List<string>[] fighterNames = { new List<string>(), new List<string>() };
         readonly Dictionary<string, string> skillNames = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -30,6 +31,7 @@ namespace StreamDuel.Core
             {
                 Sides = new[] { new List<FighterStats>(), new List<FighterStats>() },
                 Winner = b.Winner,
+                EndReason = b.EndReason,
                 Turns = b.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)
             };
             for (int side = 0; side < b.Sides.Length; side++)
@@ -114,7 +116,11 @@ namespace StreamDuel.Core
         {
             if (amount <= 0) return;
             StatsFor(target).DamageTaken += amount;
-            if (source != null && source.Side != target.Side) StatsFor(source).DamageDealt += amount;
+            if (source != null && source.Side != target.Side)
+            {
+                StatsFor(source).DamageDealt += amount;
+                totalDamageDealt[source.Side] += amount;
+            }
         }
 
         void RecordSkillUse(Fighter fighter, string skillId)

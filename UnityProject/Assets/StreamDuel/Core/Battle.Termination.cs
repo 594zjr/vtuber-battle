@@ -22,7 +22,7 @@ namespace StreamDuel.Core
                 Type = BattleRecordEventType.Surrender,
                 Side = side0 && side1 ? -1 : side0 ? 0 : 1
             });
-            FinishByAgreement(side0 && side1 ? -1 : side0 ? 1 : 0,
+            FinishByAgreement(side0 && side1 ? -1 : side0 ? 1 : 0, "投降",
                 side0 && side1 ? "双方同时投降，平局" : Sides[side0 ? 0 : 1].Name + " 投降，" + Sides[side0 ? 1 : 0].Name + " 获胜");
         }
 
@@ -55,22 +55,24 @@ namespace StreamDuel.Core
             if (!drawOffers[1 - side]) throw new InvalidOperationException("没有对方的和局提议需要回应。");
             RecordTermination(new BattleRecordEvent { Type = BattleRecordEventType.DrawResponse, Side = side, Accepted = accept });
             drawOffers[1 - side] = false;
-            if (accept) FinishByAgreement(-1, Sides[side].Name + " 同意和局，双方平局");
+            if (accept) FinishByAgreement(-1, "和局", Sides[side].Name + " 同意和局，双方平局");
             else Add(TerminationNode(), Sides[side].Name + " 拒绝和局，继续对战", side: side);
         }
 
         void RecordTermination(BattleRecordEvent entry)
         {
-            // 仅新增行为要求新版读取器，普通对局继续输出原有 v2 格式。
+            // 终止事件升级的是录像格式，显式旧规则对局的结算不能随之改变。
             Record.Version = Math.Max(Record.Version, BattleRecord.TerminationVersion);
+            if (RulesVersion < BattleRecord.TerminationVersion) Record.RulesVersion = RulesVersion;
             entry.RngState = rng.State;
             Record.Events.Add(entry);
         }
 
-        void FinishByAgreement(int winner, string text)
+        void FinishByAgreement(int winner, string reason, string text)
         {
             Phase = Phase.Over;
             Winner = winner;
+            EndReason = reason;
             Need[0] = Need[1] = false;
             drawOffers[0] = drawOffers[1] = false;
             Add(Node.Over, text, "turn");

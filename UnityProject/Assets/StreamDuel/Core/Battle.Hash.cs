@@ -75,6 +75,18 @@ namespace StreamDuel.Core
                 hash.Int(modifiers.Count);
                 foreach (string id in modifiers) hash.Text(id);
             }
+            // 默认 120 回合仍受旧跨版本哈希断言约束；新增判胜状态的完整哈希迁移见 T-99 的待决定项。
+            if (HasModifier("turn_cap_60"))
+            {
+                hash.Text("StreamDuel.TurnCap.v1");
+                hash.Int(EffectiveTurnCap);
+                foreach (long damage in totalDamageDealt)
+                {
+                    hash.UInt(unchecked((uint)damage));
+                    hash.UInt(unchecked((uint)(damage >> 32)));
+                }
+                hash.Text(EndReason);
+            }
             HashTermination(hash);
             return hash.Value;
         }

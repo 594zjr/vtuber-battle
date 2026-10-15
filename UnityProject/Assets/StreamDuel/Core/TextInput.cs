@@ -119,11 +119,11 @@ namespace StreamDuel.Core
             for (int side = 0; side < copy.Sides.Length; side++) copy.Sides[side].Name = names[side];
             if (copy.Record.Names != null)
                 copy.Record.Names = copy.Record.Names.Select(name => Clean(name, TextInputKind.PlayerName).Text).ToArray();
-            foreach (var entry in copy.Log) entry.Text = DisplayLog(entry, rawNames, names, source.Winner);
+            foreach (var entry in copy.Log) entry.Text = DisplayLog(entry, rawNames, names, source.Winner, source.EffectiveTurnCap);
             return copy;
         }
 
-        static string DisplayLog(LogEntry entry, string[] rawNames, string[] names, int winner)
+        static string DisplayLog(LogEntry entry, string[] rawNames, string[] names, int winner, int turnCap)
         {
             string value = entry.Text;
             if (value == null) return null;
@@ -159,10 +159,14 @@ namespace StreamDuel.Core
             {
                 if (winner >= 0 && winner < names.Length)
                 {
-                    if (value == rawNames[winner] + " 获胜") return names[winner] + " 获胜";
+                    string result = rawNames[winner] + " 获胜";
+                    if (value == result) return names[winner] + " 获胜";
                     int loser = 1 - winner;
                     if (value == rawNames[loser] + " 投降，" + rawNames[winner] + " 获胜")
                         return names[loser] + " 投降，" + names[winner] + " 获胜";
+                    if (value.StartsWith("回合上限（" + turnCap + " 回合）：", StringComparison.Ordinal)
+                        && value.EndsWith("，" + result, StringComparison.Ordinal))
+                        return value.Substring(0, value.Length - result.Length) + names[winner] + " 获胜";
                 }
                 else if (winner == -1)
                 {

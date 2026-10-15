@@ -9,6 +9,7 @@ namespace StreamDuel.Core
         public bool LeadPick;
         public bool BanOne;
         public List<string> Modifiers;
+        public int RulesVersion = 3;
     }
 
     public sealed partial class Battle

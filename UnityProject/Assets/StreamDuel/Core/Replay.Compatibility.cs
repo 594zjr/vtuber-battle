@@ -80,6 +80,8 @@ namespace StreamDuel.Core
 
         static string StructureError(ContentDb db, BattleRecord r)
         {
+            try { BattleRecord.ValidateRulesVersion(r.Version, r.RulesVersion); }
+            catch (FormatException error) { return error.Message; }
             if (r.Teams == null || r.Teams.Length != 2) return "录像必须包含两支队伍。";
             if (r.Names != null && (r.Names.Length != 2 || r.Names[0] == null || r.Names[1] == null))
                 return "录像必须包含两个有效的玩家名称。";

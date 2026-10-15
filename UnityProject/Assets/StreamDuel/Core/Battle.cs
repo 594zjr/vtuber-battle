@@ -111,6 +111,9 @@ namespace StreamDuel.Core
         public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
         {
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            if (opt.RulesVersion < 1 || opt.RulesVersion > BattleRecord.CurrentVersion)
+                throw new ArgumentOutOfRangeException(nameof(opt), "对战规则版本必须在 1 到 3 之间。");
+            RulesVersion = opt.RulesVersion;
             modifiers = BattleModifiers.Normalize(opt.Modifiers);
             Db = db;
             Seed = opt.Seed ?? (uint)Environment.TickCount;
@@ -118,6 +121,7 @@ namespace StreamDuel.Core
             leadPickAfterBan = opt.LeadPick;
             Record = new BattleRecord
             {
+                Version = RulesVersion,
                 ContentHash = db.ContentHash(),
                 Seed = Seed,
                 PackId = db.PackId,
@@ -287,6 +291,7 @@ namespace StreamDuel.Core
             if (!d0 && !d1) return false;
             Phase = Phase.Over;
             Winner = d0 && d1 ? -1 : d0 ? 1 : 0;
+            EndReason = "击倒全灭";
             Add(Node.Over, Winner == -1 ? "双方同时全员下播，平局" : Sides[Winner].Name + " 获胜", "turn");
             Emit(BattleEventKind.End, side: Winner);
             return true;
@@ -650,12 +655,9 @@ namespace StreamDuel.Core
                 foreach (int s in SpeedOrder()) TurnEndFor(s);
             }
 
-            if (Phase != Phase.Over && Turn >= TurnCap)
+            if (Phase != Phase.Over && Turn >= EffectiveTurnCap)
             {
-                double r0 = Sides[0].Team.Sum(p => p.HpRatio), r1 = Sides[1].Team.Sum(p => p.HpRatio);
-                Phase = Phase.Over; Winner = r0 == r1 ? -1 : r0 > r1 ? 0 : 1;
-                Add(Node.Over, "达到 " + TurnCap + " 回合上限，按剩余人气判定", "turn");
-                Emit(BattleEventKind.End, side: Winner);
+                FinishAtTurnCap();
                 return;
             }
             if (Phase == Phase.Over) return;

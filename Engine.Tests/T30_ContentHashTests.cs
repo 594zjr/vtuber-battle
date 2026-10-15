@@ -35,9 +35,9 @@ public class T30_ContentHashTests
     {
         var db = BattleTests.LoadPack("original");
         var json = Play(db).Record.ToJson();
-        Assert.Contains("\"version\":2", json);
+        Assert.Contains("\"version\":3", json);
         var r = BattleRecord.FromJson(json);
-        Assert.Equal(2, r.Version);
+        Assert.Equal(3, r.Version);
         Assert.Equal(db.ContentHash(), r.ContentHash);
     }
 

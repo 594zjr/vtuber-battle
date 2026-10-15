@@ -1,11 +1,11 @@
 // 为避免模拟局修改真实对战，新增下列类型的字段时必须同步本文件的复制逻辑：
 // Battle：Db（共享）、Seed、Sides、Log、Turn、Phase、Winner、Need、ActedFirst、rng、
-// leadChoices、banChoices、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
+// leadChoices、banChoices、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、RulesVersion、EndReason、totalDamageDealt、battleEvents；eventsView 按本对象列表重新建立。
 // SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
-// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
+// BattleRecord：Version、RulesVersion、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
 // BattleRecordEvent：Type、A0、A1、Side、To、Accepted、RngState。
 // BattleEvent：LogIndex、Turn、Side、Slot、Amount、Node、Id、Kind。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
@@ -31,6 +31,7 @@ namespace StreamDuel.Core
             Turn = source.Turn;
             Phase = source.Phase;
             Winner = source.Winner;
+            CopyTurnCapState(source);
             CopyTerminationFrom(source);
             rng = new Rng(source.rng.State);
             leadPickAfterBan = source.leadPickAfterBan;
@@ -131,6 +132,7 @@ namespace StreamDuel.Core
             var copy = new BattleRecord
             {
                 Version = source.Version,
+                RulesVersion = source.RulesVersion,
                 ContentHash = source.ContentHash,
                 Seed = source.Seed,
                 PackId = source.PackId,

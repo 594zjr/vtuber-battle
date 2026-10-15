@@ -18,7 +18,8 @@ namespace StreamDuel.Core
             new ModifierDef { Id = "sudden_death", Name = "人气骤降", Desc = "从第 10 回合起，按回合结束顺序，在各自人设结算后失去最大人气的 1/16，向下取整且至少 1；一方全灭立即结束，不可驱散。" },
             new ModifierDef { Id = "hype_start", Name = "自带热场", Desc = "禁用与首发选择结束后，开场登场人设结算完毕时，双方实际首发各获得 1 层热度；印记不能消回合，下场清除，之后登场不再授予。" },
             new ModifierDef { Id = "no_switch", Name = "站定开播", Desc = "整场禁止主动换人，已下播后的补位不受影响；不可驱散。" },
-            new ModifierDef { Id = "hp_x2", Name = "双倍人气", Desc = "开局双方所有主播的最大人气与当前人气翻倍，治疗与比例伤害使用翻倍后的上限；整场有效，不可驱散。" }
+            new ModifierDef { Id = "hp_x2", Name = "双倍人气", Desc = "开局双方所有主播的最大人气与当前人气翻倍，治疗与比例伤害使用翻倍后的上限；整场有效，不可驱散。" },
+            new ModifierDef { Id = "turn_cap_60", Name = "六十回合决胜", Desc = "第 60 回合结束结算后，依次按剩余人数、剩余人气比例总和、累计对敌实际伤害判胜，均相同则平局；全灭优先，整场有效，不可驱散。" }
         };
 
         public static IReadOnlyList<ModifierDef> All
