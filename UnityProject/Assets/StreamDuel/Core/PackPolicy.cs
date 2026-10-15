@@ -63,7 +63,16 @@ namespace StreamDuel.Core
 
         public bool IsPackDisabled(string id) { return id != null && packs.Contains(id); }
         public bool IsStreamerDisabled(string id) { return id != null && streamers.Contains(id); }
-        public string PackReason(string id) { return IsPackDisabled(id) ? Explain("该内容包已下架", id) : null; }
+        public string PackReason(string id)
+        {
+            if (IsPackDisabled(id)) return Explain("该内容包已下架", id);
+            // 录像库可能尚未加载内容库，组合的原包门禁必须在政策本身生效。
+            var sources = MixedSources(id);
+            if (sources != null)
+                foreach (string source in sources)
+                    if (IsPackDisabled(source)) return Explain("该内容包已下架", source);
+            return null;
+        }
         public string StreamerReason(string id) { return IsStreamerDisabled(id) ? Explain("该主播已下架", id) : null; }
 
         public string CheckTeam(string packId, IEnumerable<string> ids)
@@ -77,6 +86,28 @@ namespace StreamDuel.Core
                     if (reason != null) return reason;
                 }
             return null;
+        }
+
+        static List<string> MixedSources(string id)
+        {
+            if (id == null || !id.StartsWith("mix:", StringComparison.Ordinal)) return null;
+            var sources = new List<string>();
+            string previous = null;
+            try
+            {
+                foreach (string encoded in id.Substring(4).Split(','))
+                {
+                    string source = Uri.UnescapeDataString(encoded);
+                    if (string.IsNullOrWhiteSpace(source) || source.Any(char.IsControl)
+                        || source.StartsWith("mix:", StringComparison.Ordinal)
+                        || Uri.EscapeDataString(source) != encoded
+                        || (previous != null && StringComparer.Ordinal.Compare(previous, source) >= 0)) return null;
+                    sources.Add(source);
+                    previous = source;
+                }
+                return sources;
+            }
+            catch (UriFormatException) { return null; }
         }
 
         string Explain(string message, string id)

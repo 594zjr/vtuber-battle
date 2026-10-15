@@ -21,6 +21,9 @@ namespace StreamDuel.Cli
             if (preset.NameInput.Changed)
                 Console.WriteLine("文字提示：队伍名称将按输入规范清理后显示。");
             if (!options.PackSpecified) options.Pack = preset.PackId;
+            // 未显式选包时，只有解码后才能确定是否允许混合对战的第二支队伍。
+            if (options.TeamB != null && !options.Hotseat && !options.MixedPack)
+                throw new ArgumentException("--team-b 仅用于 --hotseat 同屏双人对战或混合内容包对战。");
             return preset;
         }
 

@@ -26,7 +26,7 @@ namespace StreamDuel.Core
             {
                 Turn = b.Turn,
                 Phase = b.Phase,
-                Notice = b.Db.PackId != null && b.Db.PackId.StartsWith("fan_", StringComparison.Ordinal)
+                Notice = b.Db.IsMixed || (b.Db.PackId != null && b.Db.PackId.StartsWith("fan_", StringComparison.Ordinal))
                     ? b.Db.PackNotice ?? "" : "",
                 ControlledReason = legal.Controlled,
                 Struggle = legal.Struggle,
@@ -97,6 +97,7 @@ namespace StreamDuel.Core
             {
                 Id = fighter.Def.Id,
                 Name = fighter.Name,
+                Notice = battle.Db.NoticeFor(fighter.Def.Id),
                 Tracks = Describe.Tracks(battle.Db, fighter.Def),
                 Hp = fighter.Hp,
                 MaxHp = fighter.MaxHp,
@@ -159,7 +160,7 @@ namespace StreamDuel.Core
 
     public sealed class FighterView
     {
-        public string Id, Name, Tracks, PersonaId, PersonaName, PersonaDescription;
+        public string Id, Name, Tracks, PersonaId, PersonaName, PersonaDescription, Notice;
         public int Hp, MaxHp, Pct;
         public bool Fainted;
         public Dictionary<string, int> Stages = new Dictionary<string, int>();

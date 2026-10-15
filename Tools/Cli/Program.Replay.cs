@@ -53,6 +53,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 对战回看");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
+            PrintMixedNotices(db, record.Teams.SelectMany(team => team));
             Console.WriteLine("种子：" + record.Seed);
 
             bool first = true;

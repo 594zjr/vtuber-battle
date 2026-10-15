@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 同屏双人对战");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
+            PrintMixedNotices(db, teamA.Concat(teamB));
             Console.WriteLine("种子：" + options.Seed + "；A 方：" + nameA.Text + "；B 方：" + nameB.Text);
             if (nameA.Changed) Console.WriteLine("A 方昵称显示已调整：" + nameA.Message);
             if (nameB.Changed) Console.WriteLine("B 方昵称显示已调整：" + nameB.Message);

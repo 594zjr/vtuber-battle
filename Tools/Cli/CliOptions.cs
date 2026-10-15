@@ -8,7 +8,7 @@ using StreamDuel.Core;
 
 namespace StreamDuel.Cli
 {
-    internal sealed class CliOptions
+    internal sealed partial class CliOptions
     {
         public string Pack = "original";
         public bool PackSpecified;
@@ -108,6 +108,12 @@ namespace StreamDuel.Cli
                     options.LanList = true;
                     continue;
                 }
+                if (option == "--random-teams")
+                {
+                    if (options.RandomTeams) throw new ArgumentException("--random-teams 不能重复指定。");
+                    options.RandomTeams = true;
+                    continue;
+                }
                 if (option == "--auto")
                 {
                     options.Auto = true;
@@ -165,7 +171,7 @@ namespace StreamDuel.Cli
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
+                if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
@@ -243,6 +249,11 @@ namespace StreamDuel.Cli
                             throw new ArgumentException("--save-dir 需要非空的存档目录。");
                         options.SaveDir = value;
                         break;
+                    case "--packs":
+                        if (options.Packs != null) throw new ArgumentException("--packs 不能重复指定。");
+                        options.Packs = ParseMixedPackIds(value);
+                        options.PackSpecified = true;
+                        break;
                     case "--pack":
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--pack 需要非空内容包 id。");
                         options.Pack = value;
@@ -260,6 +271,7 @@ namespace StreamDuel.Cli
                         else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
                         break;
                     case "--seed":
+                        options.SeedSpecified = true;
                         if (value.Length == 0 || !value.All(c => c >= '0' && c <= '9') ||
                             !uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Seed))
                             throw new ArgumentException("--seed 必须是 0..4294967295 的十进制整数，只允许数字。");
@@ -285,7 +297,7 @@ namespace StreamDuel.Cli
             {
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
-                    "--advice", "--ban", "--lead", "--pack", "--pack-dir", "--level", "--seed", "--team",
+                    "--advice", "--ban", "--lead", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
                     "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
@@ -305,11 +317,12 @@ namespace StreamDuel.Cli
             }
             if (!options.Help)
             {
-                if (!options.Hotseat && provided.Any(option => option == "--team-b" || option == "--name-a" || option == "--name-b"))
+                if (!options.Hotseat && provided.Any(option => option == "--name-a" || option == "--name-b"
+                    || (option == "--team-b" && !options.MixedPack && options.TeamCode == null)))
                     throw new ArgumentException("--team-b、--name-a 和 --name-b 仅用于 --hotseat 同屏双人对战。");
                 if (options.Hotseat)
                 {
-                    var allowed = new HashSet<string>(new[] { "--hotseat", "--pack", "--pack-dir", "--seed", "--team",
+                    var allowed = new HashSet<string>(new[] { "--hotseat", "--packs", "--random-teams", "--pack", "--pack-dir", "--seed", "--team",
                         "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
                         "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
                     var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
@@ -323,7 +336,7 @@ namespace StreamDuel.Cli
             if (options.Glossary && !options.Help)
             {
                 var incompatible = provided.Where(option => option != "--glossary"
-                    && option != "--pack" && option != "--pack-dir").ToArray();
+                    && option != "--pack" && option != "--packs" && option != "--pack-dir").ToArray();
                 if (incompatible.Length > 0)
                     throw new ArgumentException(Loc.Current.T("glossary.cli.conflict",
                         string.Join(Loc.Current.T("describe.list.separator"), incompatible)));
@@ -331,7 +344,7 @@ namespace StreamDuel.Cli
             if (options.AnalysisMode && !options.Help)
             {
                 var unsupported = provided.Where(option => option != "--calc" && option != "--matchup"
-                    && option != "--pack" && option != "--pack-dir" && option != "--help" && option != "-h")
+                    && option != "--pack" && option != "--packs" && option != "--pack-dir" && option != "--help" && option != "-h")
                     .Distinct().ToArray();
                 if (unsupported.Length > 0)
                     throw new ArgumentException("伤害分析仅支持搭配 --pack、--pack-dir；不能与 "
@@ -383,6 +396,7 @@ namespace StreamDuel.Cli
             if (options.ReplayMode && options.TurnSeconds.HasValue && !options.Help)
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
                     + " 不支持 --timer；回放使用已保存的选择，不重新计时。");
+            ValidateMixedOptions(options, provided);
             return options;
         }
 

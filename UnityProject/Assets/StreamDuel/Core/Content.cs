@@ -131,6 +131,7 @@ namespace StreamDuel.Core
             }
             db.ReadDefinitions(root, false);
             db.Struggle = ReadSkill("struggle", (Dictionary<string, object>)root["struggle"]);
+            db.RememberMergeRules();
 
             var pack = (Dictionary<string, object>)MiniJson.Parse(packJson);
             db.PackId = Str(pack, "id"); db.PackName = Str(pack, "name"); db.PackNotice = Str(pack, "notice");
@@ -138,6 +139,7 @@ namespace StreamDuel.Core
             foreach (var kv in Obj(pack, "skillNames")) { if (!db.Skills.ContainsKey(kv.Key)) throw new KeyError("内容包改名的技能不存在：" + kv.Key); db.Skills[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "fieldNames")) { if (!db.Fields.ContainsKey(kv.Key)) throw new KeyError("内容包改名的效果不存在：" + kv.Key); db.Fields[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "statusNames")) { if (!db.Statuses.ContainsKey(kv.Key)) throw new KeyError("内容包改名的状态不存在：" + kv.Key); db.Statuses[kv.Key].Name = (string)kv.Value; }
+            db.RememberMergeAliases(pack);
             foreach (var item in (List<object>)pack["streamers"])
             {
                 var o = (Dictionary<string, object>)item;
