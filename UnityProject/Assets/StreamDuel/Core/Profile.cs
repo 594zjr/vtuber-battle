@@ -159,7 +159,7 @@ namespace StreamDuel.Core
 
         static void ValidateTokens(string json)
         {
-            // MiniJson 对转义和数字语法较宽松；存档先检查词法，再交给它验证结构。
+            // 档案保留独立的词法检查，再交给通用解析器验证结构。
             int depth = 0;
             for (int i = 0; i < json.Length; i++)
             {

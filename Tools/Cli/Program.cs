@@ -25,9 +25,10 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
-                if (options.ReplayFile != null) return PlayReplay(options);
-
-                var db = LoadContent(options.Pack);
+                if (options.ReplayFile != null && !options.ListPacks) return PlayReplay(options);
+                string content = Path.Combine(AppContext.BaseDirectory, "Content");
+                var db = LoadPack(content, options);
+                if (options.ListPacks) return 0;
                 var player = options.Team ?? db.Streamers.Take(6).Select(s => s.Id).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
@@ -156,7 +157,9 @@ namespace StreamDuel.Cli
         private static void PrintHelp()
         {
             Console.WriteLine("用法：dotnet run --project Tools/Cli -- [参数]");
-            Console.WriteLine("  --pack 编号       内容包文件名，不含 .json；默认原创包 original。");
+            Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认原创包 original。");
+            Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
+            Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）；默认 normal。");
             Console.WriteLine("  --seed 整数       对战种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；默认内容包前六位，电脑先选剩余再补齐。");
@@ -170,16 +173,44 @@ namespace StreamDuel.Cli
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
-            Console.WriteLine("回放模式仅使用 --replay、--auto；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
+            Console.WriteLine("回放支持 --auto 和 --pack-dir；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
         }
 
-        private static ContentDb LoadContent(string pack)
+        private static ContentDb LoadPack(string content, CliOptions options)
         {
-            if (!CliOptions.IsPackId(pack)) throw new ArgumentException("内容包编号只能包含英文字母、数字、下划线和连字符。");
-            string content = Path.Combine(AppContext.BaseDirectory, "Content");
-            return ContentDb.FromJson(
-                File.ReadAllText(Path.Combine(content, "StreamDuelRules.json")),
-                File.ReadAllText(Path.Combine(content, "Packs", pack + ".json")));
+            string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"));
+            var builtIn = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"));
+            var packs = new List<PackLoadResult>();
+            foreach (var result in builtIn)
+            {
+                if (result.Db == null) Console.Error.WriteLine("[错误] 内置内容包 " + result.FileName + "：" + result.Error);
+                else packs.Add(result);
+            }
+            var builtInIds = new HashSet<string>(packs.Select(result => result.Db.PackId), StringComparer.Ordinal);
+            if (options.PackDirectory != null)
+            {
+                foreach (var result in PackLoader.LoadDirectory(rules, options.PackDirectory))
+                {
+                    if (result.Db == null)
+                        Console.Error.WriteLine("[错误] 外部内容包 " + result.FileName + "：" + result.Error);
+                    else if (builtInIds.Contains(result.Db.PackId))
+                        Console.Error.WriteLine("[提醒] 外部内容包 " + result.FileName + " 的 id「" + result.Db.PackId + "」与内置包重复，已使用内置包。");
+                    else packs.Add(result);
+                }
+            }
+            if (options.ListPacks)
+            {
+                foreach (var result in packs)
+                    Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (builtIn.Contains(result) ? "内置" : "外部") + "〕（" + result.FileName + "）");
+                return null;
+            }
+
+            var selected = packs.FirstOrDefault(result => result.Db.PackId == options.Pack);
+            if (selected == null)
+                selected = builtIn.FirstOrDefault(result => result.Db != null &&
+                    string.Equals(Path.GetFileNameWithoutExtension(result.FileName), options.Pack, StringComparison.OrdinalIgnoreCase));
+            if (selected == null) throw new ArgumentException("找不到内容包「" + options.Pack + "」；使用 --list-packs 查看可用内容包。");
+            return selected.Db;
         }
 
         private static void PrintTeams(Battle battle)

@@ -8,6 +8,27 @@ using Xunit;
 
 public class T19_PackDefinedContentEdgeTests
 {
+    // T-20 新增包内定义后，旧格式兼容性仍需使用变更前的固定输入。
+    const string LegacyAsoulVrPack = @"{
+  ""id"": ""fan_asoul_vr"",
+  ""name"": ""同人包：A-SOUL × VirtuaReal"",
+  ""notice"": ""非官方同人作品（个人二次创作），免费、非商业，与 A-SOUL 及其运营方、VirtuaReal 及各位主播本人无关。A-SOUL 成员依据《二创规则说明5.0》收录；VirtuaReal 未见公开的二创规范，按同人惯例收录，公司或本人提出即下架。只使用公开艺名和公开人设，形象为自制占位图形，不使用任何官方立绘、模型、音频或标志。"",
+  ""_readme"": ""每位主播复用一套原创技能组；赛道只是玩法分配，不代表主播本人的直播内容。personaName/personaDesc 只改人设显示名和说明，不改机制。只写公开人设，不写现实事件、中之人或负面内容。名单只收 2026-10 仍在活动的成员。"",
+  ""skillNames"": { ""stir_drama"": ""热场"", ""rage_collab"": ""激情连麦"", ""delete_save"": ""全力一击"", ""dig_history"": ""回放轰炸"", ""thick_skin"": ""沉着应对"", ""yolo_rush"": ""全力冲锋"", ""pull_cable"": ""强制断线"", ""hex"": ""压迫感"", ""grudge_hit"": ""重击"" },
+  ""fieldNames"": { ""blackhist"": ""循环回放"" },
+  ""statusNames"": { ""flame"": ""过热"", ""hater"": ""刷屏干扰"" },
+  ""streamers"": [
+    { ""id"": ""bella"",   ""name"": ""贝拉"",       ""org"": ""A-SOUL"",     ""type"": ""song"", ""stats"": { ""hp"": 340, ""atk"": 220, ""def"": 220, ""spa"": 340, ""sdef"": 230, ""spd"": 360 }, ""persona"": ""punctual"",   ""personaName"": ""舞台中心"", ""skills"": [""warm_up"", ""full_volume"", ""go_live_early"", ""noise_cancel""], ""fifth"": ""high_note"", ""blurb"": ""A-SOUL 队长，舞蹈担当，一上场就抢节奏。"" },
+    { ""id"": ""diana"",   ""name"": ""嘉然"",       ""org"": ""A-SOUL"",     ""type"": ""meme"", ""stats"": { ""hp"": 390, ""atk"": 280, ""def"": 260, ""spa"": 260, ""sdef"": 260, ""spd"": 300 }, ""persona"": ""teamspirit"", ""personaName"": ""嘉心糖应援"", ""skills"": [""meme_punch"", ""cat_walk"", ""lucky_draw"", ""sudden_cute""], ""fifth"": ""iconic_scene"", ""blurb"": ""A-SOUL 成员，粉丝叫「嘉心糖」，有应援在就不知疲倦。"" },
+    { ""id"": ""eileen"",  ""name"": ""乃琳"",       ""org"": ""A-SOUL"",     ""type"": ""talk"", ""stats"": { ""hp"": 420, ""atk"": 230, ""def"": 270, ""spa"": 290, ""sdef"": 290, ""spd"": 240 }, ""persona"": ""family"",     ""personaName"": ""温柔大姐姐"", ""skills"": [""roast_chain"", ""siphon_fans"", ""lullaby_talk"", ""ride_trend""], ""fifth"": ""captain_renew"", ""blurb"": ""A-SOUL 成员，温柔沉稳，队友越多越安心。"" },
+    { ""id"": ""nana7mi"", ""name"": ""七海Nana7mi"", ""org"": ""VirtuaReal"", ""type"": ""game"", ""stats"": { ""hp"": 380, ""atk"": 330, ""def"": 250, ""spa"": 220, ""sdef"": 240, ""spd"": 320 }, ""persona"": ""comeback"",   ""personaName"": ""鲨鱼反咬"", ""skills"": [""aim_burst"", ""quick_mic"", ""yolo_rush"", ""pregame""], ""fifth"": ""endgame"", ""blurb"": ""VirtuaReal 2 期成员，鲨鱼人设，越到残局越凶。"" },
+    { ""id"": ""koichi"",  ""name"": ""中单光一"",   ""org"": ""VirtuaReal"", ""type"": ""game"", ""stats"": { ""hp"": 470, ""atk"": 270, ""def"": 340, ""spa"": 240, ""sdef"": 280, ""spd"": 150 }, ""persona"": ""trollback"",  ""personaName"": ""稳住中路"", ""personaDesc"": ""被互动类技能击中后，30% 使攻击方「卡麦」。"", ""personaStatus"": ""stall"", ""skills"": [""rage_collab"", ""stir_drama"", ""thick_skin"", ""map_cannon""], ""fifth"": ""delete_save"", ""blurb"": ""VirtuaReal 2 期成员，游戏主播，皮厚耐打。"" },
+    { ""id"": ""aza"",     ""name"": ""阿萨Aza"",    ""org"": ""VirtuaReal"", ""type"": ""asmr"", ""stats"": { ""hp"": 460, ""atk"": 260, ""def"": 300, ""spa"": 250, ""sdef"": 300, ""spd"": 180 }, ""persona"": ""healing"",    ""personaName"": ""细水长流"", ""personaDesc"": ""回合结束时回复 1/10 最大人气。"", ""skills"": [""whisper_tide"", ""wave_mic"", ""deep_breath"", ""mod_guard""], ""fifth"": ""late_reply"", ""blurb"": ""VirtuaReal 6 期成员，耐打，慢慢回血。"" },
+    { ""id"": ""eine"",    ""name"": ""艾因Eine"",   ""org"": ""VirtuaReal"", ""type"": ""art"",  ""stats"": { ""hp"": 400, ""atk"": 200, ""def"": 250, ""spa"": 320, ""sdef"": 320, ""spd"": 270 }, ""persona"": ""pure"",       ""personaName"": ""一期前辈"", ""skills"": [""sketch"", ""redraw"", ""thick_paint"", ""one_stroke""], ""fifth"": ""final_draft"", ""blurb"": ""VirtuaReal 1 期成员，稳重，会自我调整。"" }
+  ]
+}
+";
+
     const string Definitions = @"{
       ""skills"": { ""pk_signature"": { ""name"": ""测试招牌"", ""type"": ""song"", ""cat"": ""interact"", ""power"": 10, ""pp"": 5,
         ""effects"": [
@@ -253,7 +274,8 @@ public class T19_PackDefinedContentEdgeTests
     [InlineData("fan_holo_niji")]
     public void ExistingPackagesRemainValidWithoutExtraDefinitionObjects(string packId)
     {
-        var pack = JsonNode.Parse(Res(Path.Combine("Packs", packId + ".json"))).AsObject();
+        string packJson = packId == "fan_asoul_vr" ? LegacyAsoulVrPack : Res(Path.Combine("Packs", packId + ".json"));
+        var pack = JsonNode.Parse(packJson).AsObject();
         var db = Load(pack);
 
         db.Validate();

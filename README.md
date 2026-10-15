@@ -47,10 +47,29 @@
 命令行对战：`dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal --seed 1`；加 `--auto` 自动打完整局，`--team id1,id2,id3,id4,id5,id6` 指定我方阵容，数字选择技能/换人/补位，详情见 `--help`。
 
 - `dotnet run --project Tools/Cli -- --auto --seed 1 --ban --lead`：双方自动按“禁用 → 首发 → 对战”完成一局。去掉 `--auto` 即可手动选择；禁用后首发号位按剩余五人重新编号。
-- 结束时打印对战统计和本包累计战绩，并保存 `saves/profile.json`；`--save-dir 目录` 可指定其他本机目录。完整回放写入该目录下的 `replays/<UTC时间>_<packId>.json`，只保留本工具生成的最近 50 份，其他命名文件保留。提前退出不记战绩、不保存回放。
-- `dotnet run --project Tools/Cli -- --replay saves/replays/<文件名>.json`：自动加载记录对应的内置内容包，先显示第一个有日志的回合，再按回车逐回合播放；`q` 或输入结束退出。加 `--auto` 连续播放全部记录。回看不增加战绩，也不保存第二份回放；不完整记录会提示“未完成”。回放需要与原对局相同的规则和内容包版本。
+- 结束时打印对战统计和本包累计战绩，并保存 `saves/profile.json`；`--save-dir 目录` 可指定其他本机目录。完整回放写入该目录下的 `replays/<UTC时间>_<packId>.json`，只保留本工具生成的最近 50 份，其他命名文件保留。外部包 id 含特殊字符或超过 80 字符时，文件名用 id 的 SHA256 摘要，JSON 内仍保存原 id。提前退出不记战绩、不保存回放。
+- `dotnet run --project Tools/Cli -- --replay saves/replays/<文件名>.json`：自动加载记录对应的内容包；外部包需加 `--pack-dir 目录`。先显示第一个有日志的回合，再按回车逐回合播放；`q` 或输入结束退出。加 `--auto` 连续播放全部记录。回看不增加战绩，也不保存第二份回放；不完整记录会提示“未完成”。回放需要与原对局相同的规则和内容包版本。
 - `--hash` 可输出新对战每回合结算后的状态哈希，不能与 `--replay` 同用。回放中的阵容、种子及禁用/首发选项以记录为准；新对战参数不会修改它们。所有参数的中文说明见 `--help`。
 - 相同规则、内容包、参数和种子的自动战斗日志一致。比较完整输出时还须有相同的初始档案和相同的存档路径文本；在同一目录连续完成两局，累计战绩会正常增长。回放时间仅用于文件名，不写入战斗日志或终端保存提示。
+
+## 自制内容包
+
+将自制内容包保存为 UTF-8 编码的 `.json` 文件，每个文件对应一个包。完整格式见[设计文档 6.3 节](docs/design.md)：设置唯一的 `id`、包名和主播名单；至少包含 6 位主播，每位有 4 个普通技能和 1 个第五技能。可以在包内的 `skills`、`personas`、`fields`、`statuses` 中定义专属内容，沿用已有的效果码、人设码和赛道；同类别定义的 id 不得与共用规则重复。
+
+Unity 版在启动时额外读取 `Application.persistentDataPath/packs/`。把 JSON 直接放在这个目录第一层，例如 `Application.persistentDataPath/packs/my_pack.json`，重新启动后即可在组队页选择。`persistentDataPath` 是 Unity 为本游戏提供的用户数据目录，不是工程里的 `Resources/Packs/`；加载失败的文件会在组队页顶部显示原因，其他包仍可使用。
+
+命令行工具通过 `--pack-dir <文件夹>` 指定外部目录。以下命令从仓库根目录运行，假设文件放在 `my-packs/`，包内 `id` 为 `my_pack`：
+
+```powershell
+dotnet run --project Tools/Cli -- --pack-dir ./my-packs --list-packs
+dotnet run --project Tools/Cli -- --pack-dir ./my-packs --pack my_pack --level normal --seed 1
+dotnet run --project Tools/Sim -- --pack-dir ./my-packs --pack my_pack --games 100 --seed 1
+dotnet run --project Tools/PackCheck -- --pack-dir ./my-packs --pack my_pack --write-docs
+```
+
+三个工具都支持 `--list-packs`，列出可用包的 id、名称和来源；`--pack` 使用 JSON 中的 `id`，不要求与文件名一致。加载器只读取目录第一层的 JSON，按文件名排序，逐个解析并校验。坏文件会报告中文错误；外部包 id 重复时保留先成功加载的包，和内置包 id 重复时保留内置包并提示。目录不存在时不增加外部包。
+
+同人内容包必须遵守 [FANWORK.md](FANWORK.md) 列出的二创规则，只使用公开艺名和公开人设、自己制作的形象；不得加入官方素材、现实事件、中之人信息或负面传闻，保持免费、非商业。
 
 ## 规则要点
 
@@ -63,4 +82,4 @@
 
 ## 加内容
 
-新主播只改 `Packs/` 里的内容包；新技能改 `StreamDuelRules.json`。技能效果用已有的效果代码（STATUS、STAGE、HEAL、RECOIL、DRAIN、FIELD、ADD_MARK、POWER_MUL、POWER_PER_MARK、DISPEL_TURNS、DISPEL_BOOST、CLEANSE），并写明 `at`（pre 命中前 / post 命中后）。读取时会检查引用是否存在，写错会直接报出是哪一条。
+新主播、技能、人设、状态与直播间效果优先写进内容包，格式见上方“自制内容包”和[设计文档 6.3 节](docs/design.md)。使用已有的效果代码和人设代码；每个技能效果写明 `at`（pre 命中前 / post 命中后）及相应的驱散规则。读取时会检查引用是否存在，写错会直接报出是哪一条。

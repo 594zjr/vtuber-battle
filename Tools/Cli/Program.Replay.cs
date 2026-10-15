@@ -18,7 +18,8 @@ namespace StreamDuel.Cli
             {
                 throw new FormatException("回放 JSON 不完整。", ex);
             }
-            var db = LoadContent(record.PackId);
+            var db = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"),
+                new CliOptions { Pack = record.PackId, PackDirectory = options.PackDirectory });
             foreach (var team in record.Teams)
             {
                 var errors = TeamCheck.Validate(db, null, team);

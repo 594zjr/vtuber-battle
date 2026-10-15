@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using StreamDuel.Core;
@@ -11,12 +12,12 @@ namespace StreamDuel.Cli
     internal static class ReplayStore
     {
         private static readonly Regex ReplayName = new Regex(
-            @"^\d{8}_\d{6}_\d{7}_[A-Za-z0-9_-]+\.json$", RegexOptions.CultureInvariant);
+            @"^[0-9]{8}_[0-9]{6}_[0-9]{7}_[A-Za-z0-9_-]+\.json$", RegexOptions.CultureInvariant);
 
         public static string Save(Battle battle, string directory)
         {
             if (battle.Phase != Phase.Over) throw new InvalidOperationException("对战尚未结束，不能自动保存回放。");
-            if (!CliOptions.IsPackId(battle.Db.PackId)) throw new ArgumentException("回放内容包编号不是有效文件名。");
+            string packFileId = FilePackId(battle.Db.PackId);
             string replayDirectory = Path.Combine(directory, "replays");
             Directory.CreateDirectory(replayDirectory);
             using (var replayLock = new FileStream(Path.Combine(replayDirectory, ".replays.lock"),
@@ -28,7 +29,7 @@ namespace StreamDuel.Cli
                 do
                 {
                     path = Path.Combine(replayDirectory, timestamp.ToString("yyyyMMdd_HHmmss_fffffff", CultureInfo.InvariantCulture)
-                        + "_" + battle.Db.PackId + ".json");
+                        + "_" + packFileId + ".json");
                     timestamp = timestamp.AddTicks(1);
                 }
                 while (File.Exists(path));
@@ -67,6 +68,15 @@ namespace StreamDuel.Cli
                 }
             }
             return null;
+        }
+
+        private static string FilePackId(string id)
+        {
+            if (id.Length <= 80 && id.Length > 0 && id.All(c =>
+                (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                (c >= '0' && c <= '9') || c == '_' || c == '-')) return id;
+            // 外部包 id 不是文件路径；含路径字符或超长时只给文件名使用摘要，JSON 保留原 id。
+            return "id-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(id))).ToLowerInvariant();
         }
     }
 }
