@@ -262,6 +262,8 @@
 
 只有参数列包含 `target` 的代码才使用它：`self` 指自身，其余值按现有实现指对手，缺省为 `foe`。说明来源列记录 `Describe.Effect` 使用的主文案本地化键，条件、概率、时机和驱散文字还使用各自的通用键；这里不复制或改写玩家文案。
 
+`ADD_MARK` 的驱散说明按引用的 `FieldDef.Dispel` 生成：可驱散时显示“可被消回合”，不可驱散时保留“印记，消回合清不掉”；不根据名称或 `Kind` 猜测。这只改变说明显示，不改变结算或源内容数据。
+
 **条件 `cond.kind`**：`foeHpAbove`(value)、`foeWeak`、`actedFirst`、`actedSecond`、`foeBuffed`。在效果自己的 `at` 时机读取当时的数值。
 
 ### 6.2 人设 `personas.<id>`

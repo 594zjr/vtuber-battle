@@ -160,6 +160,32 @@ public class T103_CodeDocConsistencyTests
         }
     }
 
+    [Theory]
+    [InlineData("pre", false)]
+    [InlineData("pre", true)]
+    [InlineData("post", false)]
+    [InlineData("post", true)]
+    public void MarkDescriptionUsesReferencedFieldDispelFlagWithoutChangingContent(string at, bool dispellable)
+    {
+        var db = BattleTests.LoadPack("original");
+        db.Fields["t103_mark"] = new FieldDef
+        {
+            Id = "t103_mark", Name = "相同印记名称", Kind = "mark", Dispel = dispellable, MaxStacks = 5
+        };
+        string hash = db.ContentHash();
+        var effect = new EffectDef { Code = "ADD_MARK", At = at, Target = "self", Field = "t103_mark", N = 2 };
+        var description = Describe.Effect(db, effect);
+
+        Assert.Equal(Loc.Current.T(dispellable ? "describe.dispel.turns" : "describe.dispel.mark"), description.Dispel);
+        Assert.Contains("相同印记名称", description.Text);
+        Assert.Equal(Loc.Current.T("describe.at." + at), description.At);
+        Assert.Equal(hash, db.ContentHash());
+        db.Fields["t103_mark"].Dispel = !dispellable;
+        var changed = Describe.Effect(db, effect);
+        Assert.Equal(description.Text, changed.Text);
+        Assert.NotEqual(description.Dispel, changed.Dispel);
+    }
+
     [Fact]
     public void SpeedPersonaUsesGeneratedDescriptionForNonDefaultStageCap()
     {
