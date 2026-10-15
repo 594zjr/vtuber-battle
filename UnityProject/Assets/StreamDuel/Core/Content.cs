@@ -57,6 +57,19 @@ namespace StreamDuel.Core
         public List<string> Skills = new List<string>();
     }
 
+    public sealed class LimitedPoolDef
+    {
+        public int Max;
+        public List<string> Ids = new List<string>();
+    }
+
+    public sealed class SeasonDef
+    {
+        public string Name;
+        public List<string> Banned = new List<string>();
+        public List<LimitedPoolDef> Limited = new List<LimitedPoolDef>();
+    }
+
     public sealed class ContentDb
     {
         public static readonly string[] StatKeys = { "atk", "def", "spa", "sdef", "spd" };
@@ -69,6 +82,7 @@ namespace StreamDuel.Core
         public Dictionary<string, PersonaDef> Personas = new Dictionary<string, PersonaDef>();
         public Dictionary<string, SkillDef> Skills = new Dictionary<string, SkillDef>();
         public List<StreamerDef> Streamers = new List<StreamerDef>();
+        public Dictionary<string, SeasonDef> Seasons = new Dictionary<string, SeasonDef>();
         public SkillDef Struggle;
         public string PackId, PackName, PackNotice;
 
@@ -159,6 +173,28 @@ namespace StreamDuel.Core
                 }
                 db.Streamers.Add(s);
             }
+            foreach (var kv in Obj(pack, "seasons"))
+            {
+                var o = (Dictionary<string, object>)kv.Value;
+                var season = new SeasonDef { Name = Str(o, "name") };
+                object banned;
+                if (o.TryGetValue("banned", out banned))
+                {
+                    foreach (var id in (List<object>)banned) season.Banned.Add((string)id);
+                }
+                object limited;
+                if (o.TryGetValue("limited", out limited))
+                {
+                    foreach (var item in (List<object>)limited)
+                    {
+                        var poolData = (Dictionary<string, object>)item;
+                        var pool = new LimitedPoolDef { Max = Int(poolData, "max") };
+                        foreach (var id in (List<object>)poolData["ids"]) pool.Ids.Add((string)id);
+                        season.Limited.Add(pool);
+                    }
+                }
+                db.Seasons[kv.Key] = season;
+            }
             db.Validate();
             return db;
         }
@@ -213,6 +249,21 @@ namespace StreamDuel.Core
                 if (Streamers.Count(x => x.Id == s.Id) > 1) throw new KeyError("主播 id 重复：" + s.Id);
                 var pd = Personas[s.Persona];
                 if (pd.Status != null && !Statuses.ContainsKey(pd.Status)) throw new KeyError("主播 " + s.Id + " 的人设用到不存在的状态：" + pd.Status);
+            }
+            var streamerIds = new HashSet<string>(Streamers.Select(s => s.Id));
+            foreach (var kv in Seasons)
+            {
+                foreach (var id in kv.Value.Banned)
+                {
+                    if (!streamerIds.Contains(id)) throw new KeyError("赛季 " + kv.Key + "（" + kv.Value.Name + "）禁用池的主播不存在：" + id);
+                }
+                for (int i = 0; i < kv.Value.Limited.Count; i++)
+                {
+                    foreach (var id in kv.Value.Limited[i].Ids)
+                    {
+                        if (!streamerIds.Contains(id)) throw new KeyError("赛季 " + kv.Key + "（" + kv.Value.Name + "）限制池 " + (i + 1) + " 的主播不存在：" + id);
+                    }
+                }
             }
         }
 
