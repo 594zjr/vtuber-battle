@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using StreamDuel.Core;
@@ -432,6 +433,234 @@ public class T104_MixedPacksTests
         Assert.Contains("内容不一致", guest.Error);
         Assert.Null(host.Battle);
         Assert.Null(guest.Battle);
+    }
+
+    [Fact]
+    public void EquivalentIndependentPoliciesPreserveFilteringReasonsAndImmutabilityAfterMerge()
+    {
+        var firstPolicy = Policy(new[] { "unused_b", "unused_a" }, new[] { "unknown", "bell" },
+            new Dictionary<string, string> { ["bell"] = "申请下架", ["unused_a"] = "暂时撤下" });
+        var secondPolicy = Policy(new[] { "unused_a", "unused_b" }, new[] { "bell", "unknown" },
+            new Dictionary<string, string> { ["unused_a"] = "暂时撤下", ["bell"] = "申请下架" });
+        Assert.NotSame(firstPolicy, secondPolicy);
+        var original = LoadWithPolicy("original", firstPolicy);
+        var fan = LoadWithPolicy("fan_asoul_vr", secondPolicy);
+
+        var merged = ContentDb.Merge(original, fan);
+        var reverse = ContentDb.Merge(fan, original);
+
+        Assert.Equal(11, original.Streamers.Count);
+        Assert.Equal(7, fan.Streamers.Count);
+        Assert.Equal(18, merged.Streamers.Count);
+        Assert.DoesNotContain(merged.Streamers, streamer => streamer.Id == "bell");
+        Assert.Equal(firstPolicy.DisabledPacks, merged.Policy.DisabledPacks);
+        Assert.Equal(firstPolicy.DisabledStreamers, merged.Policy.DisabledStreamers);
+        Assert.Equal("申请下架", merged.Policy.Reasons["bell"]);
+        Assert.Equal(firstPolicy.StreamerReason("bell"), Assert.Throws<KeyError>(() => merged.NoticeFor("bell")).Message);
+        Assert.Equal(merged.ContentHash(), reverse.ContentHash());
+        var teams = MixedBattle.RandomTeams(merged, 104);
+        Assert.Equal(12, Flatten(teams).Distinct(StringComparer.Ordinal).Count());
+        Assert.DoesNotContain("bell", Flatten(teams));
+        Assert.Equal(Flatten(teams), Flatten(MixedBattle.RandomTeams(reverse, 104)));
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)merged.Policy.DisabledPacks).Clear());
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)merged.Policy.DisabledStreamers).Clear());
+        Assert.Throws<NotSupportedException>(() => ((IDictionary<string, string>)merged.Policy.Reasons)["bell"] = "已恢复");
+        Assert.Equal("申请下架", merged.Policy.Reasons["bell"]);
+    }
+
+    [Theory]
+    [InlineData("packs")]
+    [InlineData("streamers")]
+    [InlineData("reasons")]
+    public void DifferentPolicySemanticsCannotBeCombinedByChangingInputOrder(string difference)
+    {
+        var firstPolicy = Policy(new[] { "unrelated_pack" }, new[] { "unrelated_streamer" },
+            new Dictionary<string, string> { ["unrelated_pack"] = "原因甲" });
+        var secondPolicy = Policy(new[] { difference == "packs" ? "other_pack" : "unrelated_pack" },
+            new[] { difference == "streamers" ? "other_streamer" : "unrelated_streamer" },
+            new Dictionary<string, string> { ["unrelated_pack"] = difference == "reasons" ? "原因乙" : "原因甲" });
+        var original = LoadWithPolicy("original", firstPolicy);
+        var fan = LoadWithPolicy("fan_asoul_vr", secondPolicy);
+
+        Assert.Contains("下架策略不一致", Assert.Throws<KeyError>(() => ContentDb.Merge(original, fan)).Message);
+        Assert.Contains("下架策略不一致", Assert.Throws<KeyError>(() => ContentDb.Merge(fan, original)).Message);
+        Assert.Equal(12, original.Streamers.Count);
+        Assert.Equal(7, fan.Streamers.Count);
+    }
+
+    [Fact]
+    public void ExplicitEmptyPoliciesKeepExistingMixedHashAndRandomAssignments()
+    {
+        var expected = Mixed();
+        var actual = ContentDb.Merge(LoadWithPolicy("original", Policy()), LoadWithPolicy("fan_asoul_vr", Policy()));
+
+        Assert.Equal(expected.ContentHash(), actual.ContentHash());
+        Assert.Equal(Flatten(MixedBattle.RandomTeams(expected, 104)), Flatten(MixedBattle.RandomTeams(actual, 104)));
+        Assert.Empty(actual.Policy.DisabledPacks);
+        Assert.Empty(actual.Policy.DisabledStreamers);
+    }
+
+    [Fact]
+    public void ManuallyRestoringADisabledStreamerCannotBypassMergeRandomTeamsOrTeamValidation()
+    {
+        var policy = Policy(disabledStreamers: new[] { "bell" }, reasons: new Dictionary<string, string> { ["bell"] = "申请下架" });
+        var original = LoadWithPolicy("original", policy);
+        var fan = LoadWithPolicy("fan_asoul_vr", policy);
+        var merged = ContentDb.Merge(original, fan);
+        var restored = BattleTests.LoadPack("original").Streamer("bell");
+        original.Streamers.Add(restored);
+        merged.Streamers.Add(restored);
+        string reason = policy.StreamerReason("bell");
+        string before = merged.ContentHash();
+
+        Assert.Equal(reason, Assert.Throws<PackDisabledException>(() => ContentDb.Merge(original, fan)).Message);
+        Assert.Equal(reason, Assert.Throws<PackDisabledException>(() => MixedBattle.RandomTeams(merged, 104)).Message);
+        Assert.Equal(reason, Assert.Throws<KeyError>(() => merged.NoticeFor("bell")).Message);
+        var teams = ManualTeams(original, fan);
+        teams[0][0] = "bell";
+        var preset = new TeamPreset { PackId = merged.PackId, Ids = teams[0].ToList() };
+        Assert.Contains(reason, preset.Check(merged, null));
+        Assert.Equal(reason, Assert.Throws<KeyError>(() => new Battle(merged, teams, new[] { "甲", "乙" }, 104)).Message);
+        Assert.Equal(before, merged.ContentHash());
+        Assert.Equal(19, merged.Streamers.Count);
+    }
+
+    [Fact]
+    public void DirectlyDisabledCombinationIsRejectedEvenWhenBothSourcePacksAreAvailable()
+    {
+        const string combinedId = "mix:fan_asoul_vr,original";
+        var policy = Policy(new[] { combinedId }, reasons: new Dictionary<string, string> { [combinedId] = "组合暂停开放" });
+        var original = LoadWithPolicy("original", policy);
+        var fan = LoadWithPolicy("fan_asoul_vr", policy);
+
+        Assert.Null(policy.PackReason(original.PackId));
+        Assert.Null(policy.PackReason(fan.PackId));
+        Assert.Equal(policy.PackReason(combinedId), Assert.Throws<PackDisabledException>(() => ContentDb.Merge(original, fan)).Message);
+        Assert.Equal(12, original.Streamers.Count);
+        Assert.Equal(7, fan.Streamers.Count);
+    }
+
+    [Fact]
+    public void FilteredMixedContentRejectsOldTeamsAndBothReplayModesWithoutChangingTheRecord()
+    {
+        var original = BattleTests.LoadPack("original");
+        var fan = BattleTests.LoadPack("fan_asoul_vr");
+        var record = new Battle(ContentDb.Merge(original, fan), ManualTeams(original, fan), new[] { "甲", "乙" }, 104).Record;
+        Assert.Contains("bell", record.Teams[0]);
+        string saved = record.ToJson();
+        var policy = Policy(disabledStreamers: new[] { "bell" });
+        var filtered = ContentDb.Merge(LoadWithPolicy("original", policy), LoadWithPolicy("fan_asoul_vr", policy));
+        string reason = policy.StreamerReason("bell");
+
+        Assert.Equal(18, filtered.Streamers.Count);
+        Assert.False(Replay.Check(filtered, record).CanReplay);
+        Assert.Equal(reason, Replay.Check(filtered, record).Reason);
+        Assert.Throws<InvalidOperationException>(() => Replay.Run(filtered, record));
+        Assert.Equal(reason, Assert.Throws<InvalidOperationException>(() => Replay.RunBestEffort(filtered, record)).Message);
+        Assert.Equal(reason, Assert.Throws<KeyError>(() => new Battle(filtered, record.Teams, record.Names, record.Seed)).Message);
+        Assert.Contains(reason, new TeamPreset { PackId = filtered.PackId, Ids = record.Teams[0].ToList() }.Check(filtered, null));
+        Assert.Equal(saved, record.ToJson());
+    }
+
+    [Theory]
+    [InlineData("original")]
+    [InlineData("fan_asoul_vr")]
+    public void ExplicitSourcePackPolicyRejectsMixedReplayEvenWithoutLoadedContent(string disabledSource)
+    {
+        var db = Mixed();
+        var record = MixedRecord(db);
+        string saved = record.ToJson();
+        var policy = Policy(new[] { disabledSource }, reasons: new Dictionary<string, string> { [disabledSource] = "来源包已撤下" });
+        string reason = policy.PackReason(disabledSource);
+
+        Assert.Equal(reason, policy.PackReason(db.PackId));
+        foreach (var content in new[] { db, (ContentDb)null })
+        {
+            var result = Replay.Check(content, record, policy);
+            Assert.False(result.CanReplay);
+            Assert.Equal(reason, result.Reason);
+        }
+        Assert.Equal(saved, record.ToJson());
+    }
+
+    [Theory]
+    [InlineData("a,b")]
+    [InlineData("a%2Cb")]
+    [InlineData("a:b")]
+    public void SourcePackPolicyDecodesEachMixedIdExactlyOnce(string sourceId)
+    {
+        var db = ContentDb.Merge(Load(CustomPack(sourceId, "a_")), Load(CustomPack("z", "z_")));
+        var record = MixedRecord(db);
+        var policy = Policy(new[] { sourceId }, reasons: new Dictionary<string, string> { [sourceId] = "编码来源撤下" });
+
+        Assert.Equal("mix:" + Uri.EscapeDataString(sourceId) + ",z", db.PackId);
+        Assert.Equal(policy.PackReason(sourceId), policy.PackReason(db.PackId));
+        Assert.False(Replay.Check(null, record, policy).CanReplay);
+        Assert.Equal(policy.PackReason(sourceId), Replay.Check(null, record, policy).Reason);
+        Assert.Null(Policy(new[] { "a" }).PackReason(db.PackId));
+        if (sourceId == "a%2Cb") Assert.Null(Policy(new[] { "a,b" }).PackReason(db.PackId));
+    }
+
+    [Fact]
+    public void ReplayLibraryMarksMixedRecordsUnavailableFromSourcePolicyWithoutRewritingThem()
+    {
+        using var directory = new PolicyReplayDirectory();
+        var record = MixedRecord(Mixed());
+        var initial = new ReplayLibrary(directory.Root, policy: PackPolicy.Empty);
+        string id = initial.Save(record, new BattleSummary { Winner = -1, Turns = 0 }, "保留原组合录像");
+        string path = Path.Combine(directory.Root, id + ".json");
+        byte[] before = File.ReadAllBytes(path);
+        var policy = Policy(new[] { "original" }, reasons: new Dictionary<string, string> { ["original"] = "来源包下架" });
+        var restricted = new ReplayLibrary(directory.Root, policy: policy);
+
+        var entry = Assert.Single(restricted.List());
+
+        Assert.True(entry.IsUnavailable);
+        Assert.False(entry.IsCorrupt);
+        Assert.Equal(record.PackId, entry.PackId);
+        Assert.Equal(policy.PackReason("original"), entry.UnavailableReason);
+        Assert.Equal(entry.UnavailableReason, Assert.Throws<InvalidOperationException>(() => restricted.Load(id)).Message);
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
+    static PackPolicy Policy(string[] disabledPacks = null, string[] disabledStreamers = null, Dictionary<string, string> reasons = null)
+    {
+        return PackPolicy.FromJson(JsonSerializer.Serialize(new
+        {
+            disabledPacks = disabledPacks ?? Array.Empty<string>(),
+            disabledStreamers = disabledStreamers ?? Array.Empty<string>(),
+            reason = reasons ?? new Dictionary<string, string>()
+        }));
+    }
+
+    static ContentDb LoadWithPolicy(string pack, PackPolicy policy) => ContentDb.FromJson(Resource("StreamDuelRules.json"),
+        Resource(Path.Combine("Packs", pack + ".json")), policy);
+    static BattleRecord MixedRecord(ContentDb db) => new Battle(db, MixedBattle.RandomTeams(db, 104), new[] { "甲", "乙" }, 104).Record;
+
+    sealed class PolicyReplayDirectory : IDisposable
+    {
+        readonly string parent;
+        readonly string name = Guid.NewGuid().ToString("N");
+        public string Root { get; }
+
+        public PolicyReplayDirectory([CallerFilePath] string sourceFile = "")
+        {
+            string tests = Path.GetDirectoryName(Path.GetFullPath(sourceFile));
+            if (Path.GetFileName(tests) != "Engine.Tests") throw new InvalidOperationException("测试目录必须位于 Engine.Tests。");
+            parent = Path.Combine(tests, "obj", "T104-policy-replay");
+            Root = Path.Combine(parent, name);
+            Directory.CreateDirectory(Root);
+        }
+
+        public void Dispose()
+        {
+            string resolved = Path.GetFullPath(Root);
+            if (!string.Equals(Path.GetDirectoryName(resolved), parent, StringComparison.Ordinal)
+                || Path.GetFileName(resolved) != name || (File.GetAttributes(resolved) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("只能清理本轮创建的测试目录。");
+            foreach (string file in Directory.GetFiles(resolved, "*", SearchOption.TopDirectoryOnly)) File.Delete(file);
+            Directory.Delete(resolved);
+        }
     }
 
     static ContentDb Mixed() => ContentDb.Merge(BattleTests.LoadPack("original"), BattleTests.LoadPack("fan_asoul_vr"));

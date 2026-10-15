@@ -52,6 +52,10 @@ namespace StreamDuel.Core
                     throw new KeyError("请直接合并原始内容包，不能嵌套合并 mix: 内容包。");
                 if (!ids.Add(pack.PackId)) throw new KeyError("内容包 id 重复：" + pack.PackId);
                 if (pack.mergeRules == null) throw new KeyError("内容包缺少规则来源，请先通过 FromJson 加载：" + pack.PackId);
+                string unavailable = pack.Policy.CheckTeam(pack.PackId, pack.Streamers.Select(s => s.Id));
+                if (unavailable != null) throw new PackDisabledException(unavailable);
+                if (!SamePolicy(packs[0].Policy, pack.Policy))
+                    throw new KeyError("混合内容包的下架策略不一致，请使用同一策略重新加载全部来源包。");
                 pack.Validate();
             }
 
@@ -93,6 +97,8 @@ namespace StreamDuel.Core
             foreach (var alias in statusAliases) result.Statuses[alias.Key].Name = alias.Value;
             result.Streamers = result.Streamers.OrderBy(s => s.Id, StringComparer.Ordinal).ToList();
             result.PackId = "mix:" + string.Join(",", ordered.Select(p => Uri.EscapeDataString(p.PackId)));
+            string disabledCombination = result.Policy.PackReason(result.PackId);
+            if (disabledCombination != null) throw new PackDisabledException(disabledCombination);
             result.PackName = "混合内容包：" + string.Join("、", ordered.Select(p => p.PackName ?? p.PackId));
             result.PackNotice = string.Join("\n", ordered.Select(p => p.PackNotice)
                 .Where(n => !string.IsNullOrEmpty(n)).Distinct(StringComparer.Ordinal));
@@ -113,6 +119,14 @@ namespace StreamDuel.Core
                 }
                 else if (char.IsLowSurrogate(id[i])) throw new KeyError("合并内容包的 id 必须是有效 Unicode。");
             }
+        }
+
+        static bool SamePolicy(PackPolicy left, PackPolicy right)
+        {
+            return left.DisabledPacks.SequenceEqual(right.DisabledPacks)
+                && left.DisabledStreamers.SequenceEqual(right.DisabledStreamers)
+                && left.Reasons.Count == right.Reasons.Count
+                && left.Reasons.All(p => right.Reasons.TryGetValue(p.Key, out string value) && p.Value == value);
         }
 
         static void CollectAliases(Dictionary<string, string> destination, Dictionary<string, string> source, string category)
@@ -189,7 +203,7 @@ namespace StreamDuel.Core
         {
             var copy = new ContentDb
             {
-                PackId = PackId, PackName = PackName, PackNotice = PackNotice,
+                PackId = PackId, PackName = PackName, PackNotice = PackNotice, Policy = Policy,
                 StatNames = new Dictionary<string, string>(StatNames), CatNames = new Dictionary<string, string>(CatNames),
                 Types = Types.ToDictionary(p => p.Key, p => new TypeDef { Id = p.Value.Id, Name = p.Value.Name, Color = p.Value.Color }),
                 Chart = Chart.ToDictionary(p => p.Key, p => new Dictionary<string, double>(p.Value)),

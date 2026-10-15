@@ -19,6 +19,8 @@ namespace StreamDuel.Core
                 if (!unique.Add(streamer.Id))
                     throw new KeyError("混合内容包主播 id 重复：" + streamer.Id);
             }
+            string unavailable = merged.Policy.CheckTeam(merged.PackId, unique);
+            if (unavailable != null) throw new PackDisabledException(unavailable);
             if (unique.Count < 12) throw new KeyError("随机组队至少需要 12 位不同主播，当前只有 " + unique.Count + " 位");
 
             // 先固定顺序，使包的传入顺序和列表枚举顺序不影响同一种子的分配。

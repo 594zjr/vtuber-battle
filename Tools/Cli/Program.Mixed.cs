@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using StreamDuel.Core;
 
@@ -7,11 +8,27 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        private static ContentDb LoadMixedPack(List<PackLoadResult> available, CliOptions options)
+        private static string RequestedPackId(CliOptions options)
+        {
+            return options.Packs == null ? options.Pack
+                : "mix:" + string.Join(",", options.Packs.OrderBy(id => id, StringComparer.Ordinal).Select(Uri.EscapeDataString));
+        }
+
+        private static ContentDb LoadMixedPack(List<PackLoadResult> available, CliOptions options,
+            string rules, string content, PackPolicy policy)
         {
             string[] ids = options.Packs ?? CliOptions.ParseMixedPackIds(options.Pack.Substring(4), encoded: true);
-            var sources = ids.Select(id => available.FirstOrDefault(pack => pack.Db.PackId == id)?.Db
-                ?? throw new ArgumentException("找不到混合内容包成员「" + id + "」；请检查 --pack-dir 或使用 --list-packs。")).ToArray();
+            var sources = ids.Select(id =>
+            {
+                string disabled = policy.PackReason(id);
+                if (disabled != null) throw new ArgumentException(disabled);
+                var source = available.FirstOrDefault(pack => pack.Db.PackId == id)?.Db;
+                if (source != null) return source;
+                // 下架与不足六人会从列表移除，补查政策原因，不能误报成缺少安装文件。
+                disabled = FindDisabledReason(rules, Path.Combine(content, "Packs"), id, policy, false)
+                    ?? FindDisabledReason(rules, options.PackDirectory, id, policy, false);
+                throw new ArgumentException(disabled ?? "找不到混合内容包成员「" + id + "」；请检查 --pack-dir 或使用 --list-packs。");
+            }).ToArray();
             var merged = ContentDb.Merge(sources);
             if (options.Packs == null && options.Pack != merged.PackId)
                 throw new ArgumentException("混合包编号必须按原始 id 的 ordinal 顺序规范排列：" + merged.PackId);
