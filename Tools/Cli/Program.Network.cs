@@ -153,13 +153,7 @@ namespace StreamDuel.Cli
             {
                 session.Poll();
                 CheckNetwork(session);
-                if (connection.PeerClosed)
-                {
-                    // EOF 可能刚好在前一次 Poll 返回后到达，再排空关闭前的完整消息。
-                    session.Poll();
-                    CheckNetwork(session);
-                    return;
-                }
+                if (connection.ReceiveDrained) return;
                 if (completion.ElapsedMilliseconds >= 10000)
                     throw new IOException("等待对手完成终局校验超时，对局未保存。");
                 Thread.Sleep(10);
