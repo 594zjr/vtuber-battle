@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace StreamDuel.Core
 {
@@ -26,6 +27,10 @@ namespace StreamDuel.Core
         readonly string rootPrefix;
         readonly StringComparison pathComparison;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
+        static readonly string ReplayOwnershipPath = Path.Combine("replays", ".replay-ownership.json");
+        static readonly string ReplayOwnershipTemporaryPath = Path.Combine("replays", ".replay-ownership.json.tmp");
+        static readonly Regex AutomaticReplayName = new Regex(
+            @"^[0-9]{8}_[0-9]{6}_[0-9]{7}_[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
 
         public FileSaveStore(string rootDirectory)
         {
@@ -119,26 +124,50 @@ namespace StreamDuel.Core
 
         void SaveReplayLocked(string name, string json)
         {
-            var files = ReplayFiles();
-            DateTime timestamp = DateTime.UtcNow;
-            // 覆盖、短间隔保存和时钟回拨都仍应把新保存的一份排在最前。
-            if (files.Count > 0 && files[0].LastWriteTimeUtc >= timestamp)
-                timestamp = files[0].LastWriteTimeUtc.AddMilliseconds(1);
             string relative = Path.Combine("replays", name + ".json");
             WriteAtomic(relative, Path.Combine("replays", ".replay.json.tmp"), json);
             try
             {
+                // 登记或清理失败也不能让调用者误以为这局回放没有落盘。
+                var ownership = ReadReplayOwnership();
+                var files = ReplayFiles(ownership);
+                DateTime timestamp = DateTime.UtcNow;
+                // 覆盖、短间隔保存和时钟回拨都仍应把新保存的一份排在最前。
+                if (files.Count > 0 && files[0].LastWriteTimeUtc >= timestamp)
+                    timestamp = files[0].LastWriteTimeUtc.AddMilliseconds(1);
                 File.SetLastWriteTimeUtc(CheckedPath(relative), timestamp);
-                foreach (var file in ReplayFiles().Skip(50))
+
+                ownership = MatchingReplayOwnership(ownership);
+                if (!AutomaticReplayName.IsMatch(name) && !IsBattleRecord(json))
+                    ownership[name] = FileDigest(relative);
+                else ownership.Remove(name);
+                WriteReplayOwnership(ownership);
+
+                bool removedOwnership = false;
+                foreach (var file in ReplayFiles(ownership).Skip(50))
+                {
                     File.Delete(CheckedPath(Path.Combine("replays", file.Name)));
+                    removedOwnership |= ownership.Remove(Path.GetFileNameWithoutExtension(file.Name));
+                }
+                if (removedOwnership) WriteReplayOwnership(ownership);
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
                 throw new ReplayRetentionException(name, ex);
             }
         }
 
         List<FileInfo> ReplayFiles()
+        {
+            return ReplayFiles(ReadReplayOwnership());
+        }
+
+        List<FileInfo> ReplayFiles(Dictionary<string, string> ownership)
+        {
+            return ReplayCandidates().Where(file => IsManagedReplay(file, ownership)).ToList();
+        }
+
+        List<FileInfo> ReplayCandidates()
         {
             string directory = CheckedPath("replays", true);
             if (!Directory.Exists(directory)) return new List<FileInfo>();
@@ -148,6 +177,100 @@ namespace StreamDuel.Core
                     && (file.Attributes & FileAttributes.ReparsePoint) == 0)
                 .OrderByDescending(file => file.LastWriteTimeUtc)
                 .ThenByDescending(file => file.Name, StringComparer.Ordinal).ToList();
+        }
+
+        bool IsManagedReplay(FileInfo file, Dictionary<string, string> ownership)
+        {
+            string name = Path.GetFileNameWithoutExtension(file.Name);
+            if (AutomaticReplayName.IsMatch(name)) return true;
+            string relative = Path.Combine("replays", file.Name);
+            try
+            {
+                if (IsBattleRecord(File.ReadAllText(CheckedPath(relative), Utf8))) return true;
+                return ownership.TryGetValue(name, out var digest)
+                    && string.Equals(digest, FileDigest(relative), StringComparison.Ordinal);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // 无法确认的外来文件不能阻塞存档，也不能授权本轮清理。
+                return false;
+            }
+        }
+
+        static bool IsBattleRecord(string json)
+        {
+            try { BattleRecord.FromJson(json); return true; }
+            catch (FormatException) { return false; }
+        }
+
+        Dictionary<string, string> NewReplayOwnership()
+        {
+            return new Dictionary<string, string>(pathComparison == StringComparison.OrdinalIgnoreCase
+                ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        }
+
+        Dictionary<string, string> ReadReplayOwnership()
+        {
+            var ownership = NewReplayOwnership();
+            string json = ReadOptional(ReplayOwnershipPath);
+            if (json == null) return ownership;
+            try
+            {
+                var entries = MiniJson.Parse(json) as Dictionary<string, object>;
+                if (entries == null) return ownership;
+                foreach (var entry in entries)
+                {
+                    // 损坏登记不能成为删除普通 JSON 的依据。
+                    if (!IsValidName(entry.Key) || !(entry.Value is string digest) || digest.Length != 64
+                        || !digest.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                        return NewReplayOwnership();
+                    ownership[entry.Key] = digest;
+                }
+            }
+            catch (FormatException) { return NewReplayOwnership(); }
+            return ownership;
+        }
+
+        Dictionary<string, string> MatchingReplayOwnership(Dictionary<string, string> ownership)
+        {
+            var matching = NewReplayOwnership();
+            foreach (var file in ReplayCandidates())
+            {
+                string name = Path.GetFileNameWithoutExtension(file.Name);
+                if (AutomaticReplayName.IsMatch(name) || !ownership.TryGetValue(name, out var digest)) continue;
+                string relative = Path.Combine("replays", file.Name);
+                try
+                {
+                    if (!IsBattleRecord(File.ReadAllText(CheckedPath(relative), Utf8))
+                        && string.Equals(digest, FileDigest(relative), StringComparison.Ordinal)) matching[name] = digest;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // 暂时占用不等于内容已变；保留摘要，解锁后仍须重新匹配才能列出或删除。
+                    matching[name] = digest;
+                }
+            }
+            return matching;
+        }
+
+        void WriteReplayOwnership(Dictionary<string, string> ownership)
+        {
+            if (ownership.Count == 0)
+            {
+                File.Delete(CheckedPath(ReplayOwnershipPath));
+                return;
+            }
+            // 名称和摘要都已限制为 ASCII 安全字符，无需改变回放原文来附加元数据。
+            string json = "{" + string.Join(",", ownership.OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => "\"" + entry.Key + "\":\"" + entry.Value + "\"")) + "}";
+            WriteAtomic(ReplayOwnershipPath, ReplayOwnershipTemporaryPath, json);
+        }
+
+        string FileDigest(string relative)
+        {
+            using (var sha = SHA256.Create())
+                return string.Concat(sha.ComputeHash(File.ReadAllBytes(CheckedPath(relative)))
+                    .Select(value => value.ToString("x2", CultureInfo.InvariantCulture)));
         }
 
         string ReadOptional(string relative)

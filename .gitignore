@@ -9,6 +9,8 @@ UnityProject/[Uu]ser[Ss]ettings/
 UnityProject/*.csproj
 UnityProject/*.sln
 UnityProject/.vs/
+Build/
+/build.log
 # dotnet
 **/bin/
 **/obj/

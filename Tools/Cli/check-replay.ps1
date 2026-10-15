@@ -247,17 +247,18 @@ try {
     $namedReplayPath = Join-Path $retentionPath 'shared_replay.json'
     [IO.File]::WriteAllText($namedReplayPath, $recordJson, $utf8)
     [IO.File]::SetLastWriteTimeUtc($namedReplayPath, [datetime]::new(1999, 1, 1, 0, 0, 0, [DateTimeKind]::Utc))
-    $foreignPath = Join-Path $retentionPath 'foreign.note.json'
+    $foreignPath = Join-Path $retentionPath 'foreign.json'
     [IO.File]::WriteAllText($foreignPath, '{"keep":true}', $utf8)
+    [IO.File]::SetLastWriteTimeUtc($foreignPath, [datetime]::new(1998, 1, 1, 0, 0, 0, [DateTimeKind]::Utc))
     [IO.File]::WriteAllText((Join-Path $retentionPath '.replay.json.tmp'), 'interrupted replay', $utf8)
     [IO.File]::WriteAllText((Join-Path $retentionDirectory 'saves/.profile.json.tmp'), 'interrupted profile', $utf8)
     $null = Invoke-CliCheck '17-retention' $retentionDirectory $gameArguments
-    Assert-Check (@(Get-ChildItem -LiteralPath $retentionPath -File | Where-Object { $_.Name -cmatch '^[A-Za-z0-9_-]+\.json$' }).Count -eq 50) '合法名称的回放总数未保留 50 份。'
+    Assert-Check (@(Managed-Replays $retentionDirectory).Count -eq 50) '自动回放未保留 50 份。'
     Assert-Check (-not (Test-Path -LiteralPath $namedReplayPath)) '没有按修改时间清理最旧的自定义名称回放。'
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $retentionPath '20000101_000000_0000000_original.json')) -and -not (Test-Path -LiteralPath (Join-Path $retentionPath '20000101_000000_0000001_original.json'))) '没有优先删除最旧的自动回放。'
-    Assert-Check ([IO.File]::ReadAllText($foreignPath) -ceq '{"keep":true}') '清理误删或覆盖不符合回放名称规则的外来 JSON。'
+    Assert-Check ([IO.File]::ReadAllText($foreignPath) -ceq '{"keep":true}') '清理误删或覆盖外来 JSON。'
     Assert-Check (@(Get-ChildItem -LiteralPath (Join-Path $retentionDirectory 'saves') -File -Recurse -Force | Where-Object { $_.Name.EndsWith('.tmp') }).Count -eq 0) '成功保存后遗留临时文件。'
-    $checks.Add('所有合法名称回放共保留 50、按修改时间清理、保护非法名称 JSON、恢复陈旧临时文件')
+    $checks.Add('回放保留 50、按时间清理、保护外来 JSON、恢复陈旧临时文件；包含自定义名称回放')
 
     $lockedDirectory = New-Case 'retention-lock'
     $lockedPath = Seed-Replays $lockedDirectory 50 $recordJson
