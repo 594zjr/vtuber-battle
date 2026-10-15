@@ -37,6 +37,7 @@ namespace StreamDuel.Cli
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
+                if (options.Hotseat) return PlayHotseat(db, preset, options);
                 if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
                 if (options.Network) return PlayNetwork(db, player, options);
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
@@ -180,6 +181,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
+            Console.WriteLine("  --hotseat         同屏双人轮流手动操作；交接时清屏并按回车确认，私密选择输入不回显。");
+            Console.WriteLine("  --team-b 六个编号 同屏 B 方队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
+            Console.WriteLine("  --name-a 名称 / --name-b 名称  同屏双方显示名，默认玩家 A / 玩家 B；仅与 --hotseat 同用。");
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
@@ -203,6 +207,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、种子与选择序列的战斗日志一致；计时会受到输入和计算耗时影响，完整输出还取决于初始档案。");
             Console.WriteLine("--calc / --matchup 仅分析、不开始对局或写存档；两者互斥，只可搭配 --pack、--pack-dir 和 --help。");
+            Console.WriteLine("同屏支持 --seed、--ban、--lead、队伍导入导出、--share、--report 和 --save-dir；禁用自动/难度/计时/哈希/联网/回看/录像列表/列包/分析/图鉴参数。完整对局按 A 方累计一次档案，提前退出不存档。");
             Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code、--replays 或 --list-packs 同用。");
             Console.WriteLine("回放均支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用。--save-dir 决定录像库位置，其他对战参数不改变记录；回看不新增战绩或录像。");
             Console.WriteLine("--replays 与回看、联网、--list-packs、--report、--share、--timer、队伍码导入导出及分析/图鉴入口互斥；其他对战参数对列表无影响。战报不能写入 replay-library 目录。现有文件路径优先于同名录像编号。");

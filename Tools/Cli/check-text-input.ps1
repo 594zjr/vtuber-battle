@@ -82,6 +82,63 @@ function Assert-Safe([string]$Text, [string]$Name, [string]$Word) {
     Assert-Check (-not $Text.Contains($Word)) "$Name 直接显示了词表内的原词。"
 }
 
+function Plan-Hotseat([string]$NameA, [string]$NameB) {
+    $options = [StreamDuel.Core.BattleOptions]::new()
+    $options.Seed = 97
+    $options.BanOne = $true
+    $options.LeadPick = $true
+    $session = [StreamDuel.Core.HotseatSession]::new($db, $hotseatTeamA, $hotseatTeamB, $NameA, $NameB, $options)
+    $transcript = [Text.StringBuilder]::new()
+    $handovers = 0
+    while ($session.Phase -ne [StreamDuel.Core.Phase]::Over) {
+        Assert-Check ($transcript.Length -lt 20000) '同屏夹具未在合理步骤内结束。'
+        if ($session.NeedsHandover) {
+            [void]$transcript.Append("`n")
+            $session.ConfirmHandover()
+            $handovers++
+        }
+        $side = $session.WhoseTurn
+        $view = $session.ViewFor($side)
+        switch ($session.Phase.ToString()) {
+            'Ban' { [void]$transcript.Append("1`n"); $session.SubmitBan(0) }
+            'Lead' { [void]$transcript.Append("2`n"); $session.SubmitLead(1) }
+            'Replace' {
+                $target = $view.SwitchTargets[0]
+                [void]$transcript.Append(($target + 1).ToString() + "`n")
+                $session.SubmitReplace($target)
+            }
+            'Choose' {
+                if ($null -ne $view.ControlledReason) {
+                    [void]$transcript.Append("0`n")
+                    $session.Submit([StreamDuel.Core.BattleAction]::Pass())
+                } elseif ($view.Struggle) {
+                    [void]$transcript.Append("0`n")
+                    $action = [StreamDuel.Core.BattleAction]::new()
+                    $action.Type = [StreamDuel.Core.ActionType]::Struggle
+                    $session.Submit($action)
+                } else {
+                    $skill = @($view.Skills | Where-Object Usable | Sort-Object @{ Expression = 'DamageMax'; Descending = $true }, Index)[0]
+                    [void]$transcript.Append(($skill.Index + 1).ToString() + "`n")
+                    $session.Submit([StreamDuel.Core.BattleAction]::Skill($skill.Index))
+                }
+            }
+        }
+    }
+    return [pscustomobject]@{ Session = $session; Input = $transcript.ToString(); Handovers = $handovers }
+}
+
+function Hotseat-Log([string]$Output) {
+    $entries = [Collections.Generic.List[string]]::new()
+    $node = $null
+    $turn = 0
+    foreach ($line in ($Output -split "`n")) {
+        if ($line -match '^【第 ([0-9]+) 回合 · ([^】]+)】\r?$') { $turn = [int]$Matches[1]; $node = $Matches[2] }
+        elseif ($null -ne $node -and $line.StartsWith('  ')) { $entries.Add("$turn|$node|" + $line.Substring(2).TrimEnd("`r")) }
+        else { $node = $null }
+    }
+    return $entries -join "`n"
+}
+
 try {
     $save = Join-Path $runDirectory 'baseline-saves'
     $null = Invoke-Cli '01-baseline' @('--auto', '--pack', 'original', '--seed', '97', '--ban', '--lead', '--save-dir', $save)
@@ -167,6 +224,57 @@ try {
     Assert-Check ($team.Out.Contains('文字提示：') -and $team.Out.Contains('本方队伍码：' + $teamCode)) '队伍码导入未提示或更改了导出字节。'
     Assert-Check (-not (Test-Path -LiteralPath $teamSave)) '队伍码提前退出产生了存档。'
     $checks.Add('队伍码异常名称仅显示通用提示，导出字节不变，提前退出不存档')
+
+    [string[]]$hotseatTeamA = @('bell', 'enka', 'shiori', 'lumi', 'hane', 'momo')
+    [string[]]$hotseatTeamB = @('kei', 'yuan', 'nyako', 'buck', 'kasumi', 'bee')
+    # CLI 沿用控制字符拒绝契约；同屏输入用可进入会话的零宽、方向格式字符和超长名字。
+    $hotseatRawA = '甲' + [char]0x200b + $word + [char]0x202e + ' ' + ('🦊' * 20)
+    $hotseatRawB = ('🛰' * 16) + '乙'
+    $hotseatSafeA = [StreamDuel.Core.TextInput]::Clean($hotseatRawA, [StreamDuel.Core.TextInputKind]::PlayerName).Text
+    $hotseatSafeB = [StreamDuel.Core.TextInput]::Clean($hotseatRawB, [StreamDuel.Core.TextInputKind]::PlayerName).Text
+    $plan = Plan-Hotseat $hotseatRawA $hotseatRawB
+    $hotseatSave = Join-Path $runDirectory 'hotseat-saves'
+    $hotseatReport = Join-Path $runDirectory 'hotseat-report.md'
+    $hotseatInput = Join-Path $runDirectory 'hotseat-input.txt'
+    [IO.File]::WriteAllText($hotseatInput, $plan.Input, $utf8)
+    $hotseat = Invoke-Cli '07-hotseat' @('--hotseat', '--seed', '97', '--ban', '--lead',
+        '--team', ($hotseatTeamA -join ','), '--team-b', ($hotseatTeamB -join ','),
+        '--name-a', $hotseatRawA, '--name-b', $hotseatRawB, '--share', '--report', $hotseatReport,
+        '--save-dir', $hotseatSave) $plan.Input
+    $clearSequence = "$([char]0x1b)[2J$([char]0x1b)[H$([char]0x1b)[3J"
+    $handoverCount = [regex]::Matches($hotseat.Out, [regex]::Escape($clearSequence)).Count
+    Assert-Check ($plan.Handovers -gt 1 -and $handoverCount -eq $plan.Handovers) '同屏显示清理改变了交接或清屏次数。'
+    # 只移除程序刻意输出的完整清屏序列，其他 ESC 仍须被安全断言拦截。
+    $hotseatPlain = $hotseat.Out.Replace($clearSequence, '')
+    Assert-Safe $hotseatPlain '同屏开场、交接与完整日志' $word
+    Assert-Check ($hotseatPlain.Contains("种子：97；A 方：$hotseatSafeA；B 方：$hotseatSafeB") -and
+        $hotseatPlain.Contains('A 方昵称显示已调整：') -and $hotseatPlain.Contains('B 方昵称显示已调整：')) '同屏开场未显示安全名字与两方中文提示。'
+    foreach ($name in @($hotseatSafeA, $hotseatSafeB)) {
+        Assert-Check ($hotseatPlain.Contains("请把电脑交给「$name」。") -and
+            $hotseatPlain.Contains($name + ' 操作 =====')) '同屏交接或操作视图未显示安全名字。'
+    }
+    $expectedLog = ($plan.Session.DisplayLog | ForEach-Object { "$($_.Turn)|$($_.Node)|$($_.Text)" }) -join "`n"
+    $rawLog = ($plan.Session.Log | ForEach-Object { "$($_.Turn)|$($_.Node)|$($_.Text)" }) -join "`n"
+    Assert-Check ($expectedLog -cne $rawLog -and (Hotseat-Log $hotseatPlain) -ceq $expectedLog) '同屏完整公开日志没有逐字使用安全显示副本。'
+    $checks.Add('同屏异常昵称：开场与两方提示、交接、操作视图及完整公开日志安全，清屏次数不变')
+
+    $hotseatRecords = @(Get-ChildItem -LiteralPath (Join-Path $hotseatSave 'replays') -File -Filter '*.json' |
+        Where-Object { -not $_.Name.StartsWith('.') })
+    Assert-Check ($hotseatRecords.Count -eq 1) '同屏完整对局没有恰好保存一份旧版回放。'
+    $hotseatRawJson = $plan.Session.Record.ToJson()
+    Assert-Check ([IO.File]::ReadAllText($hotseatRecords[0].FullName, $utf8) -ceq $hotseatRawJson) '同屏显示过滤改变了原始回放。'
+    $hotseatLibrary = [StreamDuel.Core.ReplayLibrary]::new((Join-Path $hotseatSave 'replay-library'), 200, $null)
+    $hotseatEntries = @($hotseatLibrary.List())
+    Assert-Check ($hotseatEntries.Count -eq 1 -and
+        $hotseatLibrary.Load($hotseatEntries[0].Id).ToJson() -ceq $hotseatRawJson) '同屏显示过滤改变了录像库记录。'
+    $hotseatCode = [regex]::Match($hotseat.Out, '(?m)^分享码：(SD1-[A-Za-z0-9_-]+)\r?$')
+    Assert-Check ($hotseatCode.Success -and
+        [StreamDuel.Core.ShareCode]::Decode($hotseatCode.Groups[1].Value).ToJson() -ceq $hotseatRawJson) '同屏分享码未保留原始名字或记录。'
+    $hotseatMarkdown = [IO.File]::ReadAllText($hotseatReport, $utf8)
+    Assert-Safe $hotseatMarkdown '同屏战报' $word
+    Assert-Check ($hotseatMarkdown -ceq [StreamDuel.Core.BattleReport]::Markdown(
+        [StreamDuel.Core.TextInput]::ForDisplay($plan.Session.CloneCompletedBattle()), 0)) '同屏战报不是完整安全显示副本。'
+    $checks.Add('同屏原始回放、录像库及分享码完整保真，战报使用安全显示副本')
 
     foreach ($binary in $binaryHashes) {
         Assert-Check ((Get-FileHash -LiteralPath $binary.Path -Algorithm SHA256).Hash -eq $binary.Hash) '验收期间构建产物发生变化，需重新验收。'
