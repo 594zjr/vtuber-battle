@@ -12,6 +12,7 @@ namespace StreamDuel.Cli
         public uint Seed = 1;
         public string[] Team = null;
         public bool Auto;
+        public bool Ban;
         public bool Help;
 
         public static CliOptions Parse(string[] args)
@@ -25,6 +26,11 @@ namespace StreamDuel.Cli
                 if (option == "--auto")
                 {
                     options.Auto = true;
+                    continue;
+                }
+                if (option == "--ban")
+                {
+                    options.Ban = true;
                     continue;
                 }
                 if (option == "--help" || option == "-h")

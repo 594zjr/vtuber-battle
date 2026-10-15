@@ -15,7 +15,7 @@ namespace StreamDuel.Core
             TurnEnd = "回合结束", Replace = "补位", Over = "结束", TurnHeader = "回合";
     }
 
-    public enum Phase { Choose, Replace, Over, Lead }
+    public enum Phase { Choose, Replace, Over, Lead, Ban }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
     public struct BattleAction
@@ -100,15 +100,24 @@ namespace StreamDuel.Core
         readonly Rng rng;
 
         public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null, bool leadPick = false)
+            : this(db, teams, names, new BattleOptions { Seed = seed, LeadPick = leadPick })
         {
+        }
+
+        public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
+        {
+            if (opt == null) throw new ArgumentNullException(nameof(opt));
             Db = db;
-            Seed = seed ?? (uint)Environment.TickCount;
+            Seed = opt.Seed ?? (uint)Environment.TickCount;
             rng = new Rng(Seed);
+            leadPickAfterBan = opt.LeadPick;
             Record = new BattleRecord
             {
                 Seed = Seed,
                 PackId = db.PackId,
-                LeadPick = leadPick,
+                LeadPick = opt.LeadPick,
+                BanOne = opt.BanOne,
+                Names = names.ToArray(),
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
             for (int s = 0; s < 2; s++)
@@ -116,7 +125,8 @@ namespace StreamDuel.Core
                 Sides[s] = new SideState { Name = names[s] };
                 for (int i = 0; i < teams[s].Count; i++) Sides[s].Team.Add(MakeFighter(teams[s][i], i + 1, s));
             }
-            if (leadPick) Phase = Phase.Lead;
+            if (opt.BanOne) Phase = Phase.Ban;
+            else if (opt.LeadPick) Phase = Phase.Lead;
             else StartBattle();
         }
 

@@ -91,6 +91,30 @@ namespace StreamDuel.Core
             return threat < 0.6 ? 0.32 : 0.12;
         }
 
+        public static int ChooseBan(Battle b, int s)
+        {
+            if (b == null) throw new ArgumentNullException(nameof(b));
+            if (s < 0 || s >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(s), "对战方必须是 0 或 1");
+            if (b.Phase != Phase.Ban) throw new InvalidOperationException("现在不是选择禁用的阶段");
+            if (b.HasChosenBan(s)) throw new InvalidOperationException("这一方已经选择禁用");
+            var team = b.Sides[s].Team;
+            var foes = b.Sides[1 - s].Team;
+            var best = new List<int>();
+            double bestScore = double.NegativeInfinity;
+            for (int i = 0; i < foes.Count; i++)
+            {
+                double score = team.Average(ally => Matchup(b, foes[i], ally));
+                if (score > bestScore + 1e-9)
+                {
+                    bestScore = score;
+                    best.Clear();
+                    best.Add(i);
+                }
+                else if (Math.Abs(score - bestScore) <= 1e-9) best.Add(i);
+            }
+            return best.Count == 1 ? best[0] : best[(int)(b.Random() * best.Count)];
+        }
+
         public static int ChooseLead(Battle b, int s)
         {
             if (b == null) throw new ArgumentNullException(nameof(b));

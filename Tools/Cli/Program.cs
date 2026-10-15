@@ -35,7 +35,8 @@ namespace StreamDuel.Cli
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
                 var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
                     .Concat(player).Take(6).ToArray();
-                var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" }, options.Seed);
+                var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" },
+                    new BattleOptions { Seed = options.Seed, BanOne = options.Ban });
 
                 Console.WriteLine("开播对决 · 命令行对战");
                 Console.WriteLine("内容包：" + db.PackName);
@@ -48,6 +49,28 @@ namespace StreamDuel.Cli
 
                 while (battle.Phase != Phase.Over)
                 {
+                    if (battle.Phase == Phase.Ban)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("===== 开局禁用 =====");
+                        for (int side = 0; side < 2 && battle.Phase == Phase.Ban; side++)
+                        {
+                            if (battle.HasChosenBan(side)) continue;
+                            int to;
+                            if (side == 0 && !options.Auto)
+                            {
+                                var choice = ReadBan(battle);
+                                if (!choice.HasValue) return Quit();
+                                to = choice.Value;
+                            }
+                            else to = Ai.ChooseBan(battle, side);
+                            battle.ChooseBan(side, to);
+                            PrintNewLog(battle, ref logIndex);
+                        }
+                        PrintTeams(battle);
+                        continue;
+                    }
+
                     Console.WriteLine();
                     Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
                     PrintFighter(battle, 1);
@@ -99,12 +122,13 @@ namespace StreamDuel.Cli
 
         private static void PrintHelp()
         {
-            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto]");
+            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto] [--ban]");
             Console.WriteLine("默认：原创包 original、普通难度 normal、种子 1；--level 支持 easy / normal。");
             Console.WriteLine("未指定 --team 时，按内容包顺序选择前六位；电脑先选剩余主播，再按我方顺序补足六位。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("--auto 让双方按所选难度操作并输出整局；相同内容、参数和种子的输出完全一致。");
+            Console.WriteLine("--ban 开局双方各禁用对方一位主播，剩余五位对战；手动输入对手号位 1～6，--auto 时由电脑代选。");
         }
 
         private static void PrintTeams(Battle battle)
@@ -141,6 +165,27 @@ namespace StreamDuel.Cli
                     + (field.Turns < 0 ? "直到下场" : "剩余 " + field.Turns + " 回合")
                     + (field.Stacks > 0 ? "；" + field.Stacks + " 层" : "")
                     + "；" + (def.Dispel ? "可被消回合" : "消回合清不掉") + "〕" + def.Desc);
+            }
+        }
+
+        private static int? ReadBan(Battle battle)
+        {
+            var foes = battle.Sides[1].Team;
+            Console.WriteLine("对手完整阵容（选择一位禁用）：");
+            for (int index = 0; index < foes.Count; index++)
+            {
+                var fighter = foes[index];
+                var persona = battle.PersonaOf(fighter);
+                Console.WriteLine("  [" + (index + 1) + "] " + fighter.Name + "（" + fighter.Def.Id + "） · 人设：" + persona.Name);
+                Console.WriteLine("      技能：" + string.Join("、", fighter.Skills.Select(slot =>
+                    battle.Db.Skills[slot.Id].Name + (slot.Fifth ? "〔第五技能〕" : ""))));
+            }
+            while (true)
+            {
+                var number = ReadNumber("请选择要禁用的对手号位（q 退出）> ");
+                if (!number.HasValue) return null;
+                if (number.Value >= 1 && number.Value <= foes.Count) return number.Value - 1;
+                Console.WriteLine("该号位不存在，请选择列表中的对手主播。");
             }
         }
 
