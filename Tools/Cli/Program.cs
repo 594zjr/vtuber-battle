@@ -431,6 +431,7 @@ namespace StreamDuel.Cli
                 }
                 Console.WriteLine("  " + entry.Text);
             }
+            PrintCommentary(battle);
         }
     }
 }
