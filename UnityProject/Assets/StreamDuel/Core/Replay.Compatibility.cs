@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace StreamDuel.Core
 {
@@ -17,9 +18,13 @@ namespace StreamDuel.Core
 
     public static partial class Replay
     {
-        public static ReplayCompat Check(ContentDb db, BattleRecord r)
+        public static ReplayCompat Check(ContentDb db, BattleRecord r, PackPolicy policy = null)
         {
             if (r == null) return Incompatible("录像记录缺失。");
+            // 原队伍仍保留被移除的主播编号，先检查政策才不会被缺包或指纹变化掩盖。
+            string policyError = PolicyError(db?.Policy ?? PackPolicy.Empty, r);
+            if (policyError == null && policy != null) policyError = PolicyError(policy, r);
+            if (policyError != null) return Incompatible(policyError);
             string versionError = VersionError(r);
             if (versionError != null) return Incompatible(versionError);
             if (db == null) return Incompatible("缺少录像所需的内容包：" + (r.PackId ?? "未指定"));
@@ -58,6 +63,12 @@ namespace StreamDuel.Core
         static ReplayCompat Incompatible(string reason)
         {
             return new ReplayCompat(false, reason);
+        }
+
+        internal static string PolicyError(PackPolicy policy, BattleRecord record)
+        {
+            return policy.CheckTeam(record.PackId, record.Teams == null ? null
+                : record.Teams.Where(team => team != null).SelectMany(team => team));
         }
 
         static string VersionError(BattleRecord r)

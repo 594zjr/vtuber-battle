@@ -19,6 +19,8 @@ namespace StreamDuel.Core
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             var errors = new List<string>();
+            string disabledPack = db.Policy.PackReason(PackId);
+            if (disabledPack != null) { errors.Add(disabledPack); return errors; }
             if (!string.Equals(PackId, db.PackId, StringComparison.Ordinal))
                 errors.Add("这套队伍属于其他内容包");
             errors.AddRange(TeamCheck.Validate(db, seasonId, Ids));
