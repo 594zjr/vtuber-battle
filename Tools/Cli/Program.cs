@@ -136,8 +136,17 @@ namespace StreamDuel.Cli
                 Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
                 PrintTeams(battle);
                 Console.WriteLine(BattleSummary.From(battle).ToText());
-                string replayWarning = ReplayStore.Save(battle, options.SaveDir);
-                Console.WriteLine("回放已保存到：" + Path.Combine(options.SaveDir, "replays"));
+                string replayWarning;
+                try
+                {
+                    replayWarning = ReplayStore.Save(battle, options.SaveDir);
+                    Console.WriteLine("回放已保存到：" + Path.Combine(options.SaveDir, "replays"));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // 回放与档案独立保存，回放目录的故障不能漏记已完成的对局。
+                    replayWarning = "回放保存失败：" + ex.Message;
+                }
                 if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
                 var profile = ProfileStore.Record(battle, options.SaveDir);
                 var stats = profile.Packs[db.PackId];

@@ -295,6 +295,53 @@ try {
         Assert-Check ($help.Out.Contains($parameter)) "帮助缺少 $parameter。"
     }
     $checks.Add('所有参数均有帮助说明')
+
+    $blockedDirectory = New-Case 'replay-path-file'
+    $blockedSavePath = Join-Path $blockedDirectory 'saves'
+    [void][IO.Directory]::CreateDirectory($blockedSavePath)
+    $blockedReplayPath = Join-Path $blockedSavePath 'replays'
+    [IO.File]::WriteAllText($blockedReplayPath, 'keep blocked replay path', $utf8)
+    $blocked = Invoke-CliCheck '26-replay-path-file' $blockedDirectory $gameArguments '' 1
+    Assert-Stats (Read-Stats $blockedDirectory) 1 $baselineStats
+    Assert-Check ($blocked.Out.Contains('对战统计') -and $blocked.Out.Contains('本包战绩：') -and $blocked.Err.Length -gt 0) '回放路径被文件占用时未完成结算、记录战绩或告知失败。'
+    Assert-Check (-not $blocked.Out.Contains('回放已保存到：')) '回放路径被文件占用时谎报保存成功。'
+    Assert-Check ([IO.File]::ReadAllText($blockedReplayPath) -ceq 'keep blocked replay path') '保存回放覆盖了占用路径的原文件。'
+    $checks.Add('回放目录被普通文件占用：exit 1、战绩累计一次、不谎报保存成功')
+
+    $writeLockedDirectory = New-Case 'replay-save-lock'
+    $writeLockedPath = Join-Path $writeLockedDirectory 'saves/replays'
+    [void][IO.Directory]::CreateDirectory($writeLockedPath)
+    $heldReplayLock = [IO.File]::Open((Join-Path $writeLockedPath '.replays.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $writeLocked = Invoke-CliCheck '27-replay-save-locked' $writeLockedDirectory $gameArguments '' 1
+        Assert-Stats (Read-Stats $writeLockedDirectory) 1 $baselineStats
+        Assert-Check (@(Managed-Replays $writeLockedDirectory).Count -eq 0) '独占回放锁期间意外写入回放。'
+        Assert-Check ($writeLocked.Out.Contains('对战统计') -and $writeLocked.Out.Contains('本包战绩：') -and $writeLocked.Err.Length -gt 0) '回放锁被占用时未完成结算、记录战绩或告知失败。'
+        Assert-Check (-not $writeLocked.Out.Contains('回放已保存到：')) '回放锁被占用时谎报保存成功。'
+    }
+    finally { $heldReplayLock.Dispose() }
+    $writeRecovered = Invoke-CliCheck '28-replay-save-recovered' $writeLockedDirectory $gameArguments
+    Assert-Stats (Read-Stats $writeLockedDirectory) 2 $baselineStats
+    Assert-Check (@(Managed-Replays $writeLockedDirectory).Count -eq 1) '释放回放锁后未保存且仅保存新对局的一份回放。'
+    Assert-Check ($writeRecovered.Err.Length -eq 0 -and $writeRecovered.Out.Contains('回放已保存到：')) '释放回放锁后未恢复正常保存。'
+    $checks.Add('回放锁独占：exit 1、战绩一次、无回放；释放后战绩两次且一份回放')
+
+    $customDirectory = New-Case 'custom-save-directory'
+    $customParent = Join-Path $customDirectory 'custom save space'
+    $customSavePath = Join-Path $customParent 'saves'
+    $customGame = Invoke-CliCheck '29-custom-save-game' $customDirectory ($gameArguments + @('--save-dir', $customSavePath))
+    Assert-Stats (Read-Stats $customParent) 1 $baselineStats
+    $customReplays = @(Managed-Replays $customParent)
+    Assert-Check ($customReplays.Count -eq 1) '带空格的自定义保存目录未保存一份回放。'
+    Assert-Check (-not (Test-Path -LiteralPath (Join-Path $customDirectory 'saves'))) '自定义保存目录的新对局误写默认目录。'
+    $customFingerprint = Save-Fingerprint $customParent
+    $customReplay = Invoke-CliCheck '30-custom-save-replay' $customDirectory @('--replay', $customReplays[0].FullName, '--auto', '--save-dir', $customSavePath)
+    Assert-Check ((Battle-Lines $customReplay.Out) -ceq (Battle-Lines $customGame.Out)) '自定义目录回看日志与原对局不同。'
+    Assert-Check ((Summary-Text $customReplay.Out) -ceq (Summary-Text $customGame.Out)) '自定义目录回看统计与原对局不同。'
+    Assert-Check ((Save-Fingerprint $customParent) -ceq $customFingerprint) '回看修改了自定义目录的档案或回放。'
+    Assert-Check (-not (Test-Path -LiteralPath (Join-Path $customDirectory 'saves'))) '自定义保存目录的回看误写默认目录。'
+    $checks.Add('带空格 --save-dir：新局正确保存、回看一致且档案和回放不变')
+
     $report = [ordered]@{
         status = 'PASS'
         stdout_sha256 = (Get-FileHash -LiteralPath (Join-Path $runDirectory '01-first.stdout.log') -Algorithm SHA256).Hash
