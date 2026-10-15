@@ -21,6 +21,7 @@ namespace StreamDuel.Core
         private readonly IList<string> myTeam;
         private readonly string myName;
         private readonly uint? hostSeed;
+        private readonly string contentHash;
         private readonly BattleAction?[] actions = new BattleAction?[2];
         private readonly int?[] replacements = new int?[2];
         private readonly bool[] needsReplacement = new bool[2];
@@ -50,8 +51,10 @@ namespace StreamDuel.Core
                 Fault(NetState.Error, errors.Count > 0 ? "本方队伍不合法：" + string.Join("；", errors) : "本方名字不能为 null。");
                 return;
             }
+            contentHash = db.ContentHash();
             Send("{\"type\":\"hello\",\"version\":" + Number(ProtocolVersion)
                 + ",\"packId\":" + NetJson.Quote(db.PackId)
+                + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
                 + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]}");
@@ -159,6 +162,14 @@ namespace StreamDuel.Core
             if (version != ProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(ProtocolVersion) + "，对方 " + version + "。");
             string packId = NetJson.Text(obj, "packId");
             if (packId != db.PackId) throw new FormatException("内容包不同：本端「" + db.PackId + "」，对方「" + packId + "」。");
+            string peerContentHash = NetJson.Text(obj, "contentHash");
+            string currentContentHash = db.ContentHash();
+            // 发出的指纹也必须仍对应本地内容，避免握手途中修改规则后误以为双方一致。
+            if (!string.Equals(contentHash, currentContentHash, StringComparison.Ordinal))
+                throw new FormatException("内容不一致：握手期间本端内容已变化，已发送指纹 " + contentHash
+                    + "，当前指纹 " + currentContentHash + "，对方指纹 " + peerContentHash + "。");
+            if (!string.Equals(contentHash, peerContentHash, StringComparison.Ordinal))
+                throw new FormatException("内容不一致：本端指纹 " + contentHash + "，对方指纹 " + peerContentHash + "。");
             string name = NetJson.Text(obj, "name");
             var team = new List<string>();
             foreach (var item in NetJson.Array(obj, "team"))
