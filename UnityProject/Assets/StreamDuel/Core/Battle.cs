@@ -41,6 +41,8 @@ namespace StreamDuel.Core
         public List<FieldInst> Fields = new List<FieldInst>();
         public string Name { get { return Def.Name; } }
         public string Type { get { return Def.Type; } }
+        public string Type2 { get { return Def.Type2; } }
+        public bool HasType(string type) { return type == Type || type == Type2; }
         public double HpRatio { get { return (double)Hp / MaxHp; } }
         public int Pct { get { return (int)Math.Round(HpRatio * 100); } }
         public static Dictionary<string, int> NewStages() { return ContentDb.StatKeys.ToDictionary(k => k, k => 0); }
@@ -376,8 +378,8 @@ namespace StreamDuel.Core
             bool inter = skill.Cat == "interact";
             double A = StatVal(p, inter ? "atk" : "spa"), D = StatVal(f, inter ? "def" : "sdef");
             double power = skill.Power * powerMul, mul = 1;
-            if (skill.Type == p.Type) mul *= 1.5;
-            r.Eff = Db.TypeMul(skill.Type, f.Type); mul *= r.Eff;
+            if (p.HasType(skill.Type)) mul *= 1.5;
+            r.Eff = Db.TypeMul(skill.Type, f.Type, f.Type2); mul *= r.Eff;
             foreach (var st in p.Statuses)
             {
                 var sd = Db.Statuses[st.Id];
