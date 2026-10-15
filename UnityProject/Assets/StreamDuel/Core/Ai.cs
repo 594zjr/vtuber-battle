@@ -233,7 +233,7 @@ namespace StreamDuel.Core
                         if (!b.CondMet(p, f, goFirst ? Node.First : Node.Second, e.Cond, out why)) break;
                         foreach (var stage in f.Stages.Where(kv => kv.Value > 0))
                         {
-                            int gain = Math.Min(stage.Value, 6 - p.Stages[stage.Key]);
+                            int gain = Math.Min(stage.Value, b.StageLimit - p.Stages[stage.Key]);
                             v += (w.StealBoostBaseScore + w.StealBoostPerStageScore * gain) * ch;
                         }
                         break;

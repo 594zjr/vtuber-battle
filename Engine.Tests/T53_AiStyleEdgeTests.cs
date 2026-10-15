@@ -316,4 +316,42 @@ public class T53_AiStyleEdgeTests
         Assert.Equal(expected.ToString(), actual.ToString());
         Assert.Equal(plain.Random(), styled.Random());
     }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 1)]
+    public void TrickyStealCountsOnlyStagesAllowedByThisBattle(bool capped, int expected)
+    {
+        var source = Make("tricky");
+        var db = source.Db;
+        AddSkill(db, "style_steal", 0,
+            new EffectDef { At = "post", Code = "STEAL_BOOST", Target = "foe" });
+        var modifiers = new List<string> { "no_switch" };
+        if (capped) modifiers.Add("stage_cap_3");
+        var battle = new Battle(db, source.Record.Teams, new[] { "甲", "乙" },
+            new BattleOptions { Seed = 53, Modifiers = modifiers });
+        var me = battle.Active(0);
+        var foe = battle.Active(1);
+        me.Hp = 400;
+        me.Stages["atk"] = foe.Stages["atk"] = 3;
+        foreach (var slot in me.Skills) slot.Pp = 0;
+        me.Skills[0].Id = "style_steal";
+        me.Skills[0].Pp = me.Skills[1].Pp = 10;
+        foreach (var slot in foe.Skills) slot.Id = "style_idle";
+
+        Assert.Equal(capped, battle.Modifiers.Contains("stage_cap_3"));
+        Assert.Empty(battle.LegalFor(0).Switches);
+        Assert.Equal(2, battle.LegalFor(0).Skills.Count(option => option.Usable));
+        string before = Snapshot(battle);
+        var randomReference = battle.Clone();
+
+        var action = Ai.Choose(battle, 0, AiLevel.Normal);
+
+        // 两种上限下的分差都大于随机扰动，实际无法获得的等级不能挤掉治疗。
+        Assert.Equal(BattleAction.Skill(expected).ToString(), action.ToString());
+        Assert.Equal(before, Snapshot(battle));
+        randomReference.Random();
+        randomReference.Random();
+        Assert.Equal(randomReference.Random(), battle.Random());
+    }
 }
