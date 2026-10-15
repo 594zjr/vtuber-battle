@@ -8,7 +8,7 @@ using StreamDuel.Core;
 
 namespace StreamDuel.Cli
 {
-    internal static class Program
+    internal static partial class Program
     {
         private static int Main(string[] args)
         {
@@ -25,10 +25,9 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
-                string content = Path.Combine(AppContext.BaseDirectory, "Content");
-                var db = ContentDb.FromJson(
-                    File.ReadAllText(Path.Combine(content, "StreamDuelRules.json")),
-                    File.ReadAllText(Path.Combine(content, "Packs", options.Pack + ".json")));
+                if (options.ReplayFile != null) return PlayReplay(options);
+
+                var db = LoadContent(options.Pack);
                 var player = options.Team ?? db.Streamers.Take(6).Select(s => s.Id).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
@@ -36,7 +35,7 @@ namespace StreamDuel.Cli
                 var opponent = db.Streamers.Select(s => s.Id).Where(id => !player.Contains(id))
                     .Concat(player).Take(6).ToArray();
                 var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" },
-                    new BattleOptions { Seed = options.Seed, BanOne = options.Ban });
+                    new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead });
 
                 Console.WriteLine("开播对决 · 命令行对战");
                 Console.WriteLine("内容包：" + db.PackName);
@@ -65,6 +64,28 @@ namespace StreamDuel.Cli
                             }
                             else to = Ai.ChooseBan(battle, side);
                             battle.ChooseBan(side, to);
+                            PrintNewLog(battle, ref logIndex);
+                        }
+                        PrintTeams(battle);
+                        continue;
+                    }
+
+                    if (battle.Phase == Phase.Lead)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine("===== 选择首发 =====");
+                        for (int side = 0; side < 2 && battle.Phase == Phase.Lead; side++)
+                        {
+                            if (battle.HasChosenLead(side)) continue;
+                            int to;
+                            if (side == 0 && !options.Auto)
+                            {
+                                var choice = ReadLead(battle);
+                                if (!choice.HasValue) return Quit();
+                                to = choice.Value;
+                            }
+                            else to = Ai.ChooseLead(battle, side);
+                            battle.ChooseLead(side, to);
                             PrintNewLog(battle, ref logIndex);
                         }
                         PrintTeams(battle);
@@ -114,14 +135,18 @@ namespace StreamDuel.Cli
                 Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
                 PrintTeams(battle);
                 Console.WriteLine(BattleSummary.From(battle).ToText());
+                string replayWarning = ReplayStore.Save(battle, options.SaveDir);
+                Console.WriteLine("回放已保存到：" + Path.Combine(options.SaveDir, "replays"));
+                if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
                 var profile = ProfileStore.Record(battle, options.SaveDir);
                 var stats = profile.Packs[db.PackId];
                 Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
                 Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-                return 0;
+                return replayWarning == null ? 0 : 1;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException
-                || ex is UnauthorizedAccessException || ex is KeyError || ex is OverflowException)
+                || ex is UnauthorizedAccessException || ex is KeyError || ex is OverflowException
+                || ex is FormatException || ex is InvalidOperationException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
@@ -130,15 +155,31 @@ namespace StreamDuel.Cli
 
         private static void PrintHelp()
         {
-            Console.WriteLine("用法：dotnet run --project Tools/Cli -- --pack fan_asoul_vr --level normal [--seed 1] [--team id1,id2,id3,id4,id5,id6] [--auto] [--ban] [--hash] [--save-dir 目录]");
-            Console.WriteLine("默认：原创包 original、普通难度 normal、种子 1；--level 支持 easy / normal。");
-            Console.WriteLine("未指定 --team 时，按内容包顺序选择前六位；电脑先选剩余主播，再按我方顺序补足六位。");
+            Console.WriteLine("用法：dotnet run --project Tools/Cli -- [参数]");
+            Console.WriteLine("  --pack 编号       内容包文件名，不含 .json；默认原创包 original。");
+            Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）；默认 normal。");
+            Console.WriteLine("  --seed 整数       对战种子 0..4294967295；默认 1。");
+            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；默认内容包前六位，电脑先选剩余再补齐。");
+            Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
+            Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
+            Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
+            Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
+            Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
+            Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
-            Console.WriteLine("--auto 让双方按所选难度操作并输出整局；相同内容、参数和种子的战斗日志完全一致。");
-            Console.WriteLine("--ban 开局双方各禁用对方一位主播，剩余五位对战；手动输入对手号位 1～6，--auto 时由电脑代选。");
-            Console.WriteLine("每局结束累计你这一方的战绩；--save-dir 默认 ./saves，档案为该目录中的 profile.json，仅保存在本机。");
-            Console.WriteLine("--hash 无需参数值：每回合结算后、补位前输出一次 64 位状态哈希（16 位十六进制），包括对局结束的回合；补位不重复输出。");
+            Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
+            Console.WriteLine("回放模式仅使用 --replay、--auto；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
+        }
+
+        private static ContentDb LoadContent(string pack)
+        {
+            if (!CliOptions.IsPackId(pack)) throw new ArgumentException("内容包编号只能包含英文字母、数字、下划线和连字符。");
+            string content = Path.Combine(AppContext.BaseDirectory, "Content");
+            return ContentDb.FromJson(
+                File.ReadAllText(Path.Combine(content, "StreamDuelRules.json")),
+                File.ReadAllText(Path.Combine(content, "Packs", pack + ".json")));
         }
 
         private static void PrintTeams(Battle battle)
@@ -197,6 +238,25 @@ namespace StreamDuel.Cli
                 if (!number.HasValue) return null;
                 if (number.Value >= 1 && number.Value <= foes.Count) return number.Value - 1;
                 Console.WriteLine("该号位不存在，请选择列表中的对手主播。");
+            }
+        }
+
+        private static int? ReadLead(Battle battle)
+        {
+            var team = battle.Sides[0].Team;
+            Console.WriteLine("选择我方首发（按当前剩余队伍号位）：");
+            for (int index = 0; index < team.Count; index++)
+            {
+                var fighter = team[index];
+                Console.WriteLine("  [" + (index + 1) + "] " + fighter.Name + "（" + fighter.Def.Id + "） · "
+                    + Describe.Tracks(battle.Db, fighter.Def) + " · 人设：" + battle.PersonaOf(fighter).Name);
+            }
+            while (true)
+            {
+                var number = ReadNumber("请选择首发号位（q 退出）> ");
+                if (!number.HasValue) return null;
+                if (number.Value >= 1 && number.Value <= team.Count) return number.Value - 1;
+                Console.WriteLine("该号位不存在，请选择列表中的队友。");
             }
         }
 
