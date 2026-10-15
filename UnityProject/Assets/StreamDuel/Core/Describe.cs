@@ -126,5 +126,42 @@ namespace StreamDuel.Core
             switch (f.Kind) { case "turn": return "回合类"; case "mark": return "印记"; case "protect": return "保护"; }
             return f.Kind;
         }
+
+        public static string StatusKind(StatusDef status)
+        {
+            return status.IsControl ? "控制类" : "弱化类";
+        }
+
+        public static string StatusDuration(StatusDef status, int remaining)
+        {
+            return status.IsControl ? "跳过 " + remaining + " 次" : remaining + " 回合";
+        }
+
+        public static string StatusTiming(StatusDef status)
+        {
+            return status.IsControl ? "自身行动时" : Node.TurnEnd;
+        }
+
+        public static string StatusTooltip(StatusDef status, int remaining)
+        {
+            // 控制消耗的是行动次数，不能把它写成按回合结束倒数。
+            return status.Name + " · " + StatusKind(status) + " · 剩余：" + StatusDuration(status, remaining)
+                + " · 时机：" + StatusTiming(status) + " · " + (status.Cleanse ? "可净化" : "不可净化")
+                + "\n" + status.Desc;
+        }
+
+        public static string FieldDuration(FieldDef field, int turns, int stacks)
+        {
+            return field.MaxStacks > 0 ? stacks + " 层" : turns < 0 ? "直到下场" : turns + " 回合";
+        }
+
+        public static string FieldTooltip(FieldDef field, int turns, int stacks)
+        {
+            string remaining = turns < 0 ? "直到下场" : turns + " 回合";
+            string layers = field.MaxStacks > 0 ? " · " + stacks + " 层" : "";
+            return field.Name + " · " + FieldKind(field) + layers + " · 剩余：" + remaining
+                + " · 时机：" + field.When + " · " + (field.Dispel ? "可被消回合" : "消回合清不掉")
+                + " · 下场清空\n" + field.Desc;
+        }
     }
 }
