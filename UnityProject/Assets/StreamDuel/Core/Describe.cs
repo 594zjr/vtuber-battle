@@ -47,6 +47,10 @@ namespace StreamDuel.Core
                     what = ch + tgt + string.Join("、", e.Changes.Select(kv => db.StatName(kv.Key) + (kv.Value > 0 ? "+" : "") + kv.Value));
                     if (e.Changes.Values.Any(v => v > 0)) dispel = "提升可被消强化";
                     break;
+                case "STEAL_BOOST":
+                    what = ch + "将" + tgt + "所有大于 0 的能力等级加到自身（每项最高 +6），并清空目标的这些提升；目标下降等级不变";
+                    dispel = "转移即时结算；转移后大于 0 的能力等级可被消强化，下场清零";
+                    break;
                 case "HEAL": what = "回复最大人气的 " + Frac(e.Frac); break;
                 case "RECOIL": what = "自身受到造成伤害 " + Frac(e.Frac) + " 的反噬"; break;
                 case "DRAIN": what = "回复造成伤害的 " + Frac(e.Frac); break;

@@ -44,7 +44,10 @@
     "charge":    { "name": "憋大招", "kind": "turn", "when": "造成伤害时", "dispel": true, "talentMul": 2, "consume": true, "desc": "下一次才艺类技能伤害 ×2，用后消失。" },
     "blackhist": { "name": "黑历史", "kind": "mark", "when": "回合结束", "dispel": false, "dot": 0.1, "desc": "回合结束时失去 1/10 人气，直到下场。属于印记，消回合清不掉。" },
     "reconnect": { "name": "重连保护", "kind": "protect", "when": "被施加控制时", "dispel": false, "immuneControl": true, "desc": "刚从控制中恢复，免疫控制类状态。不能被消除。" },
-    "hype":      { "name": "热度", "kind": "mark", "when": "叠层 / 被消耗时", "dispel": false, "maxStacks": 5, "desc": "可叠加的印记，最多 5 层，被特定技能消耗。消回合清不掉，下场时清空。" }
+    "hype":      { "name": "热度", "kind": "mark", "when": "叠层 / 被消耗时", "dispel": false, "maxStacks": 5, "desc": "可叠加的印记，最多 5 层，被特定技能消耗。消回合清不掉，下场时清空。" },
+    "mirror":    { "name": "镜面回击", "kind": "turn", "when": "受到对手技能直接伤害后", "dispel": true, "reflectDamage": 0.3, "desc": "受到对手技能直接伤害（含固定伤害）后，攻击方受到实际扣减人气 ×0.3 的反弹伤害，向下取整且至少为 1。不连锁反弹，不触发被反弹者人设；持续伤害和自身反噬不触发。任一方全灭时立即结束结算。" },
+    "firewall":  { "name": "防火墙", "kind": "turn", "when": "被施加弱化类状态时", "dispel": true, "immuneWeak": true, "desc": "免疫新施加的弱化类状态，不影响已有状态；不阻挡控制类状态。" },
+    "lockin":    { "name": "锁麦", "kind": "turn", "when": "选择主动换人时", "dispel": true, "preventSwitch": true, "desc": "持续期间不能主动换人；下播后的补位不受影响。" }
   },
 
   "personas": {
@@ -133,7 +136,12 @@
     "gear_blade":   { "name": "齿刃", "type": "tech", "cat": "interact", "power": 70, "pp": 15, "prio": 1 },
     "overclock":    { "name": "超频", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1, "spd": 1 } } ] },
     "ban_danmaku":  { "name": "封禁弹幕", "type": "tech", "cat": "talent", "power": 60, "pp": 10, "effects": [ { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ] },
-    "lag_field":    { "name": "延迟力场", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "lag", "turns": 3 } ] }
+    "lag_field":    { "name": "延迟力场", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "lag", "turns": 3 } ] },
+
+    "gain_takeover": { "name": "接棒爆发", "type": "game", "cat": "interact", "power": 70, "pp": 10, "effects": [ { "at": "pre", "code": "STEAL_BOOST", "target": "foe" } ] },
+    "mirror_setup":  { "name": "镜面架设", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "mirror", "turns": 3 } ] },
+    "firewall_setup":{ "name": "安全开场", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "firewall", "turns": 3 } ] },
+    "lock_mic":      { "name": "定场锁麦", "type": "talk", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "lockin", "turns": 2 } ] }
   },
 
   "struggle": { "name": "硬撑", "type": "talk", "cat": "interact", "power": 40, "pp": 0, "effects": [ { "at": "post", "code": "RECOIL", "frac": 0.25 } ] }
