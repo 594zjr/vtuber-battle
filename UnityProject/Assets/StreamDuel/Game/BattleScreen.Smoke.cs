@@ -12,7 +12,8 @@ namespace StreamDuel.Game
     {
         // Awake 会先加载内容包；在 Start 前就识别验收模式，避免覆盖玩家偏好。
         static bool SmokeRequested => Array.IndexOf(Environment.GetCommandLineArgs(), "--smoke-test") >= 0
-            || Array.IndexOf(Environment.GetCommandLineArgs(), "--ui-smoke-test") >= 0;
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--ui-smoke-test") >= 0
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--t71-smoke-test") >= 0;
 
         public static bool SmokeCompleted { get; private set; }
         public static int SmokeExitCode { get; private set; }

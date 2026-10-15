@@ -24,6 +24,7 @@ namespace StreamDuel.Game
         bool playing;
         float nextLineAt;
         bool fast, timerOn;
+        int timerSeconds = 10;
         float timerLeft = 10f;
 
         // 详情面板当前显示什么
@@ -57,7 +58,19 @@ namespace StreamDuel.Game
         void OnEnable()
         {
             // Play 中脚本重载不会重跑 Awake，纯 C# 对战数据也不能由 Unity 序列化恢复。
-            if (db != null) return;
+            if (db != null)
+            {
+                var current = GameRuntimeSettings.Current;
+                if (settings == null || timerOn != current.TurnTimer || timerSeconds != current.TurnSeconds)
+                    timerLeft = current.TurnSeconds;
+                settings = current;
+                fast = settings.FastPlay;
+                timerOn = settings.TurnTimer;
+                timerSeconds = settings.TurnSeconds;
+                if (view == View.Team && db.PackId != settings.DefaultPack && packs.Any(p => p.PackId == settings.DefaultPack))
+                    LoadPack(settings.DefaultPack);
+                return;
+            }
             packs = new List<ContentDb>();
             packErrors = new List<string>();
             b = null;
@@ -98,6 +111,7 @@ namespace StreamDuel.Game
             LoadSettingsSafely();
             fast = settings.FastPlay;
             timerOn = settings.TurnTimer;
+            timerSeconds = settings.TurnSeconds;
             string want = settings.DefaultPack;
             LoadPack(packs.Any(p => p.PackId == want) ? want : packs[0].PackId);
         }
@@ -194,12 +208,14 @@ namespace StreamDuel.Game
             if (b.Phase == Phase.Lead) return;
             if (playing)
             {
+                if (!settings.Animations) { SkipPlayback(); return; }
                 if (Time.unscaledTime >= nextLineAt)
                 {
                     shown++;
                     if (shown >= b.Log.Count) { shown = b.Log.Count; playing = false; AfterPlayback(); return; }
                     var e = b.Log[shown - 1];
-                    float d = fast ? 0.05f : e.Kind == "turn" ? 0.4f : e.Kind == "check" || e.Kind == "order" ? 0.25f : 0.32f;
+                    float d = e.Kind == "turn" ? 0.4f : e.Kind == "check" || e.Kind == "order" ? 0.25f : 0.32f;
+                    d = fast && settings.AnimationSpeed == 1 ? 0.05f : d / (float)settings.AnimationSpeed;
                     nextLineAt = Time.unscaledTime + d;
                 }
                 return;
@@ -208,7 +224,7 @@ namespace StreamDuel.Game
             timerLeft -= Time.unscaledDeltaTime;
             if (timerLeft > 0) return;
             if (b.Phase == Phase.Choose) Submit(BattleAction.Pass());
-            else if (b.Phase == Phase.Replace && b.Need[0]) DoReplace(Ai.ChooseReplacement(b, 0));
+            else if (b.Phase == Phase.Replace && b.Need[0]) DoReplace(Ai.ChooseReplacement(b, 0, settings.AiLevel));
         }
 
         void StartBattle(List<string>[] teams)
@@ -216,9 +232,19 @@ namespace StreamDuel.Game
             lastTeams = teams;
             b = new Battle(db, new IList<string>[] { teams[0], teams[1] }, new[] { "你", "对手" }, (uint)System.Environment.TickCount, leadPick: true);
             view = View.Battle;
-            shown = 0; logCountDrawn = 0; playing = false; timerLeft = 10f;
+            shown = 0; logCountDrawn = 0; playing = false; timerLeft = settings.TurnSeconds;
             detailKind = "pet"; detailSide = 1; detailIdx = 0; detailScroll = Vector2.zero;
             b.ChooseLead(1, Ai.ChooseLead(b, 1));
+        }
+
+        void ReturnToTeam()
+        {
+            view = View.Team;
+            b = null;
+            playing = false;
+            settings = GameRuntimeSettings.Current;
+            if (db.PackId != settings.DefaultPack && packs.Any(pack => pack.PackId == settings.DefaultPack))
+                LoadPack(settings.DefaultPack);
         }
 
         void SubmitLead(int index)
@@ -235,16 +261,16 @@ namespace StreamDuel.Game
         {
             if (b.Phase == Phase.Replace && b.Need[1])
             {
-                b.Replace(1, Ai.ChooseReplacement(b, 1));
+                b.Replace(1, Ai.ChooseReplacement(b, 1, settings.AiLevel));
                 if (!b.Need[0]) { Play(); return; }
             }
-            timerLeft = 10f;
+            timerLeft = settings.TurnSeconds;
         }
 
         void Submit(BattleAction a)
         {
             if (b == null || playing || b.Phase != Phase.Choose) return;
-            b.ResolveTurn(a, Ai.Choose(b, 1));
+            b.ResolveTurn(a, Ai.Choose(b, 1, settings.AiLevel));
             detailKind = null;
             Play();
         }
@@ -253,7 +279,7 @@ namespace StreamDuel.Game
         {
             if (playing || b.Phase != Phase.Replace || !b.Need[0]) return;
             b.Replace(0, i);
-            if (b.Phase == Phase.Replace && b.Need[1]) b.Replace(1, Ai.ChooseReplacement(b, 1));
+            if (b.Phase == Phase.Replace && b.Need[1]) b.Replace(1, Ai.ChooseReplacement(b, 1, settings.AiLevel));
             Play();
         }
 
@@ -495,7 +521,7 @@ namespace StreamDuel.Game
         {
             GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
             if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
-            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(ReturnToTeam);
             GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
 
             DrawLeadTeam(1, 104, "对手阵容 · 点卡片查看技能和人设");
@@ -545,10 +571,10 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
             if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
-            if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
-            bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
-            if (nt != timerOn) { timerOn = nt; timerLeft = 10f; settings.TurnTimer = timerOn; SaveSettingsSafely(); }
-            if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (nf != fast) { fast = nf; settings.FastPlay = fast; settings.AnimationSpeed = nf ? 2 : 1; settings.Animations = true; SaveSettingsSafely(); }
+            bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 " + settings.TurnSeconds + " 秒", sBtn);
+            if (nt != timerOn) { timerOn = nt; timerLeft = settings.TurnSeconds; settings.TurnTimer = timerOn; SaveSettingsSafely(); }
+            if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(ReturnToTeam);
             if (timerOn && !playing && b.Phase != Phase.Over) GUI.Label(new Rect(1340, 18, 200, 40), C(Mathf.CeilToInt(Mathf.Max(0, timerLeft)) + " 秒", Accent), sBig);
 
             var act = SnapActive();
@@ -828,7 +854,7 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(r.x, r.y + 30, r.width, 90), res, sHuge);
             GUI.Label(new Rect(r.x, r.y + 130, r.width, 30), "共 " + b.Log[b.Log.Count - 1].Turn + " 回合", sCenter);
             if (GUI.Button(new Rect(r.x + 40, r.y + 200, 230, 50), "同样阵容再来一局", sBtn)) Do(() => StartBattle(lastTeams));
-            if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(ReturnToTeam);
         }
     }
 }

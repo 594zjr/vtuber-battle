@@ -23,6 +23,7 @@ namespace StreamDuel.Game
                 cam.backgroundColor = new Color32(12, 17, 36, 255);
                 cam.gameObject.AddComponent<AudioListener>();
             }
+            GameRuntimeSettings.ApplyDisplay();
             var go = new GameObject("StreamDuel");
             go.AddComponent<BattleScreen>();
             go.AddComponent<UIDocument>();

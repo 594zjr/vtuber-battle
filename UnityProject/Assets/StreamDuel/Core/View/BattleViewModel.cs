@@ -36,6 +36,18 @@ namespace StreamDuel.Core
                 SwitchTargets = new List<int>(legal.Switches)
             };
 
+            if (b.Phase == Phase.Replace)
+            {
+                // 主动换人限制不能让下播后的补位界面失去合法候选。
+                view.SwitchTargets.Clear();
+                if (b.Need[viewerSide])
+                {
+                    var side = b.Sides[viewerSide];
+                    for (int index = 0; index < side.Team.Count; index++)
+                        if (index != side.Active && !side.Team[index].Fainted) view.SwitchTargets.Add(index);
+                }
+            }
+
             for (int side = 0; side < b.Sides.Length; side++)
             {
                 var source = b.Sides[side];
