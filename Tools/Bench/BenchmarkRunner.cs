@@ -81,7 +81,7 @@ namespace StreamDuel.Bench
         }
     }
 
-    internal static class BenchmarkRunner
+    internal static partial class BenchmarkRunner
     {
         const uint Seed = 52001;
         const ulong ChecksumOffset = 14695981039346656037UL;
@@ -162,6 +162,8 @@ namespace StreamDuel.Bench
                     index => json, packJson => ContentDb.FromJson(rules, packJson)));
             }
 
+            AddStatsMetrics(db, quick, metrics);
+
             string workload = "固定 original 六对六阵容，无禁用和首发选择；完整对局使用种子 52001 起连续递增，"
                 + "计时包含 Battle 构造、双方普通 AI 行动/补位与完整结算，保留所有日志和回放历史；吞吐为样本数除以累计计时。"
                 + "AI 局面由种子 52001 的普通对普通对局确定，取开局、行动回合数中点及四分之三处，轮换双方且等量采样；"
@@ -169,7 +171,9 @@ namespace StreamDuel.Bench
                 + "所有内置内容包的 JSON 在计时外预读；加载仅计解析、合并和校验，不含磁盘 IO。"
                 + "每项先预热：对局 2 次、每种 AI 6 次、Clone/StateHash 各 20 次、每包加载 3 次；"
                 + "不主动触发 GC，不扣计时器开销；P95 为最近秩 ceil(0.95*n)。"
-                + "TerminalChecksum 为测量对局的 Seed/Winner/Turn/StateHash 按顺序各写 8 字节小端序计算的 FNV-1a 64 位摘要。";
+                + "TerminalChecksum 为测量对局的 Seed/Winner/Turn/StateHash 按顺序各写 8 字节小端序计算的 FNV-1a 64 位摘要。"
+                + "统计项在计时外保存200局真实完整对局及本方摘要；分别测首次只读扫描和预热后扫描（均含文件读取与完整校验，未清操作系统缓存），"
+                + "另测每次新建ProfileStats并完成ByStreamer/TopTeams(10)/VsAi/Recent(10)/Streaks全部查询。50ms目标仅指后者计算，不包含库读取或样本生成。";
             return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics);
         }
 

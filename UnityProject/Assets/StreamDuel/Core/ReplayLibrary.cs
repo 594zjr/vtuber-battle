@@ -19,6 +19,7 @@ namespace StreamDuel.Core
         public string Note;
         public bool IsCorrupt;
         public string Error;
+        public ReplayStats Stats;
 
         // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
         public TextInputResult[] NameInputs
@@ -54,7 +55,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class ReplayLibrary
+    public sealed partial class ReplayLibrary
     {
         readonly string directory;
         readonly string prefix;
@@ -76,7 +77,7 @@ namespace StreamDuel.Core
             EnsureDirectory();
         }
 
-        public string Save(BattleRecord r, BattleSummary s, string note = null)
+        public string Save(BattleRecord r, BattleSummary s, string note = null, int? playerSide = null, AiLevel? aiLevel = null)
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (s == null) throw new ArgumentNullException(nameof(s));
@@ -89,6 +90,7 @@ namespace StreamDuel.Core
             if (s.Winner < -1 || s.Winner > 1 || s.Turns < 0
                 || s.Turns != record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn))
                 throw new ArgumentException("录像统计的胜方或回合数无效。", nameof(s));
+            var stats = CreateStats(record, s, playerSide, aiLevel);
             using (OpenLock())
             {
                 DateTimeOffset date = clock().ToUniversalTime();
@@ -96,6 +98,7 @@ namespace StreamDuel.Core
                     + "_" + record.Seed.ToString(CultureInfo.InvariantCulture);
                 string id = NextId(stem);
                 var entry = Entry(record, id, date, s.Winner, s.Turns, NormalizeNote(note));
+                entry.Stats = stats;
                 WriteAtomic(id + ".json", WithMetadata(recordJson, entry));
                 try { RefreshAndPrune(); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -240,7 +243,9 @@ namespace StreamDuel.Core
                 throw new FormatException(Replay.Check(null, record).Reason);
             if (turns != record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn))
                 throw new FormatException("录像回合数与记录不一致：" + id);
-            return Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            var entry = Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            entry.Stats = ReadStats(metadata, record);
+            return entry;
         }
 
         static ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
@@ -272,7 +277,8 @@ namespace StreamDuel.Core
             return "{\"version\":1,\"id\":" + Quote(entry.Id) + ",\"date\":"
                 + Quote(entry.Date.ToString("O", CultureInfo.InvariantCulture)) + ",\"winner\":"
                 + entry.Winner.ToString(CultureInfo.InvariantCulture) + ",\"turns\":"
-                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note) + "}";
+                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note)
+                + StatsMetadata(entry.Stats) + "}";
         }
 
         static string WithMetadata(string recordJson, ReplayEntry entry)

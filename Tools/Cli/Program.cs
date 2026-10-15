@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.Stats) return PrintStats(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
@@ -180,6 +181,7 @@ namespace StreamDuel.Cli
         private static void PrintHelp()
         {
             Console.WriteLine("用法：dotnet run --project Tools/Cli -- [参数]");
+            Console.WriteLine("  --stats           只读本机档案与保留录像统计；可搭配 --save-dir、--pack、--pack-dir，不开始对局。");
             Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认 original，导入队伍码时默认使用码内内容包。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");

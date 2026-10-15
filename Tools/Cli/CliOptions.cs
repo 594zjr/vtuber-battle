@@ -43,6 +43,7 @@ namespace StreamDuel.Cli
         public bool Help;
         public bool ListPacks;
         public bool ListReplays;
+        public bool Stats;
         public bool Share;
         public bool Glossary;
         public string GlossaryKeyword;
@@ -65,6 +66,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--stats")
+                {
+                    if (options.Stats) throw new ArgumentException("--stats 不能重复指定。");
+                    options.Stats = true;
+                    continue;
+                }
                 if (option == "--hotseat")
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
@@ -280,6 +287,14 @@ namespace StreamDuel.Cli
                         options.TeamCode = value;
                         break;
                 }
+            }
+            if (options.Stats && !options.Help)
+            {
+                var unsupported = provided.Where(option => option != "--stats" && option != "--save-dir"
+                    && option != "--pack" && option != "--pack-dir").Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("--stats 是独立的本机统计查询，只可搭配 --save-dir、--pack、--pack-dir；不能与 "
+                        + string.Join("、", unsupported) + " 同用。");
             }
             if (options.Advice && !options.Help)
             {
