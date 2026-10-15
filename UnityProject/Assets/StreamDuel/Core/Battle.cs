@@ -15,7 +15,7 @@ namespace StreamDuel.Core
             TurnEnd = "回合结束", Replace = "补位", Over = "结束", TurnHeader = "回合";
     }
 
-    public enum Phase { Choose, Replace, Over }
+    public enum Phase { Choose, Replace, Over, Lead }
     public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
 
     public struct BattleAction
@@ -34,6 +34,7 @@ namespace StreamDuel.Core
     public sealed class Fighter
     {
         public StreamerDef Def; public int Slot, Side, Hp, MaxHp, EnteredTurn = 1; public bool Fainted;
+        public int LastSkillIndex = -1;
         public Dictionary<string, int> Stages = NewStages();
         public List<SkillSlot> Skills = new List<SkillSlot>();
         public List<StatusInst> Statuses = new List<StatusInst>();
@@ -98,7 +99,7 @@ namespace StreamDuel.Core
         public readonly bool[] ActedFirst = new bool[2];
         readonly Rng rng;
 
-        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null)
+        public Battle(ContentDb db, IList<string>[] teams, string[] names, uint? seed = null, bool leadPick = false)
         {
             Db = db;
             Seed = seed ?? (uint)Environment.TickCount;
@@ -107,6 +108,7 @@ namespace StreamDuel.Core
             {
                 Seed = Seed,
                 PackId = db.PackId,
+                LeadPick = leadPick,
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
             for (int s = 0; s < 2; s++)
@@ -114,8 +116,8 @@ namespace StreamDuel.Core
                 Sides[s] = new SideState { Name = names[s] };
                 for (int i = 0; i < teams[s].Count; i++) Sides[s].Team.Add(MakeFighter(teams[s][i], i + 1, s));
             }
-            Add(Node.Start, "对决开始", "turn");
-            foreach (int s in SpeedOrder()) Enter(s, Node.Start);
+            if (leadPick) Phase = Phase.Lead;
+            else StartBattle();
         }
 
         Fighter MakeFighter(string id, int slot, int side)
@@ -299,6 +301,21 @@ namespace StreamDuel.Core
                 case "HEAL": Heal(ctx.P, (int)(ctx.P.MaxHp * e.Frac), ctx.Node); break;
                 case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false); break;
                 case "DRAIN": if (ctx.Dealt > 0) Heal(ctx.P, (int)(ctx.Dealt * e.Frac), ctx.Node, "吸粉："); break;
+                case "PP_REDUCE":
+                {
+                    if (tgt.Fainted) break;
+                    if (tgt.LastSkillIndex < 0)
+                    {
+                        Add(ctx.Node, tgt.Name + " 还没有用过技能，PP 削减无效", "info", tgt.Side);
+                        break;
+                    }
+                    var slot = tgt.Skills[tgt.LastSkillIndex];
+                    int reduced = Math.Min(slot.Pp, Math.Max(0, e.N));
+                    slot.Pp -= reduced;
+                    Add(ctx.Node, tgt.Name + " 的「" + Db.Skills[slot.Id].Name + "」PP -" + reduced, "info", tgt.Side);
+                    break;
+                }
+                case "FIXED_DAMAGE": Damage(tgt, Math.Max(0, e.N), ctx.Node, tgt.Name + " 受到固定伤害，人气 -{n}", true); break;
                 case "FIELD": if (!tgt.Fainted) AddField(tgt, e.Field, e.Turns, ctx.Node); break;
                 case "ADD_MARK": if (!tgt.Fainted) AddMark(tgt, e.Field, e.N, ctx.Node); break;
                 case "CLEANSE":
@@ -419,12 +436,14 @@ namespace StreamDuel.Core
         void SwitchTo(int s, int to, string node)
         {
             var old = Active(s);
+            old.LastSkillIndex = -1;
             if (!old.Fainted)
             {
                 old.Stages = Fighter.NewStages();
                 old.Fields.Clear();
-                Add(node, old.Name + " 下场（能力变化、直播间效果和印记清空，状态保留）", "info", s);
+                Add(node, old.Name + " 下场（能力变化、直播间效果、印记和最后使用技能记录清空，状态保留）", "info", s);
             }
+            else Add(node, old.Name + " 离场，最后使用技能记录清空", "info", s);
             Sides[s].Active = to;
             Enter(s, node);
         }
@@ -460,6 +479,7 @@ namespace StreamDuel.Core
                 skill = Db.Skills[slot.Id];
                 if (PersonaFreePp(p)) Add(node, "【人设·" + PersonaOf(p).Name + "】6 号位队友在播，本次不消耗 PP", "trait", s);
                 else slot.Pp = Math.Max(0, slot.Pp - 1);
+                p.LastSkillIndex = act.Index;
             }
             Add(node, p.Name + " 使用「" + skill.Name + "」", "act", s);
             if (f.Fainted) { Add(node, "没有目标", "info", s); return; }
