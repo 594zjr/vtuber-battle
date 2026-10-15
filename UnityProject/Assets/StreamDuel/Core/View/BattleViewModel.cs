@@ -71,7 +71,7 @@ namespace StreamDuel.Core
                 };
                 foreach (var effect in skill.Effects)
                 {
-                    var text = Describe.Effect(b.Db, effect);
+                    var text = Describe.Effect(b.Db, effect, b);
                     skillView.Effects.Add(new SkillEffectView
                     {
                         Timing = Describe.EffectTiming(effect.At),
@@ -104,7 +104,7 @@ namespace StreamDuel.Core
                 Fainted = fighter.Fainted,
                 PersonaId = persona.Id,
                 PersonaName = persona.Name,
-                PersonaDescription = persona.Desc,
+                PersonaDescription = Describe.PersonaDescription(battle.Db, persona, battle),
                 // 快照允许画面自行整理展示，不能与引擎共享可变字典。
                 Stages = new Dictionary<string, int>(fighter.Stages, fighter.Stages.Comparer)
             };
