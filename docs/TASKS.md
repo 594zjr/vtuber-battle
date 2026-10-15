@@ -46,7 +46,7 @@
   - `Describe.cs` 加说明文字；`docs/design.md` 6.1 的效果码表加两行。
 - **验收**：移入 `Pending/T03_NewEffectCodesTests.cs`，通过。
 
-### ⬜ T-04 平衡模拟工具
+### ✅ T-04 平衡模拟工具
 
 - **目标**：量化每位主播强弱，给调数值用。
 - **代码**：新命令行工程 `Tools/Sim/Sim.csproj`（net8.0，引用 Engine），`dotnet run --project Tools/Sim -- --pack original --games 5000` 输出每位主播的出场胜率、平均回合数、各技能使用率，按胜率排序，CSV 打到标准输出。
