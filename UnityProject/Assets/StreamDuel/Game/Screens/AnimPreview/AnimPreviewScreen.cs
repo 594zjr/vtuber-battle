@@ -42,11 +42,8 @@ namespace StreamDuel.Game
             var navigation = args as ScreenArgs;
             returnScreenId = navigation?.ReturnScreenId ?? ScreenIds.Menu;
             returnArgs = navigation?.ReturnArgs;
-            var rules = UnityEngine.Resources.Load<TextAsset>("StreamDuelRules");
-            var pack = UnityEngine.Resources.Load<TextAsset>("Packs/original");
-            if (rules == null || pack == null) throw new InvalidOperationException("动画预览缺少原创包或规则数据。");
-            db = ContentDb.FromJson(rules.text, pack.text);
-            if (db.Streamers.Count < 12) throw new InvalidOperationException("动画预览需要原创包中的十二位主播。");
+            db = null;
+            Stage = null;
             disposed = false;
             speed = 1;
 
@@ -66,6 +63,24 @@ namespace StreamDuel.Game
             header.Add(title);
             AddButton(header, "back-button", "返回菜单", ReturnToMenu);
             page.Add(header);
+
+            try
+            {
+                var policy = UnityPackPolicy.Load();
+                var rules = UnityEngine.Resources.Load<TextAsset>("StreamDuelRules");
+                var pack = UnityEngine.Resources.Load<TextAsset>("Packs/original");
+                if (rules == null || pack == null) throw new InvalidOperationException("动画预览缺少原创包或规则数据。");
+                var loaded = PackLoader.LoadJson(rules.text, pack.text, "original.json", policy);
+                if (loaded.Db == null) throw new InvalidOperationException(loaded.Error);
+                db = loaded.Db;
+            }
+            catch (Exception ex)
+            {
+                status = Text("动画预览暂不可用：" + ex.Message, "preview-status", 20);
+                status.style.color = (Color)new Color32(232, 235, 250, 255);
+                page.Add(status);
+                return page;
+            }
 
             var controls = Row("preview-controls");
             controls.style.flexWrap = Wrap.Wrap;
@@ -123,7 +138,7 @@ namespace StreamDuel.Game
 
         public void Restart()
         {
-            if (disposed) return;
+            if (disposed || db == null) return;
             Animator?.Dispose();
             Animator = null;
             autoPlay = paused = false;
@@ -131,7 +146,7 @@ namespace StreamDuel.Game
             var teams = new IList<string>[]
             {
                 db.Streamers.Take(6).Select(x => x.Id).ToArray(),
-                db.Streamers.Skip(6).Take(6).Select(x => x.Id).ToArray()
+                db.Streamers.Skip(6).Concat(db.Streamers.Take(6)).Take(6).Select(x => x.Id).ToArray()
             };
             Battle = new Battle(db, teams, new[] { "左方", "右方" }, PreviewSeed);
             Animator = new TimelineAnimator(Stage, db);
@@ -144,7 +159,7 @@ namespace StreamDuel.Game
 
         public void NextStep()
         {
-            if (disposed || Animator.IsPlaying || Battle.Phase == Phase.Over) return;
+            if (disposed || Animator == null || Animator.IsPlaying || Battle.Phase == Phase.Over) return;
             autoPlay = paused = false;
             AdvanceRound();
         }
@@ -171,7 +186,7 @@ namespace StreamDuel.Game
 
         public void SetAutoPlay(bool enabled)
         {
-            if (disposed) return;
+            if (disposed || Animator == null) return;
             autoPlay = enabled && (Battle.Phase != Phase.Over || Animator.IsPlaying);
             paused = !enabled && Animator.IsPlaying;
             RefreshControls();
@@ -187,12 +202,12 @@ namespace StreamDuel.Game
             if (value != 0.5f && value != 1 && value != 2)
                 throw new ArgumentOutOfRangeException(nameof(value), "播放速度只能是 0.5、1 或 2 倍。");
             speed = value;
-            if (!disposed) RefreshControls();
+            if (!disposed && Animator != null) RefreshControls();
         }
 
         public void Skip()
         {
-            if (disposed) return;
+            if (disposed || Animator == null) return;
             Animator.SkipToEnd();
             paused = false;
             RefreshControls();
@@ -200,7 +215,7 @@ namespace StreamDuel.Game
 
         public void Tick(float dt)
         {
-            if (disposed || dt < 0 || float.IsNaN(dt) || float.IsInfinity(dt)) return;
+            if (disposed || Animator == null || dt < 0 || float.IsNaN(dt) || float.IsInfinity(dt)) return;
             if (!paused) Animator.Tick(dt * speed);
             if (!Animator.IsPlaying)
             {

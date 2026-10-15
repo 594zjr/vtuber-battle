@@ -79,7 +79,7 @@ namespace StreamDuel.Bench
                 return 0;
 #endif
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is StreamDuel.Core.KeyError)
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is FormatException || ex is StreamDuel.Core.KeyError)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;

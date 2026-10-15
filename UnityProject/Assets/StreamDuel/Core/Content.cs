@@ -90,6 +90,8 @@ namespace StreamDuel.Core
 
         public StreamerDef Streamer(string id)
         {
+            string disabled = Policy.PackReason(PackId) ?? Policy.StreamerReason(id);
+            if (disabled != null) throw new KeyError(disabled);
             foreach (var s in Streamers) if (s.Id == id) return s;
             throw new KeyError("没有这个主播：" + id);
         }
