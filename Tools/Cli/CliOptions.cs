@@ -65,6 +65,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--hotseat")
                 {
                     if (options.Hotseat) throw new ArgumentException("--hotseat 不能重复指定。");
@@ -293,6 +294,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateCardOptions(options, provided);
             if (options.Advice && !options.Help)
             {
                 var compatible = new HashSet<string>(StringComparer.Ordinal)

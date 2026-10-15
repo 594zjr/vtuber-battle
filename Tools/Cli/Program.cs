@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.CardMode) return PrintCards(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
@@ -196,6 +197,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine(Loc.Current.T("glossary.cli.help"));
+            Console.WriteLine("  --card 主播id     输出单张主播资料卡；可搭配 --pack、--packs、--pack-dir，默认 original。");
+            Console.WriteLine("  --cards 包id      按名单顺序输出整包资料卡，也接受规范 mix: 包 id；仅可搭配 --pack-dir。");
+            Console.WriteLine("                    资料卡只读内容包，不开局或保存文件；两种资料卡入口互斥，不能与对战、回看或其他模式同用。");
             Console.WriteLine("  --calc 攻击方id 技能序号 防守方id  预览两位主播首发时的伤害；序号 1～5，5 为第五技能。");
             Console.WriteLine("  --matchup 六个id vs 六个id        输出 A 队攻击 B 队的 6×6 对位表；每队 id 可用空格或逗号分隔。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
