@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading;
-using System.Threading.Tasks;
 using StreamDuel.Core;
 
 namespace StreamDuel.Cli
@@ -20,13 +19,8 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             if (host)
             {
-                using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
-                {
-                    Console.WriteLine("监听端口：" + actualPort);
-                    Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
-                    Console.Out.Flush();
-                    do { connection = listener.Accept(250); } while (connection == null);
-                }
+                connection = WaitForNetworkGuest(db, options);
+                if (connection == null) return Quit();
             }
             else
             {
@@ -36,7 +30,8 @@ namespace StreamDuel.Cli
 
             using (connection)
             {
-                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null);
+                var session = new NetSession(db, connection, host, team, host ? "房主" : "客机", host ? options.Seed : (uint?)null,
+                    turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds);
                 Console.WriteLine("等待对手握手……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
@@ -49,14 +44,37 @@ namespace StreamDuel.Cli
                 CheckNetwork(session);
                 var battle = session.Battle;
                 Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
+                if (session.Clock != null)
+                    Console.WriteLine("已启用房主计时：每阶段 " + session.Clock.TurnLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture)
+                        + " 秒；总时间 " + session.Clock.BankLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture) + " 秒。");
+                else if (!host && options.TurnSeconds.HasValue)
+                    Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
                 PrintTeams(battle);
+                var input = new ConsoleInput();
+                var pump = new NetworkPump(session);
+                ChoiceStamp? inputStage = null;
+                Action prepareInput = () =>
+                {
+                    if (options.Auto || session.State != NetState.Choose && session.State != NetState.Replace) return;
+                    if (!inputStage.HasValue || !inputStage.Value.Matches(battle))
+                    {
+                        input.DiscardCompleted();
+                        inputStage = new ChoiceStamp(battle);
+                    }
+                    input.Start();
+                };
                 int logIndex = 0;
                 int hashEventCount = -1;
                 bool waitingPrinted = false;
                 while (true)
                 {
-                    session.Poll();
-                    CheckNetwork(session);
+                    if (!options.Auto)
+                    {
+                        prepareInput();
+                        if (input.EndRequested) return Quit();
+                    }
+                    pump.Pump();
+                    prepareInput();
                     PrintNewLog(battle, ref logIndex);
                     if (options.Hash && session.State != NetState.Waiting && battle.Record.Events.Count != hashEventCount)
                     {
@@ -77,19 +95,32 @@ namespace StreamDuel.Cli
                     Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
                     PrintFighter(battle, 1 - session.MySide);
                     PrintFighter(battle, session.MySide);
-                    if (session.State == NetState.Choose)
+                    var stamp = new ChoiceStamp(battle);
+                    NetState choosingState = session.State;
+                    Func<bool> expired = () => !stamp.Matches(battle) || session.HasSubmitted || session.State != choosingState;
+                    try
                     {
-                        BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
-                            : ReadAction(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt));
-                        if (!action.HasValue) return Quit();
-                        session.Submit(action.Value);
+                        if (choosingState == NetState.Choose)
+                        {
+                            BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
+                                : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
+                            if (!action.HasValue) return Quit();
+                            pump.Pump();
+                            if (!expired()) session.Submit(action.Value);
+                        }
+                        else if (choosingState == NetState.Replace)
+                        {
+                            int? to = options.Auto ? Ai.ChooseReplacement(battle, session.MySide, options.Level)
+                                : ReadReplacement(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, pump.Pump, expired));
+                            if (!to.HasValue) return Quit();
+                            pump.Pump();
+                            if (!expired()) session.SubmitReplace(to.Value);
+                        }
                     }
-                    else if (session.State == NetState.Replace)
+                    catch (ChoiceExpiredException) { }
+                    finally
                     {
-                        int? to = options.Auto ? Ai.ChooseReplacement(battle, session.MySide, options.Level)
-                            : ReadReplacement(battle, session.MySide, prompt => ReadNetworkNumber(session, prompt));
-                        if (!to.HasValue) return Quit();
-                        session.SubmitReplace(to.Value);
+                        input.DiscardCompleted();
                     }
                     CheckNetwork(session);
                     Console.WriteLine("等待对手……");
@@ -117,38 +148,10 @@ namespace StreamDuel.Cli
             {
                 session.Poll();
                 CheckNetwork(session);
-                if (connection.PeerClosed)
-                {
-                    // EOF 可能刚好在前一次 Poll 返回后到达，再排空关闭前的完整消息。
-                    session.Poll();
-                    CheckNetwork(session);
-                    return;
-                }
+                if (connection.ReceiveDrained) return;
                 if (completion.ElapsedMilliseconds >= 10000)
                     throw new IOException("等待对手完成终局校验超时，对局未保存。");
                 Thread.Sleep(10);
-            }
-        }
-
-        static int? ReadNetworkNumber(NetSession session, string prompt)
-        {
-            while (true)
-            {
-                Console.Write(prompt);
-                // 输入等待期间仍在调用线程轮询会话，让断线能立即终止，而不必再按一次回车。
-                var input = Task.Run(() => Console.ReadLine());
-                while (!input.Wait(10))
-                {
-                    session.Poll();
-                    CheckNetwork(session);
-                }
-                session.Poll();
-                CheckNetwork(session);
-                string line = input.Result;
-                if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
-                int value;
-                if (int.TryParse(line.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out value)) return value;
-                Console.WriteLine("请输入数字，或输入 q 退出。");
             }
         }
 
@@ -159,6 +162,7 @@ namespace StreamDuel.Cli
             PrintTeams(battle);
             var summary = BattleSummary.From(battle);
             Console.WriteLine(summary.ToText());
+            PrintReview(battle, mySide);
             bool shareFailed = false;
             try
             {
@@ -173,7 +177,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options);
+                SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {

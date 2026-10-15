@@ -12,11 +12,12 @@ $current = [IO.Path]::GetFullPath((Get-Location).Path)
 if ($current -ne $repository -and -not $current.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw '请在本仓库内运行此脚本。'
 }
-$cliDll = Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Cli.dll"
+$cliDirectory = Join-Path $repository 'Tools/Cli'
+$cliDll = Join-Path $cliDirectory "bin/$Configuration/net8.0/Cli.dll"
 if (-not (Test-Path -LiteralPath $cliDll -PathType Leaf)) {
     throw "请先运行 dotnet build Tools/Cli -c $Configuration。"
 }
-$runDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ('bin/replay-library-check/' + [Guid]::NewGuid().ToString('N'))))
+$runDirectory = [IO.Path]::GetFullPath((Join-Path $cliDirectory ('obj/replay-library-check/' + [Guid]::NewGuid().ToString('N'))))
 if (-not $runDirectory.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw '验收产物目录必须位于本仓库内。'
 }
@@ -183,6 +184,115 @@ try {
     Assert-Check ($bare.Out -ceq $byId.Out) '原有无扩展名文件被错误当作库编号。'
     $checks.Add('编号、新库文件、旧文件、无扩展名现有文件及分享码均兼容；完整回看不写存档')
 
+    # 使用真实 CLI 生成合法码，互斥失败不能由无效码或丢失主线参数冒充。
+    $teamA = 'bell,enka,shiori,lumi,hane,momo'
+    $teamB = 'kei,yuan,nyako,buck,kasumi,bee'
+    $exportSave = Join-Path $runDirectory '20-team-export-unused-saves'
+    $exported = Invoke-Cli '20-valid-team-code' @('--pack', 'original', '--team', $teamA,
+        '--export-team', '--save-dir', $exportSave) ('q' + [char]10)
+    $teamMatches = [regex]::Matches($exported.Out, '(?m)^本方队伍码：(SDT1-[A-Za-z0-9_-]+)\r?$')
+    Assert-Check ($exported.Err.Length -eq 0 -and $teamMatches.Count -eq 1) '未能通过实际 CLI 导出有效队伍码。'
+    Assert-Check (-not (Test-Path -LiteralPath $exportSave)) '队伍码导出后 q 退出创建了存档目录。'
+    Assert-Check ((Fingerprint $save) -ceq $before) '独立导出队伍码更改了既有存档。'
+    $teamCode = $teamMatches[0].Groups[1].Value
+    $mainConflicts = @(
+        @{ Name = 'team-code'; Args = @('--team-code', $teamCode) },
+        @{ Name = 'export-team'; Args = @('--export-team') },
+        @{ Name = 'calc'; Args = @('--calc', 'bell', '5', 'kei') },
+        @{ Name = 'matchup'; Args = @('--matchup', $teamA, 'vs', $teamB) },
+        @{ Name = 'glossary'; Args = @('--glossary', '状态') },
+        @{ Name = 'lan-list'; Args = @('--lan-list') },
+        @{ Name = 'lan-host'; Args = @('--lan-host', '录像库互斥验收房') },
+        @{ Name = 'timer'; Args = @('--timer', '10,30') }
+    )
+    foreach ($case in $mainConflicts) {
+        foreach ($order in @('first', 'last')) {
+            $parameters = if ($order -eq 'first') { @('--replays') + $case.Args }
+                else { $case.Args + @('--replays') }
+            foreach ($saveKind in @('fresh', 'existing')) {
+                $name = "20-conflict-$($case.Name)-$order-$saveKind"
+                $targetSave = if ($saveKind -eq 'fresh') { Join-Path $runDirectory ($name + '-saves') } else { $save }
+                if ($saveKind -eq 'fresh') {
+                    Assert-Check (-not (Test-Path -LiteralPath $targetSave)) '互斥用例的新存档夹具已经存在。'
+                }
+                $rejected = Invoke-Cli $name ($parameters + @('--save-dir', $targetSave)) '' 1
+                Assert-Check ($rejected.Out.Length -eq 0) "$name 在拒绝前已经输出列表、队伍码或进入其他模式。"
+                Assert-Check ($rejected.Err.StartsWith('错误：') -and $rejected.Err -notmatch '未知参数' -and
+                    $rejected.Err -match '--replays|--lan-list.*独立') "$name 并非已识别入口之间的互斥错误。"
+                if ($saveKind -eq 'fresh') {
+                    Assert-Check (-not (Test-Path -LiteralPath $targetSave)) "$name 拒绝前创建了新存档目录。"
+                }
+                Assert-Check ((Fingerprint $save) -ceq $before) "$name 改变了既有存档。"
+            }
+        }
+    }
+    $checks.Add('主线队伍码/导出、calc/matchup、glossary、LAN 列表/开房、timer 与 --replays 双向互斥：32 例退出 1、无 stdout、无新存档且既有指纹不变')
+
+    # 使用独立存档副本放置标记，后面的原有录像库检查仍使用未经修改的夹具。
+    $legacySave = Join-Path $runDirectory '21-main-report-protection'
+    [void][IO.Directory]::CreateDirectory($legacySave)
+    foreach ($item in Get-ChildItem -LiteralPath $save -Force) {
+        Copy-Item -LiteralPath $item.FullName -Destination $legacySave -Recurse
+    }
+    $alwaysReserved = @(
+        'teams.json', '.teams.lock', '.teams.json.tmp',
+        'settings.json', '.settings.json.tmp', '.settings.lock',
+        'replays/.replay-ownership.json', 'replays/.replay-ownership.json.tmp'
+    )
+    $newGameReserved = @(
+        'profile.json', '.profile.json.tmp', '.profile.lock',
+        'replays/.replay.json.tmp', 'replays/.replays.lock'
+    )
+    foreach ($relative in $alwaysReserved + $newGameReserved) {
+        $markerPath = Join-Path $legacySave $relative
+        if (-not (Test-Path -LiteralPath $markerPath)) {
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($markerPath))
+            [IO.File]::WriteAllText($markerPath, ('主线保留路径标记：' + $relative), $utf8)
+        }
+    }
+    $legacyFile = Join-Path $legacySave ('replay-library/' + $id + '.json')
+    $legacyOldFile = Join-Path $legacySave ('replays/' + $old[0].Name)
+    $legacyBefore = Fingerprint $legacySave
+    $legacyDirectories = @(Get-ChildItem -LiteralPath $legacySave -Directory -Recurse -Force |
+        Sort-Object FullName | ForEach-Object FullName) -join [string][char]10
+    foreach ($mode in @('game', 'id', 'file', 'code')) {
+        $modeArguments = switch ($mode) {
+            'game' { @('--seed', '1') }
+            'id' { @('--replay', $id) }
+            'file' { @('--replay', $legacyFile) }
+            'code' { @('--replay-code', $code) }
+        }
+        $targets = @($alwaysReserved)
+        # 原主线的档案/旧回放临时路径仅在新局和分享码回看中受此分支保护。
+        if ($mode -eq 'game' -or $mode -eq 'code') { $targets += $newGameReserved }
+        for ($i = 0; $i -lt $targets.Count; $i++) {
+            $target = Join-Path $legacySave $targets[$i]
+            $rejected = Invoke-Cli ("21-protected-$mode-$i") ($modeArguments +
+                @('--auto', '--save-dir', $legacySave, '--report', $target)) '' 1
+            Assert-Check ($rejected.Err.Contains('--report') -and $rejected.Out.Length -eq 0) '主线存档保留路径没有在输出前拒绝战报。'
+            Assert-Check ((Fingerprint $legacySave) -ceq $legacyBefore) '拒绝战报后，主线存档或保留路径标记已被改动。'
+            $afterDirectories = @(Get-ChildItem -LiteralPath $legacySave -Directory -Recurse -Force |
+                Sort-Object FullName | ForEach-Object FullName) -join [string][char]10
+            Assert-Check ($afterDirectories -ceq $legacyDirectories) '拒绝战报后仍创建了存档子目录。'
+        }
+    }
+    foreach ($relative in @('teams.json', '.teams.lock', '.teams.json.tmp')) {
+        $target = Join-Path (Join-Path $legacySave $relative) 'child/report.md'
+        $rejected = Invoke-Cli ("21-team-descendant-" + [IO.Path]::GetFileNameWithoutExtension($relative)) @(
+            '--replay', $id, '--auto', '--save-dir', $legacySave, '--report', $target) '' 1
+        Assert-Check ($rejected.Err.Contains('--report') -and $rejected.Out.Length -eq 0 -and
+            (Fingerprint $legacySave) -ceq $legacyBefore) '队伍保留文件的子路径绕过保护或修改了标记。'
+    }
+    $inputAliases = @($legacyOldFile)
+    if ($IsWindows) { $inputAliases += '\\?\' + $legacyOldFile }
+    for ($i = 0; $i -lt $inputAliases.Count; $i++) {
+        $rejected = Invoke-Cli ("21-replay-input-$i") @('--replay', $legacyOldFile, '--auto',
+            '--save-dir', $legacySave, '--report', $inputAliases[$i]) '' 1
+        Assert-Check ($rejected.Err.Contains('--report') -and $rejected.Out.Length -eq 0 -and
+            (Fingerprint $legacySave) -ceq $legacyBefore) '战报覆盖旧回放输入的普通/扩展路径保护丢失。'
+    }
+    Assert-Check ((Fingerprint $save) -ceq $before) '新增主线保护用例修改了原有录像库夹具。'
+    $checks.Add('保留 teams.json/.teams.lock/.teams.json.tmp、设置与回放所有权路径的四模式保护；档案临时路径原范围及旧回放输入别名保护不退化')
     $protectedPaths = @('index.json', ($id + '.json'), '.library.lock', '.index.json.tmp', 'new-record.json', 'nested/report.md')
     foreach ($mode in @('game', 'id', 'file', 'code')) {
         $modeArguments = switch ($mode) {
