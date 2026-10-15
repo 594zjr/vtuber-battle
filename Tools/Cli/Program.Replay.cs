@@ -60,6 +60,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine(BattleSummary.From(battle).ToText());
             }
             else Console.WriteLine("记录播放完毕：这是一局未完成的对战。");
+            SaveReport(battle, options);
             return 0;
         }
 
