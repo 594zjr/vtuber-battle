@@ -19,13 +19,8 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             if (host)
             {
-                using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
-                {
-                    Console.WriteLine("监听端口：" + actualPort);
-                    Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
-                    Console.Out.Flush();
-                    do { connection = listener.Accept(250); } while (connection == null);
-                }
+                connection = WaitForNetworkGuest(db, options);
+                if (connection == null) return Quit();
             }
             else
             {
@@ -153,13 +148,7 @@ namespace StreamDuel.Cli
             {
                 session.Poll();
                 CheckNetwork(session);
-                if (connection.PeerClosed)
-                {
-                    // EOF 可能刚好在前一次 Poll 返回后到达，再排空关闭前的完整消息。
-                    session.Poll();
-                    CheckNetwork(session);
-                    return;
-                }
+                if (connection.ReceiveDrained) return;
                 if (completion.ElapsedMilliseconds >= 10000)
                     throw new IOException("等待对手完成终局校验超时，对局未保存。");
                 Thread.Sleep(10);
@@ -171,7 +160,9 @@ namespace StreamDuel.Cli
             Console.WriteLine();
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
             PrintTeams(battle);
-            Console.WriteLine(BattleSummary.From(battle).ToText());
+            var summary = BattleSummary.From(battle);
+            Console.WriteLine(summary.ToText());
+            PrintReview(battle, mySide);
             bool shareFailed = false;
             try
             {
@@ -186,7 +177,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options);
+                SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
@@ -206,11 +197,29 @@ namespace StreamDuel.Cli
                 replayWarning = "回放保存失败：" + ex.Message;
             }
             if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
+            bool libraryFailed = false;
+            try
+            {
+                new ReplayLibrary(ReplayLibraryDirectory(options)).Save(battle.Record, summary);
+                Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
+            }
+            catch (ReplayLibraryMaintenanceException ex)
+            {
+                Console.Error.WriteLine("警告：录像已写入，但录像库维护失败：" + ex.Message);
+                libraryFailed = true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                || ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)
+            {
+                // 独立录像库的故障不能影响旧版回放和档案，已完成的对局仍须累计战绩。
+                Console.Error.WriteLine("警告：录像库保存失败：" + ex.Message);
+                libraryFailed = true;
+            }
             var profile = ProfileStore.Record(battle, options.SaveDir, mySide);
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed && !shareFailed ? 0 : 1;
+            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
         }
     }
 }

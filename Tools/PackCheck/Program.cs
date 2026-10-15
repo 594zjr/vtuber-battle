@@ -36,6 +36,7 @@ namespace StreamDuel.PackCheck
                         case "-h":
                             Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--pack-dir <文件夹>] [--list-packs] [--write-docs]");
                             Console.WriteLine("默认检查全部内容包；--pack 按包 id 选择，兼容内置文件名（不含 .json）。错误返回 1，提醒不影响退出码。");
+                            Console.WriteLine("文本检查逐条输出 Level、Where、Id、Message，并汇总 error/warn；任何文本 error 都会阻止名单生成。");
                             Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出，id 冲突时内置优先并提示。");
                             Console.WriteLine("--write-docs 在所选内容包全部通过检查后，更新对应 docs/roster/<packId>.md。");
                             return 0;
@@ -69,6 +70,8 @@ namespace StreamDuel.PackCheck
                 var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int errors = 0;
                 int warnings = 0;
+                int lintErrors = 0;
+                int lintWarnings = 0;
                 Action<bool, string, string> report = (error, location, message) =>
                 {
                     if (error) errors++; else warnings++;
@@ -130,6 +133,7 @@ namespace StreamDuel.PackCheck
                 string[] sensitiveWords = File.ReadAllLines(Path.Combine(root, "Tools", "PackCheck", "sensitive_words.txt"))
                     .Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal))
                     .Distinct(StringComparer.Ordinal).ToArray();
+                string[] bannedWords = File.ReadAllLines(Path.Combine(resources, "Lint", "banned.txt"));
                 foreach (var entry in entries)
                 {
                     string location = Path.GetRelativePath(root, Path.GetFullPath(entry.Path)).Replace('\\', '/');
@@ -147,6 +151,14 @@ namespace StreamDuel.PackCheck
                     else if (writeDocs && !seenIds.Add(db.PackId))
                         report(true, location + " $.id", "内容包 id 对应的名单文件重名（不区分大小写）：" + db.PackId);
                     PackValidator.Check(db, location, sensitiveWords, report);
+                    foreach (var issue in TextLint.Check(db, bannedWords))
+                    {
+                        if (issue.Level == "error") { errors++; lintErrors++; }
+                        else if (issue.Level == "warn") { warnings++; lintWarnings++; }
+                        else throw new ArgumentException("文本检查返回了未知级别：" + issue.Level);
+                        Console.WriteLine("[文本] Level=" + issue.Level + " Where=" + location + ":" + issue.Where
+                            + " Id=" + issue.Id + " Message=" + issue.Message);
+                    }
                     if (writeDocs && errors == packErrors)
                     {
                         try
@@ -172,6 +184,7 @@ namespace StreamDuel.PackCheck
                         Console.WriteLine("已生成：docs/roster/" + document.Key + ".md");
                     }
                 }
+                Console.WriteLine("文本检查汇总：" + lintErrors + " 个 error，" + lintWarnings + " 个 warn。");
                 Console.WriteLine("检查完成：" + entries.Count + " 个内容包，" + errors + " 个错误，" + warnings + " 个提醒。");
                 return errors == 0 ? 0 : 1;
             }

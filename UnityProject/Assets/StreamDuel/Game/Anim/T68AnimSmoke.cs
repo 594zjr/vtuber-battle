@@ -113,21 +113,36 @@ namespace StreamDuel.Game
         {
             yield return null;
             router = FindAnyObjectByType<ScreenRouter>();
-            Require(router != null && router.CurrentScreenId == ScreenIds.Legacy, "默认入口未启动。");
-            router.GetComponent<BattleScreen>().MainMenuRequested();
+            Require(router != null && router.CurrentScreenId == ScreenIds.Menu, "默认入口未启动。");
+            var legacy = router.GetComponent<BattleScreen>();
+            Require(legacy != null && !legacy.enabled, "正式菜单启动时旧画面没有停用。");
             yield return Resize(1280, 720);
             yield return new WaitForEndOfFrame();
             ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
             Capture("menu");
-            Submit("open-anim-preview");
+            yield return ExpandDeveloperTools();
+            ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
+            Submit("open-animation-preview");
             yield return null;
-            preview = router.Document.rootVisualElement.Q("anim-preview-screen").userData as AnimPreviewScreen;
+            preview = router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen").userData as AnimPreviewScreen;
             Require(preview != null && router.CurrentScreenId == AnimPreviewScreen.ScreenId, "菜单未进入动画预览。");
             yield return WaitForAnimation();
             CheckFinalView();
             yield return new WaitForEndOfFrame();
             Capture("opening");
-            ValidateLayout(router.Document.rootVisualElement.Q("anim-preview-screen"));
+            ValidateLayout(router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen"));
+
+            // 先检查独立阶段，截断 SwitchIn 的红测无需等待自然整局完成。
+            var phaseStage = new BattleStage { name = "t68-phase-check-stage" };
+            phaseStage.style.position = Position.Absolute;
+            phaseStage.style.left = phaseStage.style.top = 0;
+            phaseStage.style.width = 1000;
+            phaseStage.style.height = 600;
+            router.Document.rootVisualElement.Add(phaseStage);
+            yield return new WaitForEndOfFrame();
+            try { T68PhaseChecks.Run(phaseStage, report.checks); }
+            finally { phaseStage.RemoveFromHierarchy(); }
+            yield return new WaitForEndOfFrame();
 
             Submit("preview-speed-half");
             Require(preview.Speed == 0.5f, "0.5 倍速按钮无效。");
@@ -153,7 +168,7 @@ namespace StreamDuel.Game
             report.naturalHash = preview.Battle.StateHash().ToString("x16");
             report.winner = preview.Battle.Winner;
             yield return new WaitForEndOfFrame();
-            ValidateLayout(router.Document.rootVisualElement.Q("anim-preview-screen"));
+            ValidateLayout(router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen"));
             Capture("complete");
             report.checks.Add("固定种子完整对局逐段自然播放，0.5/1/2 倍速均由真实按钮选择。");
 
@@ -161,7 +176,7 @@ namespace StreamDuel.Game
             Submit("preview-restart");
             yield return WaitForAnimation();
             yield return new WaitForEndOfFrame();
-            ValidateLayout(router.Document.rootVisualElement.Q("anim-preview-screen"));
+            ValidateLayout(router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen"));
             Capture("opening");
             Submit("preview-next");
             ulong hash = preview.Battle.StateHash();
@@ -203,7 +218,7 @@ namespace StreamDuel.Game
             report.skippedHash = preview.Battle.StateHash().ToString("x16");
             Require(report.naturalHash == report.skippedHash, "重开后全部跳过与自然播放的最终哈希不同。");
             yield return new WaitForEndOfFrame();
-            ValidateLayout(router.Document.rootVisualElement.Q("anim-preview-screen"));
+            ValidateLayout(router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen"));
             Capture("complete");
             var checkStage = new BattleStage { name = "t68-independent-check-stage" };
             checkStage.style.position = Position.Absolute;
@@ -214,7 +229,7 @@ namespace StreamDuel.Game
             yield return new WaitForEndOfFrame();
             try { report.checks.AddRange(T68AnimatorChecks.Run(preview.Battle.Db, preview.Battle, checkStage)); }
             finally { checkStage.RemoveFromHierarchy(); }
-            Submit("preview-back");
+            Submit("back-button");
             yield return null;
             Require(router.CurrentScreenId == ScreenIds.Menu && preview.Animator == null && preview.Battle == null,
                 "退出预览未释放播放器/对局。");
@@ -223,7 +238,107 @@ namespace StreamDuel.Game
             ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
             report.checks.Add("重开逐段跳过与自然播放最终哈希一致；每段 HP 终态与 Core 视图一致；返回菜单释放播放器。");
             Require(report.concurrentEffects, "未观察到跳字与闪白并行，需要检查播放调度。");
+            yield return CheckMenuPreviewRoundTrip();
             report.completed = true;
+        }
+
+        IEnumerator ExpandDeveloperTools()
+        {
+            var foldout = router.Document.rootVisualElement.Q<Foldout>("developer-tools");
+            Require(foldout != null && !foldout.value, "Editor 动画验收缺少默认折叠的开发入口。");
+            foldout.value = true;
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Require(IsVisible(foldout) && foldout.value, "开发折叠区没有实际展开。");
+        }
+
+        IEnumerator CheckMenuPreviewRoundTrip()
+        {
+            var legacy = router.GetComponent<BattleScreen>();
+            Require(legacy != null && !legacy.enabled && !legacy.MenuPackLocked,
+                "菜单往返检查必须从未锁定的正式菜单开始。");
+            string previousPackId = legacy.MenuPack.PackId;
+            object previousArgs = router.CurrentArgs;
+            object menuArgs = new object();
+            int fanIndex = -1;
+            for (int i = 0; i < legacy.MenuPacks.Count; i++)
+                if (legacy.MenuPacks[i].PackId.StartsWith("fan_", StringComparison.Ordinal))
+                {
+                    fanIndex = i;
+                    break;
+                }
+            Require(fanIndex >= 0, "菜单往返检查缺少内置同人包。");
+            ContentDb fanPack = legacy.MenuPacks[fanIndex];
+            try
+            {
+                router.Show(ScreenIds.Menu, menuArgs);
+                yield return null;
+                yield return new WaitForEndOfFrame();
+                var dropdown = router.Document.rootVisualElement.Q<DropdownField>("menu-pack");
+                Require(dropdown != null && dropdown.enabledInHierarchy
+                    && dropdown.choices.Count == legacy.MenuPacks.Count, "菜单选包入口不可用。");
+                dropdown.value = dropdown.choices[fanIndex];
+                yield return null;
+                yield return new WaitForEndOfFrame();
+                Require(ReferenceEquals(legacy.MenuPack, fanPack)
+                    && dropdown.index == fanIndex
+                    && router.Document.rootVisualElement.Q<Label>("pack-notice").text == fanPack.PackNotice,
+                    "真实下拉选择没有同步同人包与声明。");
+                yield return ExpandDeveloperTools();
+                Submit("open-animation-preview");
+                var oldPage = router.Document.rootVisualElement.Q(ScreenIds.AnimationPreview + "-screen");
+                var leaving = oldPage?.userData as AnimPreviewScreen;
+                Require(leaving != null && router.CurrentScreenId == ScreenIds.AnimationPreview
+                    && leaving.Animator != null && leaving.Animator.IsPlaying && !legacy.enabled,
+                    "短往返必须在真实预览开场动画仍播放时进行。");
+                Require(leaving.Battle != null && leaving.Battle.Db.PackId == "original",
+                    "固定原创预览不应改为菜单选中的同人包。");
+                var oldAnimator = leaving.Animator;
+                var oldBattle = leaving.Battle;
+                ulong oldHash = oldBattle.StateHash();
+                string oldRecord = oldBattle.Record.ToJson();
+                var oldRestart = oldPage.Q<Button>("preview-restart");
+                var oldBack = oldPage.Q<Button>("back-button");
+                Require(oldRestart != null && oldBack != null, "短往返缺少真实重开或返回按钮。");
+
+                Submit("back-button");
+                Require(router.CurrentScreenId == ScreenIds.Menu && leaving.Animator == null
+                    && leaving.Battle == null && !oldAnimator.IsPlaying && oldPage.parent == null,
+                    "播放中返回未释放播放器、对局或旧页面。");
+                Require(leaving.Stage.FloatLayer.childCount == 0 && leaving.Stage.FxLayer.childCount == 0
+                    && leaving.Stage.Q("timeline-flash") == null,
+                    "播放中返回仍残留自有临时表现节点。");
+                yield return null;
+                yield return new WaitForEndOfFrame();
+
+                // 保留旧按钮引用并发送同一种事件，确保卸载后的控件不能重新启动旧对局。
+                SendSubmit(oldRestart);
+                SendSubmit(oldBack);
+                yield return null;
+                Require(router.CurrentScreenId == ScreenIds.Menu && leaving.Animator == null
+                    && leaving.Battle == null && !oldAnimator.IsPlaying
+                    && oldBattle.StateHash() == oldHash && oldBattle.Record.ToJson() == oldRecord,
+                    "已卸载预览的旧按钮仍能导航、重开或改变原对局。");
+                Require(ReferenceEquals(router.CurrentArgs, menuArgs),
+                    "T68 回归：动画预览返回丢失了 ScreenArgs.ReturnArgs。");
+                var restoredDropdown = router.Document.rootVisualElement.Q<DropdownField>("menu-pack");
+                var restoredNotice = router.Document.rootVisualElement.Q<Label>("pack-notice");
+                Require(!legacy.enabled && ReferenceEquals(legacy.MenuPack, fanPack)
+                    && restoredDropdown != null && restoredDropdown.index == fanIndex
+                    && restoredNotice != null && restoredNotice.text == fanPack.PackNotice,
+                    "动画预览往返改变了菜单同人包选择、声明或旧画面停用状态。");
+                ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
+                report.checks.Add("T81 整合：同人包与菜单参数经真实开发按钮进入固定原创预览；播放中返回释放对象、旧按钮失效，包选择/声明/参数保持。");
+            }
+            finally
+            {
+                legacy.SelectMenuPack(previousPackId);
+                router.Show(ScreenIds.Menu, previousArgs);
+            }
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            Require(!legacy.enabled && legacy.MenuPack.PackId == previousPackId
+                && ReferenceEquals(router.CurrentArgs, previousArgs), "短往返检查未还原原菜单上下文。");
         }
 
         IEnumerator WaitForAnimation()
@@ -314,7 +429,12 @@ namespace StreamDuel.Game
         void Submit(string name)
         {
             var button = router.Document.rootVisualElement.Q<Button>(name);
-            Require(button != null && button.enabledInHierarchy && button.visible, "按钮不可用：" + name);
+            Require(button != null && button.enabledInHierarchy && button.visible && IsVisible(button), "按钮不可用：" + name);
+            SendSubmit(button);
+        }
+
+        static void SendSubmit(Button button)
+        {
             using (var submit = NavigationSubmitEvent.GetPooled())
             {
                 submit.target = button;
@@ -328,17 +448,27 @@ namespace StreamDuel.Game
                 && inner.xMax <= outer.xMax + 2 && inner.yMax <= outer.yMax + 2;
         }
 
+        static bool IsVisible(VisualElement element)
+        {
+            if (element == null) return false;
+            // Foldout 的逻辑父链会越过内部隐藏容器，须检查物理祖先链。
+            for (var ancestor = element; ancestor != null; ancestor = ancestor.hierarchy.parent)
+                if (!ancestor.visible || ancestor.resolvedStyle.display == DisplayStyle.None
+                    || ancestor.resolvedStyle.opacity == 0) return false;
+            return true;
+        }
+
         void ValidateLayout(VisualElement page)
         {
             Require(page != null, "界面根节点缺失。");
             var elements = page.Query<TextElement>().ToList();
             foreach (var text in elements)
             {
-                if (!text.visible || text.resolvedStyle.display == DisplayStyle.None || text.resolvedStyle.opacity == 0
+                if (!IsVisible(text) || !text.visible || text.resolvedStyle.display == DisplayStyle.None || text.resolvedStyle.opacity == 0
                     || string.IsNullOrEmpty(text.text)) continue;
                 Rect bounds = text.worldBound;
                 Require(Contains(router.Document.rootVisualElement.worldBound, bounds), "文字超出屏幕：" + text.name + " " + text.text);
-                for (var ancestor = text.parent; ancestor != null; ancestor = ancestor.parent)
+                for (var ancestor = text.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
                     if (ancestor.style.overflow.value == Overflow.Hidden || ancestor is ScrollView)
                         Require(Contains(ancestor.worldBound, bounds), "文字被祖先裁切：" + text.name + " / " + ancestor.name);
                 Vector2 measured = text.MeasureTextSize(text.text, text.contentRect.width,
@@ -347,7 +477,7 @@ namespace StreamDuel.Game
                 Require(!text.isElided && measured.x <= text.contentRect.width + 2 && measured.y <= text.contentRect.height + 2,
                     "文字裁切：" + text.name + " " + text.text + "，测量=" + measured + " 内容=" + text.contentRect);
             }
-            var buttons = page.Query<Button>().ToList();
+            var buttons = page.Query<Button>().ToList().FindAll(button => IsVisible(button));
             for (int i = 0; i < buttons.Count; i++)
                 for (int j = i + 1; j < buttons.Count; j++)
                     Require(!buttons[i].worldBound.Overlaps(buttons[j].worldBound), "按钮重叠。");

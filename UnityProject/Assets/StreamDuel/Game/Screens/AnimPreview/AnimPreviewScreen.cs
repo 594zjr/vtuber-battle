@@ -9,12 +9,14 @@ namespace StreamDuel.Game
 {
     public sealed class AnimPreviewScreen : IScreen
     {
-        public const string ScreenId = "anim-preview";
+        public const string ScreenId = ScreenIds.AnimationPreview;
         public const uint PreviewSeed = 68;
 
         readonly List<Action> unbind = new List<Action>();
         readonly Dictionary<float, Button> speedButtons = new Dictionary<float, Button>();
         ScreenRouter router;
+        string returnScreenId;
+        object returnArgs;
         ContentDb db;
         VisualElement page;
         Label status, result;
@@ -37,6 +39,9 @@ namespace StreamDuel.Game
             if (screenRouter == null) throw new ArgumentNullException(nameof(screenRouter));
             Dispose();
             router = screenRouter;
+            var navigation = args as ScreenArgs;
+            returnScreenId = navigation?.ReturnScreenId ?? ScreenIds.Menu;
+            returnArgs = navigation?.ReturnArgs;
             var rules = UnityEngine.Resources.Load<TextAsset>("StreamDuelRules");
             var pack = UnityEngine.Resources.Load<TextAsset>("Packs/original");
             if (rules == null || pack == null) throw new InvalidOperationException("动画预览缺少原创包或规则数据。");
@@ -45,7 +50,7 @@ namespace StreamDuel.Game
             disposed = false;
             speed = 1;
 
-            page = new VisualElement { name = "anim-preview-screen", userData = this };
+            page = new VisualElement { name = ScreenId + "-screen", userData = this };
             page.style.flexGrow = 1;
             page.style.minHeight = 0;
             page.style.paddingLeft = page.style.paddingRight = 20;
@@ -59,7 +64,7 @@ namespace StreamDuel.Game
             title.style.color = (Color)new Color32(255, 181, 71, 255);
             title.style.unityFont = router.Resources.BoldFont;
             header.Add(title);
-            AddButton(header, "preview-back", "返回菜单", ReturnToMenu);
+            AddButton(header, "back-button", "返回菜单", ReturnToMenu);
             page.Add(header);
 
             var controls = Row("preview-controls");
@@ -226,7 +231,7 @@ namespace StreamDuel.Game
 
         public void ReturnToMenu()
         {
-            if (!disposed) router.Show(ScreenIds.Menu);
+            if (!disposed) router.Show(returnScreenId, returnArgs);
         }
 
         public void Dispose()
@@ -242,6 +247,8 @@ namespace StreamDuel.Game
             Animator = null;
             Battle = null;
             CurrentCues = Array.Empty<AnimCue>();
+            returnScreenId = null;
+            returnArgs = null;
         }
 
         void OnStageGeometry(GeometryChangedEvent evt)

@@ -202,6 +202,8 @@ namespace StreamDuel.Game
             {
                 case CueKind.Enter:
                 case CueKind.SwitchIn:
+                    // 截断 Switch 未提供新人身份，不能拿终态 active 推断而让旧主播重新滑入。
+                    if (cue.Kind == CueKind.SwitchIn && !ValidSlot(cue.Side, cue.Slot)) break;
                     int slot = cue.Slot >= 0 ? cue.Slot : after.Active[cue.Side];
                     if (ValidSlot(cue.Side, slot))
                     {
