@@ -26,12 +26,13 @@ namespace StreamDuel.Cli
                 }
 
                 if (options.LanList) return ListLanRooms();
-                if (!options.ListPacks) ValidateReportPath(options);
+                if (!options.ListPacks && !options.Glossary) ValidateReportPath(options);
                 if (options.ReplayMode && !options.ListPacks) return PlayReplay(options);
                 var imported = ReadTeamCode(options);
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
+                if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
@@ -172,6 +173,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --pack 编号       内容包 id，兼容内置文件名；默认 original，导入队伍码时默认使用码内内容包。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
+            Console.WriteLine(Loc.Current.T("glossary.cli.help"));
             Console.WriteLine("  --calc 攻击方id 技能序号 防守方id  预览两位主播首发时的伤害；序号 1～5，5 为第五技能。");
             Console.WriteLine("  --matchup 六个id vs 六个id        输出 A 队攻击 B 队的 6×6 对位表；每队 id 可用空格或逗号分隔。");
             Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");

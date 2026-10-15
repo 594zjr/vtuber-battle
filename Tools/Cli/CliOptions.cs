@@ -36,6 +36,8 @@ namespace StreamDuel.Cli
         public bool Help;
         public bool ListPacks;
         public bool Share;
+        public bool Glossary;
+        public string GlossaryKeyword;
         public string CalcAttacker;
         public string CalcDefender;
         public int CalcSkillIndex;
@@ -55,6 +57,15 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--glossary")
+                {
+                    if (options.Glossary) throw new ArgumentException(Loc.Current.T("glossary.cli.duplicate"));
+                    options.Glossary = true;
+                    if (i + 1 < args.Length && args[i + 1] != null
+                        && !args[i + 1].StartsWith("--", StringComparison.Ordinal) && args[i + 1] != "-h")
+                        options.GlossaryKeyword = args[++i];
+                    continue;
+                }
                 if (option == "--calc")
                 {
                     if (options.CalcAttacker != null) throw new ArgumentException("--calc 不能重复指定。");
@@ -221,6 +232,14 @@ namespace StreamDuel.Cli
             }
             if (options.CalcAttacker != null && options.MatchupTeamA != null)
                 throw new ArgumentException("--calc 与 --matchup 不能同时使用，请选择单次伤害或阵容对位分析。");
+            if (options.Glossary && !options.Help)
+            {
+                var incompatible = provided.Where(option => option != "--glossary"
+                    && option != "--pack" && option != "--pack-dir").ToArray();
+                if (incompatible.Length > 0)
+                    throw new ArgumentException(Loc.Current.T("glossary.cli.conflict",
+                        string.Join(Loc.Current.T("describe.list.separator"), incompatible)));
+            }
             if (options.AnalysisMode && !options.Help)
             {
                 var unsupported = provided.Where(option => option != "--calc" && option != "--matchup"
