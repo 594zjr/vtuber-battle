@@ -28,6 +28,7 @@ namespace StreamDuel.Cli
             if (options.ReplayFile != null && string.Equals(path, ReportPath(options.ReplayFile), comparison))
                 throw new ArgumentException("--report 不能与 --replay 指向同一文件，请为战报指定另一个路径。");
             foreach (string reserved in new[] { "settings.json", ".settings.json.tmp", ".settings.lock",
+                "teams.json", ".teams.json.tmp", ".teams.lock",
                 Path.Combine("replays", ".replay-ownership.json"), Path.Combine("replays", ".replay-ownership.json.tmp") })
             {
                 if (ContainsPath(ReportPath(Path.Combine(options.SaveDir, reserved)), path, comparison))

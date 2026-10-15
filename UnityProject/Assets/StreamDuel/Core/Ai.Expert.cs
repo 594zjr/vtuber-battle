@@ -13,6 +13,7 @@ namespace StreamDuel.Core
         {
             public BattleAction Action;
             public double Score;
+            public double Preference;
             public readonly List<Battle> Outcomes = new List<Battle>();
         }
 
@@ -68,6 +69,11 @@ namespace StreamDuel.Core
             }
 
             // 只扩展第一层领先的少量候选，搜索量固定，不受机器时钟影响。
+            foreach (var option in options)
+            {
+                option.Preference = StylePreference(root, s, option.Action) * 0.25;
+                option.Score += option.Preference;
+            }
             var finalists = options.OrderByDescending(option => option.Score).Take(ExpertBeam).ToList();
             double cutoff = finalists.Last().Score;
             foreach (var option in options.Except(finalists).Where(option => Math.Abs(option.Score - cutoff) <= 1e-9))
@@ -75,7 +81,7 @@ namespace StreamDuel.Core
             foreach (var option in finalists)
             {
                 double future = option.Outcomes.Average(next => ExpertRollout(next, s));
-                option.Score = option.Score * 0.3 + future * 0.7;
+                option.Score = option.Score * 0.3 + future * 0.7 + option.Preference * 0.7;
             }
             return HardPick(live, finalists, option => option.Score).Action;
         }
