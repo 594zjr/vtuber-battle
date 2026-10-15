@@ -143,7 +143,7 @@ namespace StreamDuel.Core
                     Category = Describe.FieldKind(definition),
                     Description = definition.Desc,
                     Timing = definition.When,
-                    Tooltip = Describe.FieldTooltip(definition, field.Turns, field.Stacks)
+                    Tooltip = Describe.FieldTooltip(definition, field)
                 });
             }
             return view;

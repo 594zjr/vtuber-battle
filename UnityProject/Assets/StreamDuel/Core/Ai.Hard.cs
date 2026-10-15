@@ -442,7 +442,7 @@ namespace StreamDuel.Core
                         Stages = new Dictionary<string, int>(fighter.Stages),
                         Skills = fighter.Skills.Select(k => new SkillSlot { Id = k.Id, Pp = k.Pp, Max = k.Max, Fifth = k.Fifth }).ToList(),
                         Statuses = fighter.Statuses.Select(k => new StatusInst { Id = k.Id, Left = k.Left }).ToList(),
-                        Fields = fighter.Fields.Select(k => new FieldInst { Id = k.Id, Turns = k.Turns, Stacks = k.Stacks }).ToList()
+                        Fields = fighter.Fields.Select(k => new FieldInst { Id = k.Id, Turns = k.Turns, Stacks = k.Stacks, PendingDamage = k.PendingDamage }).ToList()
                     });
                 }
             }
