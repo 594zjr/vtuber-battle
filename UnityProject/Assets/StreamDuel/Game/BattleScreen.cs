@@ -1,6 +1,7 @@
 // 第一版画面：用 Unity 自带的即时模式 GUI 画出组队页和对战页，不需要任何场景、预制体或美术资源。
 // 规则全部在 StreamDuel.Core 里，这里只负责显示和接收点击。以后换正式美术时只换这一层。
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using StreamDuel.Core;
 using UnityEngine;
@@ -32,7 +33,7 @@ namespace StreamDuel.Game
         System.Action pending;
         void Do(System.Action a) { pending = a; }
 
-        Vector2 rosterScroll, logScroll, detailScroll, teamDetailScroll;
+        Vector2 rosterScroll, logScroll, detailScroll, teamDetailScroll, packScroll, packErrorScroll;
         int logCountDrawn;
 
         // ---------- 颜色与样式 ----------
@@ -42,35 +43,47 @@ namespace StreamDuel.Game
 
         Font font;
         Texture2D white, circle;
-        GUIStyle sText, sSmall, sTitle, sBig, sHuge, sBtn, sChip, sPanel, sSkill, sCenter, sPortrait;
+        GUIStyle sText, sSmall, sTitle, sBig, sHuge, sBtn, sChip, sPanel, sSkill, sCenter, sPortrait, sPackError;
         bool stylesReady;
 
         static Color Hex(string h) { Color c; return ColorUtility.TryParseHtmlString(h, out c) ? c : Color.magenta; }
         static string HexOf(Color c) { return "#" + ColorUtility.ToHtmlStringRGB(c); }
         Color TypeColor(string type) { return Hex(db.Types[type].Color); }
 
-        string rulesJson;
-        List<KeyValuePair<string, string>> packs = new List<KeyValuePair<string, string>>(); // (id, json)
-        Dictionary<string, string> packNames = new Dictionary<string, string>();
+        List<ContentDb> packs = new List<ContentDb>();
+        List<string> packErrors = new List<string>();
 
         void Awake()
         {
-            rulesJson = Resources.Load<TextAsset>("StreamDuelRules").text;
+            string rulesJson = Resources.Load<TextAsset>("StreamDuelRules").text;
             foreach (var ta in Resources.LoadAll<TextAsset>("Packs").OrderBy(t => t.name == "original" ? 1 : 0).ThenBy(t => t.name))
             {
                 var probe = ContentDb.FromJson(rulesJson, ta.text);
-                packs.Add(new KeyValuePair<string, string>(probe.PackId, ta.text));
-                packNames[probe.PackId] = probe.PackName;
+                packs.Add(probe);
+            }
+            foreach (var result in PackLoader.LoadDirectory(rulesJson, Path.Combine(Application.persistentDataPath, "packs")))
+            {
+                if (result.Error != null)
+                {
+                    packErrors.Add(result.FileName + "：" + result.Error);
+                    continue;
+                }
+                if (packs.Any(p => p.PackId == result.Db.PackId))
+                {
+                    packErrors.Add(result.FileName + "：内容包 id " + result.Db.PackId + " 与内置包重复，已优先使用内置包");
+                    continue;
+                }
+                packs.Add(result.Db);
             }
             fast = PlayerPrefs.GetInt("sd.fast", 0) == 1;
             timerOn = PlayerPrefs.GetInt("sd.timer", 0) == 1;
-            string want = PlayerPrefs.GetString("sd.pack", packs[0].Key);
-            LoadPack(packs.Any(p => p.Key == want) ? want : packs[0].Key);
+            string want = PlayerPrefs.GetString("sd.pack", packs[0].PackId);
+            LoadPack(packs.Any(p => p.PackId == want) ? want : packs[0].PackId);
         }
 
         void LoadPack(string id)
         {
-            db = ContentDb.FromJson(rulesJson, packs.First(p => p.Key == id).Value);
+            db = packs.First(p => p.PackId == id);
             PlayerPrefs.SetString("sd.pack", id);
             var saved = PlayerPrefs.GetString("sd.pick." + id, "");
             pick = saved.Split(',').Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
@@ -100,6 +113,8 @@ namespace StreamDuel.Game
             sText.normal.textColor = Fg;
             sSmall = new GUIStyle(sText) { fontSize = 14 };
             sSmall.normal.textColor = Muted;
+            sPackError = new GUIStyle(sSmall) { wordWrap = false, richText = false };
+            sPackError.normal.textColor = Foe;
             sTitle = new GUIStyle(sText) { fontSize = 22, fontStyle = FontStyle.Bold, wordWrap = false };
             sBig = new GUIStyle(sText) { fontSize = 30, fontStyle = FontStyle.Bold, wordWrap = false };
             sHuge = new GUIStyle(sText) { fontSize = 64, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false };
@@ -259,16 +274,27 @@ namespace StreamDuel.Game
         void DrawTeam()
         {
             GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1 · 全部原创角色", Muted), sBig);
-            float px = 24;
-            foreach (var kv in packs)
+            float errorHeight = packErrors.Count > 0 ? 34 : 0;
+            if (packErrors.Count > 0)
             {
-                string label = packNames[kv.Key];
+                var errorText = new GUIContent(string.Join("；", packErrors).Replace('\r', ' ').Replace('\n', ' '));
+                float errorWidth = Mathf.Max(1532, sPackError.CalcSize(errorText).x);
+                packErrorScroll = GUI.BeginScrollView(new Rect(24, 60, 1552, errorHeight), packErrorScroll, new Rect(0, 0, errorWidth, 18));
+                GUI.Label(new Rect(0, 0, errorWidth, 18), errorText, sPackError);
+                GUI.EndScrollView();
+            }
+            float packWidth = packs.Sum(p => sChip.CalcSize(new GUIContent(p.PackName ?? p.PackId)).x + 16);
+            packScroll = GUI.BeginScrollView(new Rect(24, 62 + errorHeight, 1552, 36), packScroll, new Rect(0, 0, Mathf.Max(1532, packWidth), 20));
+            float px = 0;
+            foreach (var pack in packs)
+            {
+                string label = pack.PackName ?? pack.PackId;
                 var size = sChip.CalcSize(new GUIContent(label));
-                bool on = kv.Key == db.PackId;
-                if (GUI.Button(new Rect(px, 62, size.x + 8, 30), on ? C(label, Accent) : C(label, Muted), sChip) && !on) { var id = kv.Key; Do(() => LoadPack(id)); }
+                bool on = pack.PackId == db.PackId;
+                if (GUI.Button(new Rect(px, 0, size.x + 8, 20), on ? C(label, Accent) : C(label, Muted), sChip) && !on) { var id = pack.PackId; Do(() => LoadPack(id)); }
                 px += size.x + 16;
             }
-            GUI.Label(new Rect(px + 6, 66, 1100 - px, 30), "选 6 位，先后顺序就是 1 到 6 号位；电脑优先用你没选的主播。", sSmall);
+            GUI.EndScrollView();
             if (GUI.Button(new Rect(1150, 18, 120, 40), "随机挑选", sBtn)) Do(RandomPick);
             if (GUI.Button(new Rect(1280, 18, 90, 40), "清空", sBtn)) Do(() => { pick.Clear(); SavePick(); });
             GUI.enabled = pick.Count == 6;
@@ -284,7 +310,7 @@ namespace StreamDuel.Game
 
             for (int i = 0; i < 6; i++)
             {
-                var r = new Rect(24 + i * 186, 100, 176, 56);
+                var r = new Rect(24 + i * 186, 100 + errorHeight, 176, 56);
                 Box(r);
                 GUI.Label(new Rect(r.x + 10, r.y + 12, 30, 32), C((i + 1).ToString(), Accent), sTitle);
                 if (i < pick.Count)
@@ -296,8 +322,9 @@ namespace StreamDuel.Game
                 else GUI.Label(new Rect(r.x + 40, r.y + 15, 120, 28), "空位", sSmall);
             }
 
-            GUI.Label(new Rect(24, 162, 1552, 44), C(db.PackNotice ?? "", Muted), sSmall);
-            var area = new Rect(24, 210, 1110, 672);
+            GUI.Label(new Rect(1150, 104 + errorHeight, 426, 48), "选 6 位，先后顺序就是 1 到 6 号位；电脑优先用你没选的主播。", sSmall);
+            GUI.Label(new Rect(24, 162 + errorHeight, 1552, 44), C(db.PackNotice ?? "", Muted), sSmall);
+            var area = new Rect(24, 210 + errorHeight, 1110, 672 - errorHeight);
             int rows = Mathf.CeilToInt(db.Streamers.Count / 3f);
             rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rows * 232));
             for (int i = 0; i < db.Streamers.Count; i++)
@@ -308,7 +335,7 @@ namespace StreamDuel.Game
             }
             GUI.EndScrollView();
 
-            DrawTeamDetail(new Rect(1150, 210, 426, 672));
+            DrawTeamDetail(new Rect(1150, 210 + errorHeight, 426, 672 - errorHeight));
         }
 
         void DrawRosterCard(Rect r, StreamerDef d)
