@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -12,6 +13,8 @@ namespace StreamDuel.Cli
         public string Pack = "original";
         public string PackDirectory;
         public AiLevel Level = AiLevel.Normal;
+        public bool LevelSpecified;
+        public string OpponentId;
         public uint Seed = 1;
         public string[] Team = null;
         public string SaveDir = "saves";
@@ -30,15 +33,18 @@ namespace StreamDuel.Cli
         public bool Share;
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
         public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
+        public bool ListOpponents { get { return OpponentId == "list"; } }
 
         public static CliOptions Parse(string[] args)
         {
             if (args == null) throw new ArgumentException("参数列表不能为空。");
 
             var options = new CliOptions();
+            var specified = new List<string>();
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
+                specified.Add(option);
                 if (option == "--auto")
                 {
                     options.Auto = true;
@@ -77,7 +83,7 @@ namespace StreamDuel.Cli
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
-                    && option != "--host" && option != "--join")
+                    && option != "--host" && option != "--join" && option != "--vs")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -85,6 +91,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--vs":
+                        if (options.OpponentId != null) throw new ArgumentException("--vs 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--vs 需要非空的对手 id；使用 --vs list 查看当前包名单。");
+                        options.OpponentId = value;
+                        break;
                     case "--report":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--report 需要非空的战报文件路径。");
@@ -127,6 +138,7 @@ namespace StreamDuel.Cli
                         else if (value == "hard") options.Level = AiLevel.Hard;
                         else if (value == "expert") options.Level = AiLevel.Expert;
                         else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
+                        options.LevelSpecified = true;
                         break;
                     case "--seed":
                         if (value.Length == 0 || !value.All(c => c >= '0' && c <= '9') ||
@@ -149,6 +161,20 @@ namespace StreamDuel.Cli
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.OpponentId != null && !options.Help)
+            {
+                var unsupported = specified.Where(option => option == "--replay" || option == "--replay-code"
+                    || option == "--host" || option == "--join" || option == "--list-packs").Distinct().ToArray();
+                if (unsupported.Length > 0)
+                    throw new ArgumentException("--vs 仅用于本地电脑对战，不能与 " + string.Join("、", unsupported) + " 同用。");
+                if (options.ListOpponents)
+                {
+                    unsupported = specified.Where(option => option != "--vs" && option != "--pack"
+                        && option != "--pack-dir").Distinct().ToArray();
+                    if (unsupported.Length > 0)
+                        throw new ArgumentException("--vs list 仅列出当前包的电脑对手，不能与 " + string.Join("、", unsupported) + " 同用。");
+                }
+            }
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]

@@ -1,0 +1,44 @@
+using System;
+using System.Linq;
+using StreamDuel.Core;
+
+namespace StreamDuel.Cli
+{
+    internal static partial class Program
+    {
+        private static AiOpponent SelectOpponent(ContentDb db, CliOptions options)
+        {
+            if (options.OpponentId == null) return null;
+            var opponent = AiOpponents.For(db).FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, options.OpponentId, StringComparison.Ordinal));
+            if (opponent == null)
+                throw new ArgumentException("当前内容包「" + db.PackId + "」没有对手「" + options.OpponentId
+                    + "」；使用 --pack " + options.Pack + " --vs list 查看名单。");
+            if (options.LevelSpecified && options.Level != opponent.Level)
+                throw new ArgumentException("对手「" + opponent.Name + "」的固定难度为" + LevelName(opponent.Level)
+                    + "，与 --level 指定的" + LevelName(options.Level) + "不一致；请省略 --level 或选择相同难度。");
+            options.Level = opponent.Level;
+            return opponent;
+        }
+
+        private static void PrintOpponents(ContentDb db)
+        {
+            Console.WriteLine("内容包：" + db.PackName + "（" + db.PackId + "）");
+            Console.WriteLine(db.PackNotice);
+            var opponents = AiOpponents.For(db);
+            if (opponents.Count == 0)
+            {
+                Console.WriteLine("当前内容包没有预设电脑对手。");
+                return;
+            }
+            foreach (var opponent in opponents)
+            {
+                Console.WriteLine(opponent.Id + "：" + opponent.Name + "〔" + LevelName(opponent.Level) + "〕");
+                Console.WriteLine("  简介：" + opponent.Blurb);
+                Console.WriteLine("  阵容：" + string.Join("；", opponent.Team.Select(id =>
+                    db.Streamers.First(streamer => streamer.Id == id).Name + "（" + id + "）")));
+            }
+            Console.WriteLine("使用 --pack " + db.PackId + " --vs <对手id> 开始对战。");
+        }
+    }
+}
