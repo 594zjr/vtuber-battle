@@ -12,7 +12,8 @@ namespace StreamDuel.Cli
             BattleRecord record;
             try
             {
-                record = BattleRecord.FromJson(File.ReadAllText(options.ReplayFile));
+                record = options.ReplayCode != null ? ShareCode.Decode(options.ReplayCode)
+                    : BattleRecord.FromJson(File.ReadAllText(options.ReplayFile));
             }
             catch (IndexOutOfRangeException ex)
             {
@@ -61,7 +62,13 @@ namespace StreamDuel.Cli
             }
             else Console.WriteLine("记录播放完毕：这是一局未完成的对战。");
             SaveReport(battle, options);
+            PrintShareCode(record, options);
             return 0;
+        }
+
+        private static void PrintShareCode(BattleRecord record, CliOptions options)
+        {
+            if (options.Share) Console.WriteLine("分享码：" + ShareCode.Encode(record));
         }
 
         private static bool ReadReplayNext()
