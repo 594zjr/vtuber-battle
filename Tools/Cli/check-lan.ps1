@@ -123,14 +123,17 @@ function Send-LocalPacket($Sender, [string]$Text) {
     [void]$Sender.Send($bytes, $bytes.Length, [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, $lanPort))
 }
 
-function Room-Packet([string]$Name, [int]$Port) {
+function Room-Packet([string]$Name, [int]$Port, [int]$Protocol = $protocolVersion) {
     return ([ordered]@{
-        magic = 'SD-LAN-1'; name = $Name; port = $Port; protocol = 2
+        magic = 'SD-LAN-1'; name = $Name; port = $Port; protocol = $Protocol
         contentHash = 'local-injection-fingerprint'; ruleset = 'casual'; address = '198.51.100.77'
     } | ConvertTo-Json -Compress)
 }
 
 try {
+    $assembly = [Reflection.Assembly]::LoadFrom($coreDll)
+    Assert-Check ([IO.Path]::GetFullPath($assembly.Location) -eq [IO.Path]::GetFullPath($coreDll)) '请在未加载其他 Core 的新 PowerShell 进程运行。'
+    $protocolVersion = [StreamDuel.Core.NetSession]::ProtocolVersion
     $invalid = @(
         @{ Name = 'missing-name'; Args = @('--lan-host') },
         @{ Name = 'empty-name'; Args = @('--lan-host', '') },
@@ -142,13 +145,16 @@ try {
         @{ Name = 'host-ban'; Args = @('--lan-host', '甲', '--ban') },
         @{ Name = 'host-lead'; Args = @('--lan-host', '甲', '--lead') },
         @{ Name = 'host-replay'; Args = @('--lan-host', '甲', '--replay', 'missing.json') },
+        @{ Name = 'host-replay-code'; Args = @('--lan-host', '甲', '--replay-code', 'SD1-invalid') },
         @{ Name = 'host-packs'; Args = @('--lan-host', '甲', '--list-packs') }
     )
     $listConflicts = @(
         @('--host', '0'), @('--join', '127.0.0.1:1'), @('--lan-host', '甲'), @('--list-packs'),
         @('--replay', 'missing.json'), @('--ban'), @('--lead'), @('--auto'), @('--hash'),
         @('--pack', 'original'), @('--pack-dir', '.'), @('--level', 'normal'), @('--seed', '7'),
-        @('--team', $team), @('--save-dir', 'unexpected-saves'), @('--report', 'unexpected-report.md')
+        @('--team', $team), @('--save-dir', 'unexpected-saves'), @('--report', 'unexpected-report.md'),
+        @('--timer', '1,2'), @('--team-code', 'SDT1-invalid'), @('--export-team'), @('--share'),
+        @('--replay-code', 'SD1-invalid')
     )
     for ($index = 0; $index -lt $listConflicts.Count; $index++) {
         $invalid += @{ Name = "list-conflict-$index"; Args = (@('--lan-list') + $listConflicts[$index]) }
@@ -193,6 +199,7 @@ try {
         if ($milliseconds -lt 800) { Send-LocalPacket $sender (Room-Packet '早期房间' 45671) }
         $activeName = if ($milliseconds -lt 400) { '旧房间名称' } else { '持续房间' }
         Send-LocalPacket $sender (Room-Packet $activeName 45672)
+        Send-LocalPacket $sender (Room-Packet '旧协议房间' 45675 2)
         Send-LocalPacket $sender '{"magic":"OTHER","name":"坏包不得出现","port":45673,"protocol":2,"contentHash":"x","ruleset":"casual"}'
         Send-LocalPacket $sender (Room-Packet ('x' * 600) 45674)
         if (-not $noiseSent) {
@@ -205,23 +212,28 @@ try {
     $scanMilliseconds = $scan.ElapsedMilliseconds
     $result = Wait-Cli $child 0
     Assert-Check ($scanMilliseconds -ge 4500 -and $scanMilliseconds -lt 12000) '发现没有执行约 5 秒的扫描窗口。'
-    Assert-Check ($result.Out.Contains('发现 2 个房间')) '本机注入房间数错误，可能重复、丢失过期记录或接收了垃圾包。'
+    Assert-Check ($result.Out.Contains('发现 3 个房间')) '本机注入房间数错误，可能重复、丢失过期记录或接收了垃圾包。'
     $blocks = @([regex]::Matches($result.Out, '(?ms)^房间：(?<name>[^\r\n]+)\r?\n(?<body>.*?)(?=^房间：|\z)'))
-    Assert-Check ($blocks.Count -eq 2) '房间没有按端点去重。'
+    Assert-Check ($blocks.Count -eq 3) '房间没有按端点去重。'
     $early = @($blocks | Where-Object { $_.Groups['name'].Value -eq '早期房间' })
     $active = @($blocks | Where-Object { $_.Groups['name'].Value -eq '持续房间' })
+    $legacy = @($blocks | Where-Object { $_.Groups['name'].Value -eq '旧协议房间' })
     Assert-Check ($early.Count -eq 1 -and $active.Count -eq 1) '早期房间被漏掉，或同端点新房名没有覆盖旧值。'
     Assert-Check ($early[0].Groups['body'].Value.Contains('状态：已失联') -and -not $early[0].Groups['body'].Value.Contains('加入：')) '已失联条目仍提供加入命令或缺失状态说明。'
     Assert-Check ($active[0].Groups['body'].Value.Contains('状态：可见') -and $active[0].Groups['body'].Value.Contains('加入：--join 127.0.0.1:45672')) '持续房间没有显示来源地址和可复制的加入命令。'
-    Assert-Check ($result.Out.Contains('地址：127.0.0.1:45671；协议：2；规则：casual；内容指纹：local-injection-fingerprint')) '发现列表遗漏广播字段或没有使用 UDP 来源地址。'
+    Assert-Check ($result.Out.Contains(('地址：127.0.0.1:45671；协议：{0}；规则：casual；内容指纹：local-injection-fingerprint' -f $protocolVersion))) '发现列表遗漏广播字段或没有使用 UDP 来源地址。'
+    Assert-Check ($legacy.Count -eq 1) '仍在广播的旧协议房间未显示或出现重复。'
+    $legacyBody = $legacy[0].Groups['body'].Value
+    Assert-Check ($legacyBody.Contains('地址：127.0.0.1:45675；协议：2；') -and
+        $legacyBody.Contains(('状态：协议版本不兼容，当前版本为 {0}。' -f $protocolVersion)) -and
+        -not $legacyBody.Contains('加入：')) '旧协议房间未标为不兼容，或错误地提供了加入命令。'
     Assert-Check (-not $result.Out.Contains('198.51.100.77') -and -not $result.Out.Contains('坏包不得出现') -and -not $result.Out.Contains('旧房间名称')) '发现列表信任了伪造来源、接收垃圾包或保留旧同端点值。'
     Assert-NoSave $child
     $sender.Dispose()
     $released = Bind-DiscoveryPort
     $released.Dispose()
-    $checks.Add('5 秒真实 CLI 接收：端点去重更新、来源地址、过期标记、垃圾包丢弃及退出后 UDP 端口释放')
+    $checks.Add('5 秒真实 CLI 接收：端点去重更新、来源地址、过期标记、旧协议不可加入、垃圾包丢弃及退出后 UDP 端口释放')
 
-    [void][Reflection.Assembly]::LoadFrom($coreDll)
     $rules = [IO.File]::ReadAllText((Join-Path $binaryDirectory 'Content/StreamDuelRules.json'), $utf8)
     $pack = [IO.File]::ReadAllText((Join-Path $binaryDirectory 'Content/Packs/original.json'), $utf8)
     $db = [StreamDuel.Core.ContentDb]::FromJson($rules, $pack)
@@ -353,6 +365,82 @@ try {
         $endToEnd.final_hash = $hostHash.Groups[1].Value
         $checks.Add('独立 --lan-host 默认临时端口：真实发现、复制加入命令、双方自动完整对战、哈希一致及各一份回放')
     }
+
+    # 此项使用监听端口回环加入，独立验证组合参数，不替代上面的真实发现路径。
+    $combinedPreset = [StreamDuel.Core.TeamPreset]::new()
+    $combinedPreset.Name = '局域网「零预算」原六人'
+    $combinedPreset.PackId = 'original'
+    $combinedPreset.Ids.AddRange($team.Split(','))
+    $combinedCode = [StreamDuel.Core.TeamCode]::Encode($combinedPreset)
+    $combinedGuestTeam = 'kei,yuan,nyako,buck,kasumi,bee'
+    $combinedDeadline = [Diagnostics.Stopwatch]::StartNew()
+    $combinedHost = Start-Cli 'combined-game-host' @('--lan-host', '组合验证房', '--timer', '0,0', '--team-code', $combinedCode, '--export-team', '--share', '--auto', '--seed', '63')
+    $combinedPort = [int](Wait-Output $combinedHost '(?m)^监听端口：([0-9]+)\r?$').Groups[1].Value
+    Assert-Check ($combinedPort -ge 1 -and $combinedPort -le 65535) '组合对局没有分配实际 TCP 端口。'
+    $combinedGuest = Start-Cli 'combined-game-guest' @('--join', ('127.0.0.1:' + $combinedPort), '--auto', '--share', '--team', $combinedGuestTeam)
+    $combinedHostResult = Wait-Cli $combinedHost 0 ([Math]::Max(1, 60000 - [int]$combinedDeadline.ElapsedMilliseconds))
+    $combinedGuestResult = Wait-Cli $combinedGuest 0 ([Math]::Max(1, 60000 - [int]$combinedDeadline.ElapsedMilliseconds))
+    $combinedChildren = @($combinedHost, $combinedGuest)
+    $combinedResults = @($combinedHostResult, $combinedGuestResult)
+    $combinedHashes = [Collections.Generic.List[string]]::new()
+    $combinedReplayJson = [Collections.Generic.List[string]]::new()
+    for ($side = 0; $side -lt 2; $side++) {
+        $combinedChild = $combinedChildren[$side]
+        $combinedResult = $combinedResults[$side]
+        $combinedName = if ($side -eq 0) { '房主' } else { '客机' }
+        Assert-Check ([string]::IsNullOrWhiteSpace($combinedResult.Err)) "$combinedName 组合对局输出错误。"
+        Assert-Check ($combinedResult.Out.Contains('已启用房主计时：每阶段 0 秒；总时间 0 秒。')) "$combinedName 未采用房主零预算。"
+        Assert-Check ($combinedResult.Out.Contains($combinedName + '：超时，提交默认跳过') -and $combinedResult.Out.Contains('对局结束：')) "$combinedName 未通过默认超时动作完成对局。"
+        $combinedHash = [regex]::Matches($combinedResult.Out, '(?m)^最终状态哈希：([0-9a-f]{16})\r?$')
+        Assert-Check ($combinedHash.Count -eq 1) "$combinedName 未恰好输出一份终局哈希。"
+        $combinedHashes.Add($combinedHash[0].Groups[1].Value)
+
+        $combinedSave = Join-Path $combinedChild.WorkingDirectory 'saves'
+        $combinedReplayDirectory = Join-Path $combinedSave 'replays'
+        Assert-Check (Test-Path -LiteralPath $combinedReplayDirectory -PathType Container) "$combinedName 未保存回放目录。"
+        $combinedReplayFiles = @(Get-ChildItem -LiteralPath $combinedReplayDirectory -File -Filter '*.json')
+        Assert-Check ($combinedReplayFiles.Count -eq 1) "$combinedName 应恰好保存一份完整回放。"
+        $combinedJson = [IO.File]::ReadAllText($combinedReplayFiles[0].FullName, $utf8)
+        $combinedReplayJson.Add($combinedJson)
+        $combinedRecord = [StreamDuel.Core.BattleRecord]::FromJson($combinedJson)
+        Assert-Check ($combinedRecord.Seed -eq 63 -and $combinedRecord.PackId -ceq 'original' -and
+            ($combinedRecord.Teams[0] -join ',') -ceq $team -and ($combinedRecord.Teams[1] -join ',') -ceq $combinedGuestTeam -and
+            $combinedRecord.Events.Count -gt 0) "$combinedName 回放丢失种子、队伍原顺序或行动记录。"
+        $combinedReplay = [StreamDuel.Core.Replay]::Run($db, $combinedRecord)
+        Assert-Check ($combinedReplay.Phase -eq [StreamDuel.Core.Phase]::Over -and
+            $combinedReplay.StateHash().ToString('x16') -ceq $combinedHashes[$side]) "$combinedName 保存回放不能复现终局。"
+
+        $combinedProfilePath = Join-Path $combinedSave 'profile.json'
+        Assert-Check (Test-Path -LiteralPath $combinedProfilePath -PathType Leaf) "$combinedName 未保存档案。"
+        $combinedProfile = [StreamDuel.Core.Profile]::FromJson([IO.File]::ReadAllText($combinedProfilePath, $utf8))
+        Assert-Check ($combinedProfile.Packs.Count -eq 1 -and $combinedProfile.Packs.ContainsKey('original')) "$combinedName 档案内容包不正确。"
+        $combinedStats = $combinedProfile.Packs['original']
+        $combinedWins = [int]($combinedReplay.Winner -eq $side)
+        $combinedLosses = [int]($combinedReplay.Winner -ge 0 -and $combinedReplay.Winner -ne $side)
+        $combinedDraws = [int]($combinedReplay.Winner -eq -1)
+        Assert-Check ($combinedStats.Wins -eq $combinedWins -and $combinedStats.Losses -eq $combinedLosses -and
+            $combinedStats.Draws -eq $combinedDraws) "$combinedName 档案胜负不正确或重复累计。"
+        Assert-Check ($combinedStats.Picks.Count -eq 6 -and $combinedStats.PickWins.Count -eq 6) "$combinedName 档案选用名单不是六位。"
+        foreach ($id in $combinedRecord.Teams[$side]) {
+            Assert-Check ($combinedStats.Picks.ContainsKey($id) -and $combinedStats.Picks[$id] -eq 1 -and
+                $combinedStats.PickWins.ContainsKey($id) -and $combinedStats.PickWins[$id] -eq $combinedWins) "$combinedName 的 $id 选用记录不正确或重复累计。"
+        }
+
+        $combinedShared = [regex]::Matches($combinedResult.Out, '(?m)^分享码：(SD1-[A-Za-z0-9_-]+)\r?$')
+        Assert-Check ($combinedShared.Count -eq 1) "$combinedName 未恰好导出一份分享码。"
+        $combinedSharedRecord = [StreamDuel.Core.ShareCode]::Decode($combinedShared[0].Groups[1].Value)
+        Assert-Check ($combinedSharedRecord.ToJson() -ceq $combinedRecord.ToJson()) "$combinedName 分享码未保留完整保存回放。"
+        $combinedSharedReplay = [StreamDuel.Core.Replay]::Run($db, $combinedSharedRecord)
+        Assert-Check ($combinedSharedReplay.Phase -eq [StreamDuel.Core.Phase]::Over -and
+            $combinedSharedReplay.StateHash().ToString('x16') -ceq $combinedHashes[$side]) "$combinedName 分享码不能复现终局。"
+    }
+    Assert-Check ($combinedHashes[0] -ceq $combinedHashes[1] -and $combinedReplayJson[0] -ceq $combinedReplayJson[1]) '组合对局双方终局哈希或完整回放不同。'
+    $combinedExported = [regex]::Matches($combinedHostResult.Out, '(?m)^本方队伍码：(SDT1-[A-Za-z0-9_-]+)\r?$')
+    Assert-Check ($combinedExported.Count -eq 1 -and $combinedExported[0].Groups[1].Value -ceq $combinedCode) '组合对局没有原样导出自定义队伍码。'
+    $combinedDecoded = [StreamDuel.Core.TeamCode]::Decode($combinedExported[0].Groups[1].Value)
+    Assert-Check ($combinedDecoded.Name -ceq $combinedPreset.Name -and $combinedDecoded.PackId -ceq 'original' -and
+        ($combinedDecoded.Ids -join ',') -ceq $team) '组合对局导出的名称、内容包或原六人顺序发生变化。'
+    $checks.Add('独立真实 TCP：LAN 开房、房主零预算、双方默认超时、队伍码原样导出、分享码复现、终局哈希和完整回放一致及各一份档案/回放')
 }
 catch { $failure = $_ }
 finally {

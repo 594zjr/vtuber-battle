@@ -12,6 +12,8 @@ namespace StreamDuel.Core
         // 被控制时保留足够人气才考虑撤退，避免把残血队友反复送回后排。
         public double ControlledSwitchMinHpRatio = 0.3;
         public double ControlledSwitchProbability = 0.35;
+        // 默认保留原伤害估值；风格可以单独增加非斩杀输出的吸引力。
+        public double DamageScoreMultiplier = 1;
         // 对已经能击倒的招式单独加分，优先处理先手和当前受到的致命威胁。
         public double KnockoutScore = 1.6;
         public double FirstKnockoutBonus = 0.6;
@@ -47,6 +49,8 @@ namespace StreamDuel.Core
         public double StealBoostBaseScore = 0.12;
         public double StealBoostPerStageScore = 0.08;
         public double CleanseScore = 0.4;
+        // 旧策略不为削 PP 额外加分，花招风格按实际可削除的占比估值。
+        public double PpReduceScore = 0;
         // 扰动只改变决策分，不增加或减少原有的随机抽取次数。
         public double RandomScoreRange = 0.08;
         // 高威胁且现有行动价值较低时，才比较换人带来的对位改善。

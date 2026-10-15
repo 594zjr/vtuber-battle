@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace StreamDuel.Core
 {
@@ -7,6 +8,7 @@ namespace StreamDuel.Core
         public uint? Seed;
         public bool LeadPick;
         public bool BanOne;
+        public List<string> Modifiers;
     }
 
     public sealed partial class Battle
