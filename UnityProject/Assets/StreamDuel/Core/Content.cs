@@ -5,7 +5,29 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public sealed class TypeDef { public string Id, Name, Color; }
+    public sealed class TypeDef
+    {
+        public string Id, Name, Color;
+        string symbol, colorAlt;
+
+        public string Symbol
+        {
+            get { return string.IsNullOrWhiteSpace(symbol) ? "●" : symbol; }
+            set { symbol = value; }
+        }
+
+        public string ColorAlt
+        {
+            get { return string.IsNullOrWhiteSpace(colorAlt) ? Color : colorAlt; }
+            set { colorAlt = value; }
+        }
+
+        internal TypeDef Copy()
+        {
+            // 保留缺省值本身，让复制后的备用颜色仍能跟随原颜色回退。
+            return (TypeDef)MemberwiseClone();
+        }
+    }
 
     public sealed class StatusDef
     {
@@ -121,7 +143,11 @@ namespace StreamDuel.Core
             foreach (var kv in Obj(root, "types"))
             {
                 var o = (Dictionary<string, object>)kv.Value;
-                db.Types[kv.Key] = new TypeDef { Id = kv.Key, Name = Str(o, "name"), Color = Str(o, "color") };
+                db.Types[kv.Key] = new TypeDef
+                {
+                    Id = kv.Key, Name = Str(o, "name"), Color = Str(o, "color"),
+                    Symbol = Str(o, "symbol"), ColorAlt = Str(o, "colorAlt")
+                };
             }
             foreach (var kv in Obj(root, "chart"))
             {

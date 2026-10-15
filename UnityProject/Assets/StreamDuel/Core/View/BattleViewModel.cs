@@ -17,10 +17,16 @@ namespace StreamDuel.Core
 
         public static BattleViewModel From(Battle b, int viewerSide)
         {
+            return From(b, viewerSide, null);
+        }
+
+        public static BattleViewModel From(Battle b, int viewerSide, GameSettings settings)
+        {
             if (b == null) throw new ArgumentNullException(nameof(b), "对战不能为空");
             if (viewerSide < 0 || viewerSide >= b.Sides.Length)
                 throw new ArgumentOutOfRangeException(nameof(viewerSide), "观看方必须是有效的对战方下标");
 
+            bool colorblindMode = settings != null && settings.ColorblindMode;
             var legal = b.LegalFor(viewerSide);
             var view = new BattleViewModel
             {
@@ -40,7 +46,7 @@ namespace StreamDuel.Core
             {
                 var source = b.Sides[side];
                 var sideView = new SideView { Name = TextInput.Clean(source.Name, TextInputKind.PlayerName).Text, Active = source.Active };
-                foreach (var fighter in source.Team) sideView.Team.Add(FighterSnapshot(b, fighter));
+                foreach (var fighter in source.Team) sideView.Team.Add(FighterSnapshot(b, fighter, colorblindMode));
                 view.Sides[side] = sideView;
             }
 
@@ -55,6 +61,8 @@ namespace StreamDuel.Core
                     Name = skill.Name,
                     Track = b.Db.Types[skill.Type].Name,
                     TrackId = skill.Type,
+                    TrackSymbol = b.Db.Types[skill.Type].Symbol,
+                    TrackColor = TrackColor(b.Db.Types[skill.Type], colorblindMode),
                     Category = b.Db.CatNames[skill.Cat],
                     CategoryId = skill.Cat,
                     Power = skill.Power,
@@ -90,7 +98,21 @@ namespace StreamDuel.Core
             return view;
         }
 
-        static FighterView FighterSnapshot(Battle battle, Fighter fighter)
+        static string TrackColor(TypeDef type, bool colorblindMode)
+        {
+            return colorblindMode ? type.ColorAlt : type.Color;
+        }
+
+        static TrackView TrackSnapshot(ContentDb db, string id, bool colorblindMode)
+        {
+            var type = db.Types[id];
+            return new TrackView
+            {
+                Id = id, Name = type.Name, Symbol = type.Symbol, Color = TrackColor(type, colorblindMode)
+            };
+        }
+
+        static FighterView FighterSnapshot(Battle battle, Fighter fighter, bool colorblindMode)
         {
             var persona = battle.PersonaOf(fighter);
             var view = new FighterView
@@ -109,6 +131,9 @@ namespace StreamDuel.Core
                 // 快照允许画面自行整理展示，不能与引擎共享可变字典。
                 Stages = new Dictionary<string, int>(fighter.Stages, fighter.Stages.Comparer)
             };
+            view.TrackViews.Add(TrackSnapshot(battle.Db, fighter.Def.Type, colorblindMode));
+            if (fighter.Def.Type2 != null)
+                view.TrackViews.Add(TrackSnapshot(battle.Db, fighter.Def.Type2, colorblindMode));
             foreach (var status in fighter.Statuses)
             {
                 var definition = battle.Db.Statuses[status.Id];
@@ -163,8 +188,14 @@ namespace StreamDuel.Core
         public string Id, Name, Tracks, PersonaId, PersonaName, PersonaDescription, Notice;
         public int Hp, MaxHp, Pct;
         public bool Fainted;
+        public List<TrackView> TrackViews = new List<TrackView>();
         public Dictionary<string, int> Stages = new Dictionary<string, int>();
         public List<ChipView> Statuses = new List<ChipView>();
+    }
+
+    public sealed class TrackView
+    {
+        public string Id, Name, Symbol, Color;
     }
 
     public sealed class ChipView
@@ -177,7 +208,7 @@ namespace StreamDuel.Core
     public sealed class SkillView
     {
         public int Index, Power, Pp, MaxPp, Priority, BasePriority, DamageMin, DamageMax;
-        public string Id, Name, Track, TrackId, Category, CategoryId;
+        public string Id, Name, Track, TrackId, TrackSymbol, TrackColor, Category, CategoryId;
         public bool Usable, Fifth;
         public double Effectiveness;
         public List<string> PriorityParts = new List<string>();
