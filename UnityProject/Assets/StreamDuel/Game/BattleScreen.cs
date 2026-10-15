@@ -49,16 +49,34 @@ namespace StreamDuel.Game
         static string HexOf(Color c) { return "#" + ColorUtility.ToHtmlStringRGB(c); }
         Color TypeColor(string type) { return Hex(db.Types[type].Color); }
 
+        string rulesJson;
+        List<KeyValuePair<string, string>> packs = new List<KeyValuePair<string, string>>(); // (id, json)
+        Dictionary<string, string> packNames = new Dictionary<string, string>();
+
         void Awake()
         {
-            var ta = Resources.Load<TextAsset>("StreamDuelContent");
-            db = ContentDb.FromJson(ta.text);
+            rulesJson = Resources.Load<TextAsset>("StreamDuelRules").text;
+            foreach (var ta in Resources.LoadAll<TextAsset>("Packs").OrderBy(t => t.name == "original" ? 1 : 0).ThenBy(t => t.name))
+            {
+                var probe = ContentDb.FromJson(rulesJson, ta.text);
+                packs.Add(new KeyValuePair<string, string>(probe.PackId, ta.text));
+                packNames[probe.PackId] = probe.PackName;
+            }
             fast = PlayerPrefs.GetInt("sd.fast", 0) == 1;
             timerOn = PlayerPrefs.GetInt("sd.timer", 0) == 1;
-            var saved = PlayerPrefs.GetString("sd.pick", "");
-            pick = saved.Split(',').Where(id => db.Streamers.Any(s => s.Id == id)).Distinct().Take(6).ToList();
+            string want = PlayerPrefs.GetString("sd.pack", packs[0].Key);
+            LoadPack(packs.Any(p => p.Key == want) ? want : packs[0].Key);
+        }
+
+        void LoadPack(string id)
+        {
+            db = ContentDb.FromJson(rulesJson, packs.First(p => p.Key == id).Value);
+            PlayerPrefs.SetString("sd.pack", id);
+            var saved = PlayerPrefs.GetString("sd.pick." + id, "");
+            pick = saved.Split(',').Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
             if (pick.Count == 0) RandomPick();
-            teamDetail = pick.Count > 0 ? pick[0] : db.Streamers[0].Id;
+            teamDetail = pick[0];
+            rosterScroll = teamDetailScroll = Vector2.zero;
         }
 
         void RandomPick()
@@ -66,7 +84,7 @@ namespace StreamDuel.Game
             pick = db.Streamers.Select(s => s.Id).OrderBy(_ => Random.value).Take(6).ToList();
             SavePick();
         }
-        void SavePick() { PlayerPrefs.SetString("sd.pick", string.Join(",", pick)); }
+        void SavePick() { PlayerPrefs.SetString("sd.pick." + db.PackId, string.Join(",", pick)); }
 
         void EnsureStyles()
         {
@@ -228,7 +246,16 @@ namespace StreamDuel.Game
         void DrawTeam()
         {
             GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1 · 全部原创角色", Muted), sBig);
-            GUI.Label(new Rect(24, 62, 1000, 30), "选 6 位主播，选入的先后就是 1 到 6 号位，开局派出 1 号。没选的 6 位归电脑。点卡片看全部技能和判定时机。", sSmall);
+            float px = 24;
+            foreach (var kv in packs)
+            {
+                string label = packNames[kv.Key];
+                var size = sChip.CalcSize(new GUIContent(label));
+                bool on = kv.Key == db.PackId;
+                if (GUI.Button(new Rect(px, 62, size.x + 8, 30), on ? C(label, Accent) : C(label, Muted), sChip) && !on) { var id = kv.Key; Do(() => LoadPack(id)); }
+                px += size.x + 16;
+            }
+            GUI.Label(new Rect(px + 6, 66, 1100 - px, 30), "选 6 位，先后顺序就是 1 到 6 号位；没选的 6 位归电脑。", sSmall);
             if (GUI.Button(new Rect(1150, 18, 120, 40), "随机挑选", sBtn)) Do(RandomPick);
             if (GUI.Button(new Rect(1280, 18, 90, 40), "清空", sBtn)) Do(() => { pick.Clear(); SavePick(); });
             GUI.enabled = pick.Count == 6;
@@ -254,7 +281,8 @@ namespace StreamDuel.Game
                 else GUI.Label(new Rect(r.x + 40, r.y + 15, 120, 28), "空位", sSmall);
             }
 
-            var area = new Rect(24, 170, 1110, 712);
+            GUI.Label(new Rect(24, 162, 1552, 44), C(db.PackNotice ?? "", Muted), sSmall);
+            var area = new Rect(24, 210, 1110, 672);
             int rows = Mathf.CeilToInt(db.Streamers.Count / 3f);
             rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rows * 232));
             for (int i = 0; i < db.Streamers.Count; i++)
@@ -265,7 +293,7 @@ namespace StreamDuel.Game
             }
             GUI.EndScrollView();
 
-            DrawTeamDetail(new Rect(1150, 100, 426, 782));
+            DrawTeamDetail(new Rect(1150, 210, 426, 672));
         }
 
         void DrawRosterCard(Rect r, StreamerDef d)
@@ -277,7 +305,7 @@ namespace StreamDuel.Game
             if (GUI.Button(new Rect(r.x, r.y, r.width - 110, r.height), GUIContent.none, GUIStyle.none)) Do(() => teamDetail = d.Id);
             Portrait(new Rect(r.x + 14, r.y + 14, 64, 64), d, false);
             GUI.Label(new Rect(r.x + 90, r.y + 12, 160, 30), d.Name, sTitle);
-            GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d.Type) + " " + C(d.Blurb, Muted), sSmall);
+            GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d.Type) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted), sSmall);
             string stats = string.Join("  ", new[] { "hp", "atk", "def", "spa", "sdef", "spd" }.Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k]));
             GUI.Label(new Rect(r.x + 14, r.y + 92, 330, 26), stats, sSmall);
             var p = db.Personas[d.Persona];
@@ -340,7 +368,8 @@ namespace StreamDuel.Game
         void DrawBattle()
         {
             int turnShown = shown > 0 ? b.Log[Mathf.Min(shown, b.Log.Count) - 1].Turn : 1;
-            GUI.Label(new Rect(24, 12, 700, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
+            GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
+            if (db.PackId != "original") GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
             if (nf != fast) { fast = nf; PlayerPrefs.SetInt("sd.fast", fast ? 1 : 0); }
             bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);

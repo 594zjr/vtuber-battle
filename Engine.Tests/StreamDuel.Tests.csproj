@@ -11,6 +11,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
-    <None Include="../UnityProject/Assets/StreamDuel/Resources/StreamDuelContent.json" CopyToOutputDirectory="PreserveNewest" Link="StreamDuelContent.json" />
+    <None Include="../UnityProject/Assets/StreamDuel/Resources/**/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Content" />
   </ItemGroup>
 </Project>

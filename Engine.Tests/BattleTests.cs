@@ -6,7 +6,9 @@ using Xunit;
 
 public class BattleTests
 {
-    static readonly ContentDb Db = ContentDb.FromJson(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "StreamDuelContent.json")));
+    static string Res(string rel) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Content", rel));
+    static ContentDb Load(string pack) => ContentDb.FromJson(Res("StreamDuelRules.json"), Res(Path.Combine("Packs", pack + ".json")));
+    static readonly ContentDb Db = Load("original");
     static readonly string[] Others = { "enka", "shiori", "lumi", "hane", "momo", "yuan" };
 
     static Battle Make(string lead0, string lead1, uint seed = 7, string[] rest0 = null, string[] rest1 = null)
@@ -26,15 +28,28 @@ public class BattleTests
     }
 
     [Fact]
-    public void ThousandAiBattlesFinishWithoutErrors()
+    public void FanPackLoadsWithNeutralRenamesAndNotice()
     {
-        var ids = Db.Streamers.Select(s => s.Id).ToArray();
+        var fan = Load("fan_holo_niji");
+        Assert.Equal(12, fan.Streamers.Count);
+        Assert.Contains("非官方同人作品", fan.PackNotice);
+        Assert.Equal("回放轰炸", fan.Skills["dig_history"].Name);
+        Assert.Equal("卡麦", fan.Statuses[fan.Personas[fan.Streamer("marine").Persona].Status].Name);
+        Assert.Equal("船长反击", fan.Personas[fan.Streamer("marine").Persona].Name);
+        // 改名只影响这个内容包，原创包不受影响
+        Assert.Equal("翻黑历史", Db.Skills["dig_history"].Name);
+        RunMany(fan, 200);
+    }
+
+    static int[] RunMany(ContentDb db, int n)
+    {
+        var ids = db.Streamers.Select(s => s.Id).ToArray();
         var rnd = new Random(1);
         int[] wins = new int[3];
-        for (int i = 0; i < 1000; i++)
+        for (int i = 0; i < n; i++)
         {
             var sh = ids.OrderBy(_ => rnd.Next()).ToArray();
-            var b = new Battle(Db, new System.Collections.Generic.IList<string>[] { sh.Take(6).ToList(), sh.Skip(6).ToList() }, new[] { "A", "B" }, (uint)i);
+            var b = new Battle(db, new System.Collections.Generic.IList<string>[] { sh.Take(6).ToList(), sh.Skip(6).Take(6).ToList() }, new[] { "A", "B" }, (uint)i);
             int guard = 0;
             while (b.Phase != Phase.Over && guard++ < 500)
             {
@@ -44,7 +59,14 @@ public class BattleTests
             Assert.Equal(Phase.Over, b.Phase);
             wins[b.Winner == -1 ? 2 : b.Winner]++;
         }
-        Assert.InRange(wins[0], 350, 650); // 两边都是同一个电脑，胜率应接近一半
+        return wins;
+    }
+
+    [Fact]
+    public void ThousandAiBattlesFinishWithoutErrors()
+    {
+        var w = RunMany(Db, 1000);
+        Assert.InRange(w[0], 350, 650); // 两边都是同一个电脑，胜率应接近一半
     }
 
     [Fact]

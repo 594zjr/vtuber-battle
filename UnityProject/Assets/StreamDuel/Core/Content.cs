@@ -1,6 +1,7 @@
 // 内容定义：主播、技能、状态、直播间效果、人设。全部从 JSON 读入。
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace StreamDuel.Core
 {
@@ -51,7 +52,7 @@ namespace StreamDuel.Core
 
     public sealed class StreamerDef
     {
-        public string Id, Name, Type, Persona, Fifth, Blurb;
+        public string Id, Name, Type, Persona, Fifth, Blurb, Org;
         public Dictionary<string, int> Stats = new Dictionary<string, int>();
         public List<string> Skills = new List<string>();
     }
@@ -69,6 +70,7 @@ namespace StreamDuel.Core
         public Dictionary<string, SkillDef> Skills = new Dictionary<string, SkillDef>();
         public List<StreamerDef> Streamers = new List<StreamerDef>();
         public SkillDef Struggle;
+        public string PackId, PackName, PackNotice;
 
         public StreamerDef Streamer(string id)
         {
@@ -85,9 +87,11 @@ namespace StreamDuel.Core
         public string StatName(string k) { string v; return StatNames.TryGetValue(k, out v) ? v : k; }
 
         // ---------- 读取 ----------
-        public static ContentDb FromJson(string json)
+        // rulesJson：赛道、状态、效果、技能、人设等规则数据；packJson：主播名单内容包（原创包或同人包），
+        // 内容包还可以给技能、效果、状态、人设换显示名，机制不变。
+        public static ContentDb FromJson(string rulesJson, string packJson)
         {
-            var root = (Dictionary<string, object>)MiniJson.Parse(json);
+            var root = (Dictionary<string, object>)MiniJson.Parse(rulesJson);
             var db = new ContentDb();
             foreach (var kv in Obj(root, "stats")) db.StatNames[kv.Key] = (string)kv.Value;
             foreach (var kv in Obj(root, "categories")) db.CatNames[kv.Key] = (string)kv.Value;
@@ -132,12 +136,27 @@ namespace StreamDuel.Core
             }
             foreach (var kv in Obj(root, "skills")) db.Skills[kv.Key] = ReadSkill(kv.Key, (Dictionary<string, object>)kv.Value);
             db.Struggle = ReadSkill("struggle", (Dictionary<string, object>)root["struggle"]);
-            foreach (var item in (List<object>)root["streamers"])
+
+            var pack = (Dictionary<string, object>)MiniJson.Parse(packJson);
+            db.PackId = Str(pack, "id"); db.PackName = Str(pack, "name"); db.PackNotice = Str(pack, "notice");
+            foreach (var kv in Obj(pack, "skillNames")) { if (!db.Skills.ContainsKey(kv.Key)) throw new KeyError("内容包改名的技能不存在：" + kv.Key); db.Skills[kv.Key].Name = (string)kv.Value; }
+            foreach (var kv in Obj(pack, "fieldNames")) { if (!db.Fields.ContainsKey(kv.Key)) throw new KeyError("内容包改名的效果不存在：" + kv.Key); db.Fields[kv.Key].Name = (string)kv.Value; }
+            foreach (var kv in Obj(pack, "statusNames")) { if (!db.Statuses.ContainsKey(kv.Key)) throw new KeyError("内容包改名的状态不存在：" + kv.Key); db.Statuses[kv.Key].Name = (string)kv.Value; }
+            foreach (var item in (List<object>)pack["streamers"])
             {
                 var o = (Dictionary<string, object>)item;
-                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb") };
+                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org") };
                 foreach (var st in Obj(o, "stats")) s.Stats[st.Key] = (int)(double)st.Value;
                 foreach (var sk in (List<object>)o["skills"]) s.Skills.Add((string)sk);
+                // 每位主播可以有自己的人设名字和说明：复制一份同机制的人设，挂在这位主播名下
+                string pName = Str(o, "personaName"), pDesc = Str(o, "personaDesc"), pStatus = Str(o, "personaStatus");
+                PersonaDef basePersona;
+                if ((pName != null || pDesc != null || pStatus != null) && db.Personas.TryGetValue(s.Persona, out basePersona))
+                {
+                    var copy = new PersonaDef { Id = s.Id + "#" + basePersona.Id, Name = pName ?? basePersona.Name, Code = basePersona.Code, Node = basePersona.Node, Desc = pDesc ?? basePersona.Desc, Status = pStatus ?? basePersona.Status, Field = basePersona.Field, Params = new Dictionary<string, double>(basePersona.Params) };
+                    db.Personas[copy.Id] = copy;
+                    s.Persona = copy.Id;
+                }
                 db.Streamers.Add(s);
             }
             db.Validate();
@@ -183,6 +202,7 @@ namespace StreamDuel.Core
                     if (e.Field != null && !Fields.ContainsKey(e.Field)) throw new KeyError("技能 " + sk.Id + " 用到不存在的效果：" + e.Field);
                 }
             }
+            if (Streamers.Count < 12) throw new KeyError("内容包至少需要 12 位主播（双方各 6 位），现在只有 " + Streamers.Count + " 位");
             foreach (var s in Streamers)
             {
                 if (!Types.ContainsKey(s.Type)) throw new KeyError("主播 " + s.Id + " 的赛道不存在");
@@ -190,6 +210,9 @@ namespace StreamDuel.Core
                 if (s.Skills.Count != 4) throw new KeyError("主播 " + s.Id + " 需要正好 4 个普通技能");
                 foreach (var k in s.Skills) if (!Skills.ContainsKey(k)) throw new KeyError("主播 " + s.Id + " 的技能不存在：" + k);
                 if (!Skills.ContainsKey(s.Fifth)) throw new KeyError("主播 " + s.Id + " 的第五技能不存在：" + s.Fifth);
+                if (Streamers.Count(x => x.Id == s.Id) > 1) throw new KeyError("主播 id 重复：" + s.Id);
+                var pd = Personas[s.Persona];
+                if (pd.Status != null && !Statuses.ContainsKey(pd.Status)) throw new KeyError("主播 " + s.Id + " 的人设用到不存在的状态：" + pd.Status);
             }
         }
 

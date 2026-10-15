@@ -1,20 +1,26 @@
 # 开播对决（工作名）
 
-虚拟主播 6 对 6 回合制对战。玩法机制借鉴赛尔号（人设式专属特质、先制、PP、控制类/弱化类状态、回合类效果和消回合、印记层数、第五技能、换人）；主播、技能、文案、数值、美术全部原创，不含任何真实主播或淘米的内容。
+虚拟主播 6 对 6 回合制对战。玩法机制借鉴赛尔号（人设式专属特质、先制、PP、控制类/弱化类状态、回合类效果和消回合、印记层数、第五技能、换人）；技能、文案、数值、美术全部原创，不含淘米的内容。
+
+主播名单是可替换的**内容包**：
+
+- `同人包：hololive × 彩虹社`：非官方同人作品，免费、非商业，只用公开艺名和公开人设，形象自制。收录依据见 [FANWORK.md](FANWORK.md)。
+- `原创主播`：全部原创角色，规则完全相同，随时可以切回。
 
 ## 怎么试玩
 
 1. 用 Unity Hub 选「添加 → 从磁盘添加项目」，选中 `UnityProject` 文件夹。
 2. 如果 Hub 提示版本不一致，选你已经装好的 Unity 6 版本打开即可。
 3. 第一次打开会花几分钟导入。打开后直接按顶部的 ▶ Play，不需要打开或摆放任何场景。
-4. 组队页选 6 位主播，点「开播！」，和电脑打一局。
+4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
 
 ## 结构
 
 | 位置 | 内容 |
 |---|---|
 | `UnityProject/Assets/StreamDuel/Core/` | 对战规则引擎，纯 C#，不依赖 Unity（以后也能放到服务器上） |
-| `UnityProject/Assets/StreamDuel/Resources/StreamDuelContent.json` | 全部内容数据：主播、技能、状态、直播间效果、人设、赛道克制 |
+| `UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json` | 规则数据：技能、状态、直播间效果、人设、赛道克制 |
+| `UnityProject/Assets/StreamDuel/Resources/Packs/*.json` | 内容包：主播名单，可给技能、状态、人设换显示名，机制不变 |
 | `UnityProject/Assets/StreamDuel/Game/` | 第一版画面（Unity 自带的即时 GUI，零美术资源） |
 | `Engine/`、`Engine.Tests/` | 不开 Unity 也能编译和测试规则：`dotnet test Engine.Tests` |
 
@@ -29,4 +35,4 @@
 
 ## 加内容
 
-只改 `StreamDuelContent.json`。技能效果用已有的效果代码（STATUS、STAGE、HEAL、RECOIL、DRAIN、FIELD、ADD_MARK、POWER_MUL、POWER_PER_MARK、DISPEL_TURNS、DISPEL_BOOST、CLEANSE），并写明 `at`（pre 命中前 / post 命中后）。读取时会检查引用是否存在，写错会直接报出是哪一条。
+新主播只改 `Packs/` 里的内容包；新技能改 `StreamDuelRules.json`。技能效果用已有的效果代码（STATUS、STAGE、HEAL、RECOIL、DRAIN、FIELD、ADD_MARK、POWER_MUL、POWER_PER_MARK、DISPEL_TURNS、DISPEL_BOOST、CLEANSE），并写明 `at`（pre 命中前 / post 命中后）。读取时会检查引用是否存在，写错会直接报出是哪一条。
