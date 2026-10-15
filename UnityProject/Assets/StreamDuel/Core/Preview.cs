@@ -26,7 +26,7 @@ namespace StreamDuel.Core
             if (skillIndex < 0 || skillIndex >= p.Skills.Count) throw new ArgumentOutOfRangeException(nameof(skillIndex));
             var f = Active(1 - side);
             var skill = Db.Skills[p.Skills[skillIndex].Id];
-            var preview = new DamagePreview { Eff = Db.TypeMul(skill.Type, f.Type) };
+            var preview = new DamagePreview { Eff = Db.TypeMul(skill.Type, f.Type, f.Type2) };
             if (skill.Power <= 0 || skill.Cat == "status") return preview;
 
             preview.Notes.Add("按当前状态、本方先手且技能命中估算，不含暴击");
