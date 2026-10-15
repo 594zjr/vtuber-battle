@@ -517,7 +517,7 @@ CLI 的 `--advice` 仅用于带 `--ban` 或 `--lead` 的新本地对局，在首
 
 依次移除控制字符、Unicode Format 字符（含零宽连接符和双向控制符）、行/段分隔符、组合字素连接符 U+034F 及孤立代理项；其余 Unicode 空白统一为半角空格、连续空格合并并去除两端空格。变体选择符及普通组合标记保留，不折叠全角字母、数字或标点。清理后按 6.3“文本检查”共用的 `TextLint.DefaultBannedWords` 词表进行 ordinal 子串匹配，以等标量数量的 `*` 替换，再截断至该类型上限。空值分别使用“玩家”“我的队伍”“对战房间”“无备注”；提示说明调整类别，不回显被移除的原文。
 
-网络会话的 `NameInputs` / `DisplayNames`、`ViewFor`，同屏会话的 `ViewFor` / `DisplayLog`，局域网 `LanRoom.NameInput` / `DisplayName`，队伍预设 `NameInput` / `DisplayName`，录像条目 `NameInputs` / `DisplayNames` 和 `NoteInput` / `DisplayNote` 是接收数据后的显示入口。`BattleViewModel.From` 清理双方昵称。`TextInput.ForDisplay` 克隆对战后清理昵称和当前日志模板中的玩家位置（登场、禁用、首发、胜利、投降及和局协商），不对整段日志做截断或全局子串替换；源对战、随机流、结构化事件和战斗数值保持不变。此副本仅供呈现，不替代原始记录保存或联网结算。CLI 的联网、同屏开场与交接、局域网、回看、结算、计时提示、录像列表、赛事报名/续赛/排名和 Markdown 导出均使用这些入口；尚未合入的画面或观战入口也应采用相同接口。
+网络会话的 `NameInputs` / `DisplayNames`、`ViewFor`，同屏会话的 `ViewFor` / `DisplayLog`，局域网 `LanRoom.NameInput` / `DisplayName`，队伍预设 `NameInput` / `DisplayName`，录像条目 `NameInputs` / `DisplayNames` 和 `NoteInput` / `DisplayNote` 是接收数据后的显示入口。`BattleViewModel.From` 清理双方昵称。`TextInput.ForDisplay` 克隆对战后清理昵称和当前日志模板中的玩家位置（登场、禁用、首发、胜利、投降、和局提议及拒绝或接受），不对整段日志做截断或全局子串替换；源对战、随机流、结构化事件和战斗数值保持不变。此副本仅供呈现，不替代原始记录保存或联网结算。CLI 的联网、同屏开场与交接、局域网、回看、结算、计时提示、录像列表、赛事报名/续赛/排名和 Markdown 导出均使用这些入口；尚未合入的画面或观战入口也应采用相同接口。
 
 兼容边界：现有握手、`BattleRecord`、分享码/队伍码、队伍预设存储及录像库保存/备注修改仍保留原文字，现有验收要求它们逐字往返。录像库原始空备注仍表示未收藏，不能用显示默认值反写存储。Core 的原始日志、统计和 `BattleReport.Markdown` 继续保真，CLI 在呈现前传入显示副本。SD-LAN-1 仍按既有 24 个 UTF-16 代码单元截断，CLI 仍拒绝原来的空白或控制字符房名与同屏昵称；合法新房名在广播前清理，额外的协议截断给出提示。是否迁移底层保存/同步语义及广播长度，须在 PR 的“需要决定”确认后另行统一版本与验收。
 
