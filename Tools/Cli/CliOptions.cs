@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -28,6 +29,8 @@ namespace StreamDuel.Cli
         public bool Help;
         public bool ListPacks;
         public bool Share;
+        public bool Glossary;
+        public string GlossaryKeyword;
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
         public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
 
@@ -36,9 +39,20 @@ namespace StreamDuel.Cli
             if (args == null) throw new ArgumentException("参数列表不能为空。");
 
             var options = new CliOptions();
+            var specified = new List<string>();
             for (int i = 0; i < args.Length; i++)
             {
                 string option = args[i];
+                specified.Add(option);
+                if (option == "--glossary")
+                {
+                    if (options.Glossary) throw new ArgumentException(Loc.Current.T("glossary.cli.duplicate"));
+                    options.Glossary = true;
+                    if (i + 1 < args.Length && args[i + 1] != null
+                        && !args[i + 1].StartsWith("--", StringComparison.Ordinal) && args[i + 1] != "-h")
+                        options.GlossaryKeyword = args[++i];
+                    continue;
+                }
                 if (option == "--auto")
                 {
                     options.Auto = true;
@@ -144,6 +158,14 @@ namespace StreamDuel.Cli
                         options.Team = team;
                         break;
                 }
+            }
+            if (options.Glossary && !options.Help)
+            {
+                var incompatible = specified.Where(option => option != "--glossary"
+                    && option != "--pack" && option != "--pack-dir").ToArray();
+                if (incompatible.Length > 0)
+                    throw new ArgumentException(Loc.Current.T("glossary.cli.conflict",
+                        string.Join(Loc.Current.T("describe.list.separator"), incompatible)));
             }
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
