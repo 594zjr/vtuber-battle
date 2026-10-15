@@ -57,6 +57,8 @@ namespace StreamDuel.Core
                     hash.Int(fighter.Side);
                     hash.Int(fighter.MaxHp);
                     hash.Int(fighter.EnteredTurn);
+                    hash.Bool(fighter.FirstControlImmunityUsed);
+                    hash.Bool(fighter.EndureUsed);
                     foreach (var skill in fighter.Skills)
                     {
                         hash.Int(skill.Max);
