@@ -19,6 +19,19 @@ namespace StreamDuel.Core
         public string Note;
         public bool IsCorrupt;
         public string Error;
+
+        // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
+        public TextInputResult[] NameInputs
+        {
+            get
+            {
+                return (Names ?? Array.Empty<string>())
+                    .Select(name => TextInput.Clean(name, TextInputKind.PlayerName)).ToArray();
+            }
+        }
+        public string[] DisplayNames { get { return NameInputs.Select(input => input.Text).ToArray(); } }
+        public TextInputResult NoteInput { get { return TextInput.Clean(Note, TextInputKind.Note); } }
+        public string DisplayNote { get { return NoteInput.Text; } }
     }
 
     public sealed class ReplayFilter

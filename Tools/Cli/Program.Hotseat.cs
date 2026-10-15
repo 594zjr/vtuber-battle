@@ -19,11 +19,15 @@ namespace StreamDuel.Cli
             if (errors.Count > 0) throw new ArgumentException("B 方队伍无效：" + string.Join("；", errors));
             var session = new HotseatSession(db, teamA, teamB, options.NameA, options.NameB,
                 new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead });
+            var nameA = TextInput.Clean(options.NameA, TextInputKind.PlayerName);
+            var nameB = TextInput.Clean(options.NameB, TextInputKind.PlayerName);
             if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
             Console.WriteLine("开播对决 · 同屏双人对战");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            Console.WriteLine("种子：" + options.Seed + "；A 方：" + options.NameA + "；B 方：" + options.NameB);
+            Console.WriteLine("种子：" + options.Seed + "；A 方：" + nameA.Text + "；B 方：" + nameB.Text);
+            if (nameA.Changed) Console.WriteLine("A 方昵称显示已调整：" + nameA.Message);
+            if (nameB.Changed) Console.WriteLine("B 方昵称显示已调整：" + nameB.Message);
             Console.WriteLine("轮流私密选招，输入不回显；交接后按回车确认，q 或输入结束退出。");
             Console.WriteLine("本机档案按 A 方累计一次。");
             Console.WriteLine("对战指令：/surrender 投降并结算；同屏模式暂不支持 /draw 求和。");
@@ -35,7 +39,7 @@ namespace StreamDuel.Cli
                     if (session.NeedsHandover && !ConfirmHotseatHandover(session, options)) return Quit();
                     int side = session.WhoseTurn;
                     var view = session.ViewFor(side);
-                    PrintHotseatLog(session.Log, ref logIndex);
+                    PrintHotseatLog(session.DisplayLog, ref logIndex);
                     Console.WriteLine();
                     Console.WriteLine("===== 第 " + view.Turn + " 回合 · " + view.Sides[side].Name + " 操作 =====");
                     PrintHotseatTeams(view);
@@ -68,7 +72,7 @@ namespace StreamDuel.Cli
                 }
             }
             catch (BattleFinishedException) { }
-            PrintHotseatLog(session.Log, ref logIndex);
+            PrintHotseatLog(session.DisplayLog, ref logIndex);
             return SaveCompletedBattle(session.CloneCompletedBattle(), options, 0);
         }
 
@@ -81,7 +85,8 @@ namespace StreamDuel.Cli
             }
             // 同时清理可见内容和支持 ANSI 的终端滚动记录，输入本身始终不回显。
             Console.Write("\u001b[2J\u001b[H\u001b[3J");
-            string nextName = session.WhoseTurn == 0 ? options.NameA : options.NameB;
+            string nextName = TextInput.Clean(session.WhoseTurn == 0 ? options.NameA : options.NameB,
+                TextInputKind.PlayerName).Text;
             Console.WriteLine("请把电脑交给「" + nextName + "」。");
             while (true)
             {
