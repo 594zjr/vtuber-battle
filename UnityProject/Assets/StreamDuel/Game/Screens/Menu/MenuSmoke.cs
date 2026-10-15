@@ -151,6 +151,17 @@ namespace StreamDuel.Game
 
         IEnumerator Run()
         {
+            if (!Application.isEditor)
+            {
+                // Player 会在启动画面结束前执行场景脚本，须等真实菜单开始渲染后再截取证据。
+                float splashDeadline = Time.realtimeSinceStartup + 30f;
+                while (!UnityEngine.Rendering.SplashScreen.isFinished)
+                {
+                    Require(Time.realtimeSinceStartup < splashDeadline, "Unity 启动画面未在 30 秒内结束。");
+                    yield return null;
+                }
+                report.steps.Add("Unity 启动画面已结束，随后执行原有菜单截图与有效像素检查。");
+            }
             yield return Settle();
             var routers = FindObjectsByType<ScreenRouter>(FindObjectsInactive.Include);
             var documents = FindObjectsByType<UIDocument>(FindObjectsInactive.Include);
