@@ -160,6 +160,50 @@ try {
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $runDirectory 'saves'))) '回看或错误输入产生了档案/录像目录。'
     $checks.Add('无回看、列表、重复及联网误用先报错；全部回看均不写战绩或新录像')
 
+    # 每例只给新模式与尽力回放两个选项，避免别的非法组合提前报错造成假通过。
+    $sentinelPath = Join-Path $runDirectory 'existing-tournament-review.json'
+    $sentinelText = '{"reviewSentinel":"T93 既有赛事不得改写","round":7}'
+    [IO.File]::WriteAllText($sentinelPath, $sentinelText, $utf8)
+    $sentinelBytes = [Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinelPath))
+    foreach ($order in @('mode-first', 'best-first')) {
+        $freshDirectory = Join-Path $runDirectory ('fresh-tournament-' + $order)
+        $freshTournament = Join-Path $freshDirectory 'event.json'
+        Assert-Check (-not (Test-Path -LiteralPath $freshDirectory)) '新赛事的父目录必须尚不存在。'
+        $scenarios = @(
+            [pscustomobject]@{ Name = 'hotseat'; Arguments = [string[]]@('--hotseat'); Marker = '--hotseat' },
+            [pscustomobject]@{ Name = 'advice'; Arguments = [string[]]@('--advice'); Marker = '--advice' },
+            [pscustomobject]@{ Name = 'tournament-existing'; Arguments = [string[]]@('--tournament', $sentinelPath); Marker = '赛事模式' },
+            [pscustomobject]@{ Name = 'tournament-fresh'; Arguments = [string[]]@('--tournament', $freshTournament); Marker = '赛事模式' }
+        )
+        foreach ($scenario in $scenarios) {
+            $parameters = if ($order -eq 'mode-first') {
+                @($scenario.Arguments) + @('--replay-best-effort')
+            }
+            else {
+                @('--replay-best-effort') + @($scenario.Arguments)
+            }
+            Assert-Check (@($parameters | Where-Object { $_.StartsWith('--', [StringComparison]::Ordinal) }).Count -eq 2) '互斥夹具应只有模式及 --replay-best-effort 两个选项。'
+            $directoriesBefore = @([IO.Directory]::GetDirectories($runDirectory) | Sort-Object)
+            $filesBefore = @([IO.Directory]::GetFiles($runDirectory) | Sort-Object)
+            $name = 'mode-conflict-' + $scenario.Name + '-' + $order
+            $invalid = Invoke-Cli $name $parameters 1
+            Assert-Check ($invalid.Out.Length -eq 0) "$name 在参数拒绝前进入了显示或交互流程。"
+            Assert-Check ($invalid.Err.Contains('错误：') -and $invalid.Err.Contains('--replay-best-effort') -and $invalid.Err.Contains($scenario.Marker)) "$name 没有识别两种选项并说明兼容性冲突。"
+            Assert-Check ($invalid.Err -match '[\u4e00-\u9fff]' -and $invalid.Err -match '不能|不支持') "$name 没有中文互斥原因。"
+            Assert-Check ($invalid.Err -notmatch '未知参数|unknown\s+(option|argument)') "$name 被未知参数错误假冒成兼容性拒绝。"
+            Assert-Check (-not (Test-Path -LiteralPath (Join-Path $runDirectory 'saves'))) "$name 产生了存档目录。"
+            Assert-Check (-not (Test-Path -LiteralPath $freshTournament) -and -not (Test-Path -LiteralPath $freshDirectory)) "$name 提前创建了新赛事或其父目录。"
+            Assert-Check ([IO.File]::ReadAllText($sentinelPath) -ceq $sentinelText) "$name 改写了既有赛事文字。"
+            Assert-Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($sentinelPath)) -ceq $sentinelBytes) "$name 改写了既有赛事字节。"
+            $directoriesAfter = @([IO.Directory]::GetDirectories($runDirectory) | Sort-Object)
+            Assert-Check ([string]::Join("`n", $directoriesAfter) -ceq [string]::Join("`n", $directoriesBefore)) "$name 创建或删除了目录。"
+            $filesAfter = @([IO.Directory]::GetFiles($runDirectory) | Sort-Object)
+            $expectedFiles = @($filesBefore) + @((Join-Path $runDirectory "$name.stdout.log"), (Join-Path $runDirectory "$name.stderr.log"))
+            Assert-Check ([string]::Join("`n", $filesAfter) -ceq [string]::Join("`n", @($expectedFiles | Sort-Object))) "$name 产生或删除了日志以外的文件（含赛事锁、临时文件或存档）。"
+        }
+    }
+    $checks.Add('hotseat/advice/tournament 双顺序均提前互斥；8 例仅含两个选项、中文非未知参数、stdout 为空、无新目录/存档/赛事，既有赛事字节不变')
+
     $librarySave = Join-Path $runDirectory 'library-save'
     $libraryDirectory = Join-Path $librarySave 'replay-library'
     $library = [StreamDuel.Core.ReplayLibrary]::new($libraryDirectory, 200, $null)

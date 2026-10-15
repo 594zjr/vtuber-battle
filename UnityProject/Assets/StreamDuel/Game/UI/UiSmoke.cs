@@ -214,7 +214,11 @@ namespace StreamDuel.Game
 
                 foreach (string page in pages)
                 {
-                    Submit("open-" + page);
+                    // 正式菜单不再提供纯开发用的对战/结算占位入口，基础页面仍由路由直接验收。
+                    bool developmentPage = page == ScreenIds.Battle || page == ScreenIds.Result;
+                    if (developmentPage)
+                        router.Show(page, new ScreenArgs { ReturnScreenId = ScreenIds.Menu });
+                    else Submit("open-" + page);
                     yield return null;
                     yield return new WaitForEndOfFrame();
                     Require(router.CurrentScreenId == page && !legacy.enabled, "菜单按钮未进入界面：" + page);
@@ -225,10 +229,24 @@ namespace StreamDuel.Game
                     yield return null;
                     yield return new WaitForEndOfFrame();
                     Require(router.CurrentScreenId == ScreenIds.Menu, "返回按钮未返回菜单：" + page);
-                    report.steps.Add(RequestedWidth + "×" + RequestedHeight + "：菜单→" + page + "→返回菜单（NavigationSubmitEvent）。");
+                    report.steps.Add(RequestedWidth + "×" + RequestedHeight + "："
+                        + (developmentPage ? "路由直接进入基础占位→" : "菜单按钮→") + page
+                        + "→返回菜单（按钮使用 NavigationSubmitEvent）。");
                 }
 
-                Submit("back-button");
+                var development = document.rootVisualElement.Q<Foldout>("developer-tools");
+                if (Application.isEditor || Debug.isDebugBuild)
+                {
+                    Require(development != null, "Editor/Development 菜单缺少开发折叠区。");
+                    development.value = true;
+                    yield return null;
+                    Submit("open-legacy");
+                }
+                else
+                {
+                    Require(development == null, "发布 Player 不应显示开发入口。");
+                    router.Show(ScreenIds.Legacy);
+                }
                 yield return null;
                 yield return new WaitForEndOfFrame();
                 Require(router.CurrentScreenId == ScreenIds.Legacy && legacy.enabled
@@ -353,9 +371,9 @@ namespace StreamDuel.Game
             {
                 Rect rect = element.worldBound;
                 Require(Finite(rect.x) && Finite(rect.y) && Finite(rect.width) && Finite(rect.height)
-                    && rect.width > 0 && rect.height > 0, "控件布局无效：" + Describe(element));
+                    && rect.width > 0 && rect.height > 0, "控件布局无效：" + DescribeHierarchy(element));
                 Require(Contains(rootBounds, rect), "控件超出屏幕：" + Describe(element));
-                for (var ancestor = element.parent; ancestor != null; ancestor = ancestor.parent)
+                for (var ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
                     if (ancestor is ScrollView scroll)
                         Require(Contains(scroll.contentViewport.worldBound, rect), "控件被滚动视口裁切：" + Describe(element));
                 var text = element as TextElement;
@@ -389,7 +407,9 @@ namespace StreamDuel.Game
 
         static void CollectVisible(VisualElement element, List<VisualElement> output)
         {
-            if (!element.visible || element.resolvedStyle.display == DisplayStyle.None) return;
+            // Foldout 的逻辑父链会越过内部内容容器，物理父链才能识别折叠隐藏。
+            for (var ancestor = element; ancestor != null; ancestor = ancestor.hierarchy.parent)
+                if (!ancestor.visible || ancestor.resolvedStyle.display == DisplayStyle.None) return;
             if ((element is TextElement text && !string.IsNullOrEmpty(text.text)) || element is Image || element is ProgressBar)
                 output.Add(element);
             foreach (VisualElement child in element.Children()) CollectVisible(child, output);
@@ -398,6 +418,21 @@ namespace StreamDuel.Game
         static string Describe(VisualElement element)
         {
             return element.GetType().Name + "#" + element.name;
+        }
+
+        static string DescribeHierarchy(VisualElement element)
+        {
+            var rows = new List<string>();
+            for (var ancestor = element; ancestor != null; ancestor = ancestor.hierarchy.parent)
+            {
+                rows.Add(Describe(ancestor) + " classes=[" + string.Join(",", ancestor.GetClasses()) + "]"
+                    + " display=" + ancestor.resolvedStyle.display
+                    + " inlineDisplay=" + ancestor.style.display.value + "/" + ancestor.style.display.keyword
+                    + " visible=" + ancestor.visible + " visibility=" + ancestor.resolvedStyle.visibility
+                    + " rect=" + ancestor.worldBound.ToString("F3") + " layout=" + ancestor.layout.ToString("F3")
+                    + (ancestor is Foldout foldout ? " foldoutValue=" + foldout.value : ""));
+            }
+            return string.Join("\n  parent: ", rows);
         }
 
         static bool Contains(Rect outer, Rect inner)

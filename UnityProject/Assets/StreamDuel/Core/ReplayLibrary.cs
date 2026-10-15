@@ -67,6 +67,8 @@ namespace StreamDuel.Core
         {
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (s == null) throw new ArgumentNullException(nameof(s));
+            if (r.Version > BattleRecord.CurrentVersion)
+                throw new FormatException(Replay.Check(null, r).Reason);
             if (r.Teams == null || r.Teams.Length != 2 || r.Teams.Any(team => team == null))
                 throw new ArgumentException("录像必须包含两支队伍。", nameof(r));
             string recordJson = r.ToJson();

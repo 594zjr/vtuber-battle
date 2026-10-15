@@ -1,7 +1,7 @@
 {
     "name": "StreamDuel.Game",
     "rootNamespace": "StreamDuel.Game",
-    "references": [ "StreamDuel.Core" ],
+    "references": [ "StreamDuel.Core", "Unity.InputSystem" ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
