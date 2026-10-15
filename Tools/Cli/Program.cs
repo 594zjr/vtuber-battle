@@ -26,7 +26,7 @@ namespace StreamDuel.Cli
                 }
 
                 if (!options.ListPacks) ValidateReportPath(options);
-                if (options.ReplayFile != null && !options.ListPacks) return PlayReplay(options);
+                if (options.ReplayMode && !options.ListPacks) return PlayReplay(options);
                 var imported = ReadTeamCode(options);
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
@@ -165,14 +165,16 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
+            Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
+            Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
             Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
-            Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay 或 --list-packs 同用。");
-            Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash、--team-code、--export-team 同用，其他对战/存档参数不改变记录，也不写存档。");
-            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
+            Console.WriteLine("队伍码支持手动、--auto、--ban、--lead 及联网；在禁用和首发调整前导出，不能与 --replay、--replay-code 或 --list-packs 同用。");
+            Console.WriteLine("两种回放都支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--team-code、--export-team 同用，其他对战/存档参数不改变记录，也不写存档。");
+            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--replay-code、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希；--share 等终局校验完成后输出。");
         }
 
         private static string LevelName(AiLevel level)
