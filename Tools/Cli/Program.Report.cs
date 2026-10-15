@@ -25,8 +25,12 @@ namespace StreamDuel.Cli
                 throw new ArgumentException("--report 需要有效的文件路径，不能指定目录。");
 
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            if (options.ReplayFile != null && string.Equals(path, ReportPath(options.ReplayFile), comparison))
+            if (options.ReplayFile != null && IsReplayFile(options.ReplayFile)
+                && string.Equals(path, ReportPath(options.ReplayFile), comparison))
                 throw new ArgumentException("--report 不能与 --replay 指向同一文件，请为战报指定另一个路径。");
+            string libraryDirectory = ReportPath(ReplayLibraryDirectory(options));
+            if (ContainsPath(libraryDirectory, path, comparison) || ContainsPath(path, libraryDirectory, comparison))
+                throw new ArgumentException("--report 不能占用录像库 replay-library 目录、其父目录或其中的文件，请为战报指定另一个路径。");
             foreach (string reserved in new[] { "settings.json", ".settings.json.tmp", ".settings.lock",
                 "teams.json", ".teams.json.tmp", ".teams.lock",
                 Path.Combine("replays", ".replay-ownership.json"), Path.Combine("replays", ".replay-ownership.json.tmp") })
@@ -66,6 +70,13 @@ namespace StreamDuel.Cli
                         throw new ArgumentException("战报相关路径必须指向普通文件，不能使用设备路径。");
                 }
                 path = Path.GetFullPath(path);
+                // 普通 Windows 路径会忽略段末尾的点或空格，拒绝这种别名才能可靠保护存档目录。
+                string root = Path.GetPathRoot(path);
+                foreach (string segment in path.Substring(root.Length).Split(Path.DirectorySeparatorChar))
+                {
+                    if (segment.EndsWith(".", StringComparison.Ordinal) || segment.EndsWith(" ", StringComparison.Ordinal))
+                        throw new ArgumentException("战报相关路径的文件名或目录名不能以点或空格结尾。");
+                }
             }
             return Path.TrimEndingDirectorySeparator(path);
         }

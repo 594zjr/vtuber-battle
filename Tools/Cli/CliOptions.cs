@@ -35,6 +35,7 @@ namespace StreamDuel.Cli
         public bool Hash;
         public bool Help;
         public bool ListPacks;
+        public bool ListReplays;
         public bool Share;
         public bool Glossary;
         public string GlossaryKeyword;
@@ -109,6 +110,11 @@ namespace StreamDuel.Cli
                     options.ListPacks = true;
                     continue;
                 }
+                if (option == "--replays")
+                {
+                    options.ListReplays = true;
+                    continue;
+                }
                 if (option == "--ban")
                 {
                     options.Ban = true;
@@ -179,7 +185,7 @@ namespace StreamDuel.Cli
                         break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
-                            throw new ArgumentException("--replay 需要非空的回放文件路径。");
+                            throw new ArgumentException("--replay 需要非空的录像库编号或回放文件路径。");
                         options.ReplayFile = value;
                         break;
                     case "--replay-code":
@@ -270,6 +276,10 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.ListReplays && !options.Help && (options.ReplayMode || options.ListPacks
+                || options.Network || options.ReportFile != null || options.Share
+                || options.TeamCode != null || options.ExportTeam || options.TurnSeconds.HasValue))
+                throw new ArgumentException("--replays 只列出录像库，不能与 --replay、--replay-code、--list-packs、--host、--join、--lan-host、--report、--share、--team-code、--export-team 或 --timer 同用。");
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]

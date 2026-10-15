@@ -421,6 +421,22 @@ Switch 事件只标识离场者。SwitchIn 在当前区间内跳过不生成提�
 
 命令行完成对战时打印复盘，联网客机使用自己的查看方；完整回放默认查看 0 方并标明视角。Markdown 战报末尾追加“关键回合”，默认 0 方，也可用 `Markdown(battle, viewerSide)` 指定视角；未结束的战报显示尚未结束，所有新增文字沿用 Markdown 转义。
 
+### 8.5 本地录像库
+
+`ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null)` 管理调用方指定目录内的录像，`maxCount` 必须至少为 1。可注入时钟以便测试；未注入时使用当前时间，保存日期统一为 UTC。时间只用于本地命名、筛选和保留顺序，不参与 `Battle.Rng`、对战记录的随机检查点或战斗结算，也不保存账号及设备信息。
+
+公开接口为 `string Save(BattleRecord r, BattleSummary s, string note = null)`、`List<ReplayEntry> List(ReplayFilter f = null)`、`BattleRecord Load(string id)`、`void Delete(string id)` 和 `void SetNote(string id, string note)`。`Save` 使用时间戳与种子生成 id，同名时追加碰撞序号。`ReplayEntry` 包含 `Id`、`Date`、`PackId`、`Names`、`Teams`、`Winner`、`Turns`、`Note`、`IsCorrupt` 和 `Error`；双方名字与阵容按 0 方、1 方排列，阵容来自记录中的禁用及首发重排前原始队伍。旧记录未保存名字时，沿用回放的“你/对手”。`BattleSummary.From` 将真实对战的 `Winner` 及记录中 `Turn` 事件数量分别保存为 `Winner`、`Turns`；这两个字段不改变原有 `ToText()` 输出。正常录像的胜方为 0 或 1，-1 表示平局。
+
+每份录像保存为 `<id>.json`，保留完整的对战记录字段，并在同一 JSON 根对象的 `library` 字段中附加 `date`、`winner`、`turns`、`note` 元数据。`BattleRecord.FromJson` 及回放仍可直接读取此文件。`index.json` 单独保存列表缓存，每次 `List` 扫描录像文件重建；索引丢失或损坏不影响从录像恢复信息，也不能以索引中的路径或条目作为删除文件的依据。单个文件或元数据损坏时，该条目以 `IsCorrupt = true` 和 `Error` 标记，不能加载，也不自动删除；其它录像仍可列出和读取。
+
+`ReplayFilter` 支持 `StreamerId`、`PackId`、可空的 `Winner` 及可空的 `From`、`To`。多个条件同时满足才匹配；主播 id 匹配任意一方的原始阵容，包 id 按记录值匹配，胜方按 0、1 或平局 -1 匹配，日期范围包含两个端点。列表按日期及 id 稳定排序。损坏条目在任何筛选条件下仍返回并显示错误，避免被筛选条件隐藏。
+
+容量计算包含全部正常录像；非空白备注视为收藏，收藏计入总数但不自动删除。超出 `maxCount` 时，从最旧且没有备注的正常录像开始清理，直到满足上限或只剩收藏；全部收藏时允许超出上限。收藏已经占满容量时，新保存的无备注录像也可能立即被清理。`SetNote` 清空备注或改为空白时同样触发整理。损坏条目不计入容量且始终保留，只有调用方显式 `Delete` 才删除。
+
+所有读写和删除限制在给定目录内；id 仅允许 ASCII 字母、数字、下划线和连字符，拒绝 `..`、路径分隔符、系统设备名和索引等管理文件名。根路径及访问的文件不允许经过重解析点。写入持有独占锁，并通过临时文件原子替换，避免并发保存覆盖或留下半份 JSON。新录像文件已经写入后，索引或清理维护失败时抛出带 `ReplayId` 的 `ReplayLibraryMaintenanceException`，调用方报告维护失败，并继续保存本局档案及其它独立产物。
+
+CLI 在 `--save-dir` 指定目录下的 `replay-library` 子目录自动保存完成对局，同时兼容原有回放存储；8.2 的 `FileSaveStore` 及旧 `replays` 目录最多 50 份的规则保持不变，两者独立管理。`--replays` 列出新库，`--replay <id>` 从新库回看，也继续接受原有回放文件路径。回看不新增录像或累计档案战绩。联网对局须完成终局哈希校验及连接收尾后才保存；新库、旧回放、战报及档案分别处理保存失败，任一项失败不阻止其它项。战报输出不能覆盖录像库、其索引、锁或临时路径。
+
 ## 9. 电脑对手（`Ai.cs`）
 
 估算每个可用技能的价值：伤害技能按“估算伤害 / 对手当前人气”，能击倒加大权重，先手击倒再加；状态、能力、直播间效果、驱散、净化按局面给固定加分；加 0~0.08 随机扰动。威胁大且自己选项都差时，60% 概率换到对位更好的队友。补位选对位分最高的。
