@@ -19,8 +19,8 @@ namespace StreamDuel.Core
     public sealed class FieldDef
     {
         public string Id, Name, Kind, When, Desc; // Kind: "turn" 回合类 / "mark" 印记 / "protect" 保护
-        public bool Dispel, Consume, ImmuneControl;
-        public double DmgTakenMul = 1, Heal, Dot, TalentMul = 1;
+        public bool Dispel, Consume, ImmuneControl, ImmuneWeak, PreventSwitch;
+        public double DmgTakenMul = 1, Heal, Dot, TalentMul = 1, ReflectDamage;
         public int Prio, MaxStacks;
     }
 
@@ -137,7 +137,9 @@ namespace StreamDuel.Core
                 {
                     Id = kv.Key, Name = Str(o, "name"), Kind = Str(o, "kind"), When = Str(o, "when"), Desc = Str(o, "desc"),
                     Dispel = Bool(o, "dispel"), Consume = Bool(o, "consume"), ImmuneControl = Bool(o, "immuneControl"),
+                    ImmuneWeak = Bool(o, "immuneWeak"), PreventSwitch = Bool(o, "preventSwitch"),
                     DmgTakenMul = Num(o, "dmgTakenMul", 1), Heal = Num(o, "heal", 0), Dot = Num(o, "dot", 0), TalentMul = Num(o, "talentMul", 1),
+                    ReflectDamage = Num(o, "reflectDamage", 0),
                     Prio = Int(o, "prio"), MaxStacks = Int(o, "maxStacks"),
                 };
             }
