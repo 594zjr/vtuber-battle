@@ -209,6 +209,7 @@ try {
         @{ Name = 'name-b'; Args = @('--name-b', '乙') }, @{ Name = 'timer'; Args = @('--timer', '10,30') },
         @{ Name = 'save-dir'; Args = @('--save-dir', 'unexpected-saves') }, @{ Name = 'report'; Args = @('--report', 'unexpected.md') },
         @{ Name = 'share'; Args = @('--share') }, @{ Name = 'tournament'; Args = @('--tournament', 'unexpected.json') },
+        @{ Name = 'tournament-report'; Args = @('--tournament-report', 'unexpected.json') }, @{ Name = 'json'; Args = @('--json') },
         @{ Name = 'replays'; Args = @('--replays') }, @{ Name = 'replay'; Args = @('--replay', 'nonexistent.json') },
         @{ Name = 'replay-code'; Args = @('--replay-code', 'SD1-invalid') }, @{ Name = 'best-effort'; Args = @('--replay-best-effort') },
         @{ Name = 'host'; Args = @('--host', '0') }, @{ Name = 'join'; Args = @('--join', '127.0.0.1:1') },
@@ -224,7 +225,7 @@ try {
             Reject ("$mode-last-" + $conflict.Name) ($conflict.Args + $selection) "--$mode"
         }
     }
-    $checks.Add('参数缺失/重复/未知/互斥，以及两入口分别与32种模式参数前后顺序冲突均拒绝且无文件产物')
+    $checks.Add('参数缺失/重复/未知/互斥，以及两入口分别与34种模式参数前后顺序冲突均拒绝且无文件产物')
 
     $external = Join-Path $run 'external'
     $originalJson = [IO.File]::ReadAllText((Join-Path $content 'Packs/original.json'), $utf8)

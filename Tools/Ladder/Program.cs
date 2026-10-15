@@ -17,6 +17,8 @@ namespace StreamDuel.Ladder
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
             try
             {
+                if (args != null && args.Contains("--compare-expert"))
+                    return ExpertComparison.Run(args, LoadPack);
                 var options = Options.Parse(args);
                 if (options.Help)
                 {
@@ -27,6 +29,7 @@ namespace StreamDuel.Ladder
                     Console.WriteLine("每局胜 1/平 0.5/负 0 分；Elo 初始 1500，每局 K=24，同对两局共用赛前期望。奇数队伍轮空得 2 分，不计对局、不改 Elo。");
                     Console.WriteLine("主播加权 Elo = Σ(所在阵容最终 Elo × 实际上场局数) / 总上场局数；从未上场的 Elo 留空，后排仅入队不算上场。");
                     Console.WriteLine("输出 UTF-8 teams.csv 和 streamers.csv，控制台打印两榜前十；同版本、内容和参数可复现。统计定义见 Tools/Ladder/README.md。");
+                    Console.WriteLine("专家预算比较使用独立模式：--compare-expert --help。");
                     return 0;
                 }
 
