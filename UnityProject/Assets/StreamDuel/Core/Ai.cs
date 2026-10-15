@@ -1,5 +1,6 @@
 // 电脑对手：按估算伤害和局面给每个选项打分，挑最高的，带一点随机。
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace StreamDuel.Core
@@ -35,10 +36,37 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, int s, int idx)
         {
-            var cand = b.Sides[s].Team[idx]; var f = b.Active(1 - s);
+            return Matchup(b, b.Sides[s].Team[idx], b.Active(1 - s));
+        }
+
+        static double Matchup(Battle b, Fighter cand, Fighter f)
+        {
             double mine = cand.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, f.Type) * (k.Type == cand.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             double theirs = f.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, cand.Type) * (k.Type == f.Type ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? 0.2 : 0);
+        }
+
+        public static int ChooseLead(Battle b, int s)
+        {
+            if (b == null) throw new ArgumentNullException(nameof(b));
+            if (s < 0 || s >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(s), "对战方必须是 0 或 1");
+            if (b.Phase != Phase.Lead) throw new InvalidOperationException("现在不是选择首发的阶段");
+            var team = b.Sides[s].Team;
+            var foes = b.Sides[1 - s].Team;
+            var best = new List<int>();
+            double bestScore = double.NegativeInfinity;
+            for (int i = 0; i < team.Count; i++)
+            {
+                double score = foes.Average(foe => Matchup(b, team[i], foe));
+                if (score > bestScore + 1e-9)
+                {
+                    bestScore = score;
+                    best.Clear();
+                    best.Add(i);
+                }
+                else if (Math.Abs(score - bestScore) <= 1e-9) best.Add(i);
+            }
+            return best.Count == 1 ? best[0] : best[(int)(b.Random() * best.Count)];
         }
 
         public static BattleAction Choose(Battle b, int s)
