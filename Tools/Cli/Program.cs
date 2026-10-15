@@ -119,7 +119,7 @@ namespace StreamDuel.Cli
         private static void PrintFighter(Battle battle, int side)
         {
             var fighter = battle.Active(side);
-            Console.WriteLine(battle.Sides[side].Name + "场上：" + fighter.Name + " · " + battle.Db.Types[fighter.Type].Name
+            Console.WriteLine(battle.Sides[side].Name + "场上：" + fighter.Name + " · " + Describe.Tracks(battle.Db, fighter.Def)
                 + " · 人气 " + fighter.Hp + "/" + fighter.MaxHp + (fighter.Fainted ? "（已下播）" : ""));
             var persona = battle.PersonaOf(fighter);
             Console.WriteLine("  人设：" + persona.Name + "〔" + persona.Node + "；不可消除〕" + persona.Desc);

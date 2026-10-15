@@ -45,6 +45,7 @@ namespace StreamDuel.Core
             var skill = HardSkill(b, s, action);
             var result = new HardDamage();
             if (skill == null || skill.Power <= 0 || skill.Cat == "status") return result;
+            if (b.HardAiPreEffectsInterrupt(s, skill, node)) return result;
 
             if (action.Type == ActionType.Skill)
             {
@@ -61,6 +62,8 @@ namespace StreamDuel.Core
                 if (!b.CondMet(b.Active(s), b.Active(1 - s), node, effect.Cond, out why) || effect.Chance <= 0) continue;
                 if (effect.Code != "POWER_MUL" && effect.Code != "POWER_PER_MARK")
                 {
+                    // 给对手施加控制不降低主体伤害，控制概率不能取消已有的保底击倒。
+                    if (effect.Code == "STATUS" && effect.Target == "foe" && b.Db.Statuses[effect.Status].IsControl) continue;
                     // 预览没有模拟其它命中前效果，不能把这个区间当作必定斩杀的证明。
                     complete = false;
                     continue;
@@ -252,6 +255,7 @@ namespace StreamDuel.Core
             var incoming = HardPairDamage(b, 1 - s, enemy, action);
             int first = HardFirst(b, s, action, enemy);
             bool goesFirst = first == s;
+            if (b.HardAiPreEffectsInterrupt(s, skill, goesFirst ? Node.First : Node.Second)) return -1000;
             double accuracy = Math.Min(1, skill.Acc / 100.0);
             double dealt = Math.Min(damage.Expected, foe.Hp);
             double estimate = damage.Expected / Math.Max(1, foe.Hp);
@@ -437,6 +441,25 @@ namespace StreamDuel.Core
         }
 
         internal Battle CopyForHardAi() { return new Battle(this); }
+
+        internal bool HardAiPreEffectsInterrupt(int side, SkillDef skill, string node)
+        {
+            if (!skill.Effects.Any(effect => effect.At == "pre" &&
+                (effect.Code == "FIXED_DAMAGE" || effect.Code == "RECOIL"))) return false;
+            var state = CopyForHardAi();
+            var context = new Ctx { S = side, P = state.Active(side), F = state.Active(1 - side), Skill = skill, Node = node };
+            foreach (var effect in skill.Effects.Where(effect => effect.At == "pre"))
+            {
+                string why;
+                if (effect.Chance <= 0 || !state.CondMet(context.P, context.F, node, effect.Cond, out why)) continue;
+                // 只证明确定的中断；概率分支不能代替真实对局预先掷骰。
+                if (effect.Chance < 100) return false;
+                state.RunEffect(context, effect);
+                if (context.Interrupted) return true;
+                if (state.Phase == Phase.Over) return false;
+            }
+            return false;
+        }
 
         internal void PrepareHardAiTurn()
         {
