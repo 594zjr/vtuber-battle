@@ -116,6 +116,7 @@ namespace StreamDuel.Core
             leadPickAfterBan = opt.LeadPick;
             Record = new BattleRecord
             {
+                ContentHash = db.ContentHash(),
                 Seed = Seed,
                 PackId = db.PackId,
                 LeadPick = opt.LeadPick,

@@ -20,6 +20,8 @@ namespace StreamDuel.Core
 
     public sealed class BattleRecord
     {
+        public int Version { get; set; } = 2;
+        public string ContentHash { get; set; }
         public uint Seed { get; set; }
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
@@ -33,6 +35,12 @@ namespace StreamDuel.Core
             var sb = new StringBuilder();
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
+            sb.Append(",\"version\":").Append(Version.ToString(CultureInfo.InvariantCulture));
+            if (ContentHash != null)
+            {
+                sb.Append(",\"contentHash\":");
+                WriteString(sb, ContentHash);
+            }
             if (LeadPick) sb.Append(",\"leadPick\":true");
             if (BanOne) sb.Append(",\"banOne\":true");
             if (Names != null)
@@ -92,10 +100,14 @@ namespace StreamDuel.Core
             if (teams.Count != 2) throw new FormatException("对战记录必须包含两支队伍");
             var record = new BattleRecord
             {
+                Version = root.TryGetValue("version", out var version)
+                    ? (int)ReadInteger(version, "version", 1, int.MaxValue) : 1,
                 Seed = (uint)ReadInteger(Required(root, "seed"), "seed", 0, uint.MaxValue),
                 PackId = ReadString(Required(root, "packId"), "packId"),
                 Teams = new IList<string>[2]
             };
+            if (root.TryGetValue("contentHash", out var contentHash))
+                record.ContentHash = ReadString(contentHash, "contentHash");
             if (root.TryGetValue("leadPick", out var leadPick))
             {
                 if (!(leadPick is bool enabled)) throw new FormatException("leadPick 必须是布尔值");
@@ -206,6 +218,12 @@ namespace StreamDuel.Core
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (r == null) throw new ArgumentNullException(nameof(r));
+            if (r.ContentHash != null)
+            {
+                string contentHash = db.ContentHash();
+                if (!string.Equals(r.ContentHash, contentHash, StringComparison.Ordinal))
+                    throw new InvalidOperationException("内容不一致：记录指纹 " + r.ContentHash + "，当前指纹 " + contentHash);
+            }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
                 new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne });
