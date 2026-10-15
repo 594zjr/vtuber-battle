@@ -44,6 +44,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("赛制：" + (tournament.Format == "swiss" ? "瑞士轮" : "循环赛")
                 + "；模式：" + (options.Auto ? "普通 AI 自动代打" : "交互式记录结果"));
             Console.WriteLine("赛事存档：" + file.Path);
+            foreach (var player in tournament.Players) PrintTournamentNameHint(player.Id, player.Name);
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
                 return QuitTournament(file);
 
@@ -130,7 +131,9 @@ namespace StreamDuel.Cli
                     Console.WriteLine("至少需要 2 名选手，请继续报名。");
                     continue;
                 }
-                string code = ReadTournamentLine("请输入报名 #" + (tournament.Players.Count + 1) + " " + name + " 的队伍码（q 保存退出）> ");
+                PrintTournamentNameHint(tournament.Players.Count, name);
+                string displayName = TextInput.Clean(name, TextInputKind.PlayerName).Text;
+                string code = ReadTournamentLine("请输入报名 #" + (tournament.Players.Count + 1) + " " + displayName + " 的队伍码（q 保存退出）> ");
                 if (code == null) return false;
                 try
                 {
@@ -192,14 +195,22 @@ namespace StreamDuel.Cli
 
         private static string TournamentPlayerName(TournamentPlayer player)
         {
-            return "报名 #" + (player.Id + 1) + " " + player.Name;
+            return "报名 #" + (player.Id + 1) + " " + TextInput.Clean(player.Name, TextInputKind.PlayerName).Text;
+        }
+
+        private static void PrintTournamentNameHint(int id, string name)
+        {
+            var input = TextInput.Clean(name, TextInputKind.PlayerName);
+            if (input.Changed)
+                Console.WriteLine("报名 #" + (id + 1) + " 昵称显示已调整：" + input.Message);
         }
 
         private static void PrintTournamentStandings(Tournament tournament)
         {
             Console.WriteLine("排名（积分 → 对手分 → 直接对话分 → 报名顺序）：");
             foreach (var standing in tournament.Standings())
-                Console.WriteLine(standing.Rank + " · 报名 #" + (standing.Player + 1) + " " + standing.Name + "：" + standing.Points
+                Console.WriteLine(standing.Rank + " · 报名 #" + (standing.Player + 1) + " "
+                    + TextInput.Clean(standing.Name, TextInputKind.PlayerName).Text + "：" + standing.Points
                     + " 分；对手分 " + standing.OpponentPoints + "；直接对话分 " + standing.HeadToHeadPoints
                     + "；胜 " + standing.Wins + " / 平 " + standing.Draws + " / 负 " + standing.Losses
                     + "；轮空 " + standing.Byes);

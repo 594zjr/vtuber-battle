@@ -38,6 +38,12 @@ namespace StreamDuel.Core
             }
         }
 
+        /// <summary>供界面显示的已结算日志快照；清理玩家昵称，不包含待确认的选择。</summary>
+        public IReadOnlyList<LogEntry> DisplayLog
+        {
+            get { return TextInput.ForDisplay(battle).Log.AsReadOnly(); }
+        }
+
         public HotseatSession(ContentDb db, IList<string> teamA, IList<string> teamB,
             string nameA, string nameB, BattleOptions opt)
         {

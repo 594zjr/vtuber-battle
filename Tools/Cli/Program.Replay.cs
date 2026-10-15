@@ -41,6 +41,12 @@ namespace StreamDuel.Cli
                 battle = Replay.RunBestEffort(db, record);
             }
             else battle = Replay.Run(db, record);
+            battle = TextInput.ForDisplay(battle);
+            foreach (string name in record.Names ?? Array.Empty<string>())
+            {
+                var input = TextInput.Clean(name, TextInputKind.PlayerName);
+                if (input.Changed) Console.WriteLine("昵称显示已调整：" + input.Message);
+            }
             Console.WriteLine("开播对决 · 对战回看");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
