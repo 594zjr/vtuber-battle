@@ -32,6 +32,7 @@ namespace StreamDuel.Cli
         public bool Auto;
         public bool Ban;
         public bool Lead;
+        public int PickCount;
         public bool Hash;
         public bool Help;
         public bool ListPacks;
@@ -143,7 +144,7 @@ namespace StreamDuel.Cli
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
-                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
+                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host" && option != "--pick")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -151,6 +152,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--pick":
+                        if (options.PickCount != 0) throw new ArgumentException("--pick 不能重复指定。");
+                        if (value != "3" && value != "4") throw new ArgumentException("--pick 只能是 3 或 4，表示从公开六人阵容中选择出战人数。");
+                        options.PickCount = value == "3" ? 3 : 4;
+                        break;
                     case "--lan-host":
                         if (options.LanHostName != null) throw new ArgumentException("--lan-host 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
@@ -276,6 +282,8 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.ReplayCode != null)
                 throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
+            if (options.PickCount != 0 && !options.Help && (options.ReplayMode || options.ListReplays || options.ListPacks))
+                throw new ArgumentException("--pick 只用于新对局，不能与回放、录像列表或内容包列表同用。");
             if (options.ListReplays && !options.Help && (options.ReplayMode || options.ListPacks
                 || options.Network || options.ReportFile != null || options.Share
                 || options.TeamCode != null || options.ExportTeam || options.TurnSeconds.HasValue))
@@ -286,12 +294,11 @@ namespace StreamDuel.Cli
                 {
                     options.ReplayFile != null ? "--replay" : null,
                     options.ReplayCode != null ? "--replay-code" : null,
-                    options.Ban ? "--ban" : null,
                     options.Lead ? "--lead" : null,
                     options.ListPacks ? "--list-packs" : null
                 }.Where(option => option != null).ToArray();
                 if (unsupported.Length > 0)
-                    throw new ArgumentException("联网会话目前仅支持基础对战，不支持 " + string.Join("、", unsupported) + "。");
+                    throw new ArgumentException("联网会话不支持 " + string.Join("、", unsupported) + "；选人时首位即为首发。");
             }
             if (options.ReplayMode && options.Hash && !options.Help)
                 throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")

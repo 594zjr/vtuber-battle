@@ -1,16 +1,16 @@
 # 联网对战协议 v3
 
-本文记录 `NetSession.ProtocolVersion = 3` 的现有线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；本任务不修改协议；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+本文记录 `NetSession.ProtocolVersion = 3` 的现有线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 由 T-62 引入，T-94 通过显式 pickVersion 能力扩展禁用和选人，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
 
-v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
+v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和选人须协商第 2.2 节能力；独立首发选择不在本协议内。
 
 ## 1. 传输与通用解析
 
-`INetTransport` 每次传递一条完整字符串，要求每个方向先进先出、不丢失、不重复。调用者在同一线程依次调用 `Poll`、`Submit`、`SubmitReplace`、`SendQuickChat` 和可选计时的 `Tick`；每次 `Poll` 非阻塞地最多取出 64 条当前已到达的消息，普通消息以及无效、超额、静音聊天均占这 64 条的批次额度。剩余消息按原 FIFO 留待下一次调用，调用方须在批次之间继续推进计时和输入；一次 `Poll` 不保证排空接收队列。网络消息不能直接替代会话去修改 `Battle`。
+`INetTransport` 每次传递一条完整字符串，要求每个方向先进先出、不丢失、不重复。调用者在同一线程依次调用 `Poll`、`Submit`、`SubmitReplace`、`SubmitBan`、`SubmitPick`、`SendQuickChat` 和可选计时的 `Tick`；每次 `Poll` 非阻塞地最多取出 64 条当前已到达的消息，普通消息以及无效、超额、静音聊天均占这 64 条的批次额度。剩余消息按原 FIFO 留待下一次调用，调用方须在批次之间继续推进计时和输入；一次 `Poll` 不保证排空接收队列。网络消息不能直接替代会话去修改 `Battle`。
 
 TCP 将每条字符串编码为严格 UTF-8，不写 BOM，并追加一个 LF 字节。接收端以 LF 分帧，接受 CRLF（移除 LF 前的一个 CR）。JSON 字符串中的换行必须转义为 `\n`，不能把一条对象拆成多行。发送 API 拒绝消息内的原始 CR/LF；空行不会被跳过，会交给 JSON 解析并报错。完整行先排队交付，随后才报告断开；EOF 前残留半行、非法 UTF-8、连接异常均是错误。当前实现没有行长或接收队列大小上限。
 
-所有消息的顶层必须是 JSON 对象，均有必需的字符串字段 `type`。仅识别大小写精确匹配的 `hello`、`commit`、`reveal`、`hash`、`error`、`chat`。普通对战消息的字段表中，除第 2.1 节明确列出的计时可选字段外，字段均必需，没有隐式默认值；“必需且为 null”也必须保留该键。`chat` 的字段要求与无效消息丢弃规则独立列在第 5.1 节。
+所有消息的顶层必须是 JSON 对象，均有必需的字符串字段 `type`。仅识别大小写精确匹配的 `hello`、`commit`、`reveal`、`hash`、`error`、`chat`。普通对战消息的字段表中，除第 2.1、2.2 节明确列出的可选能力字段外，字段均必需，没有隐式默认值；“必需且为 null”也必须保留该键。`chat` 的字段要求与无效消息丢弃规则独立列在第 5.1 节。
 
 实际解析规则如下，发送方应使用正常、无重复键的 JSON：
 
@@ -38,7 +38,7 @@ TCP 将每条字符串编码为严格 UTF-8，不写 BOM，并追加一个 LF �
 
 `team` 按 `TeamCheck.Validate(db, null, team)` 校验：必须六人、id 存在、无重复；此处不选择赛季，也不附加赛季名单限制。内容指纹发送前保存一次，收到握手时再次计算本地指纹；本地握手途中改动内容，或者对方指纹不等，均在创建 `Battle` 前报“内容不一致”。接收方没有另外检查 `contentHash` 的十六进制语法，而是直接进行 ordinal 字符串比较。开局后调用者仍有责任保持内容库不变。
 
-版本不等、包不同、指纹不同、队伍非法、缺字段、错误种子角色或第二次 `hello` 都进入 `Error` 并尝试通知对方。成功时建立相同的队伍、名字和种子，保存共享 RNG 检查点，进入 `Choose`；不会额外交换开局 `hash`。
+版本不等、包不同、指纹不同、队伍非法、缺字段、错误种子角色或第二次 `hello` 都进入 `Error` 并尝试通知对方。成功时建立相同的队伍、名字和种子，保存共享 RNG 检查点，按规则进入 `Ban`、`Pick` 或 `Choose`；不会额外交换开局 `hash`。
 
 ### 2.1 可选计时字段与能力（T-55）
 
@@ -59,15 +59,21 @@ TCP 将每条字符串编码为严格 UTF-8，不写 BOM，并追加一个 LF �
 
 启用计时时，三种网络宽限独立计数：对方基本时间与总时间耗尽后额外等待 `commit` 最多 10 秒；所需承诺齐备后等待对方 `reveal` 最多 10 秒；每条结算快照等待对方 `hash` 最多 10 秒。到限进入 `Error` 并尽力发送 `error`。一次大 `Tick` 按预算边界分段计算；刚自动提交并发出的消息不把发送前时间追算为对端响应延迟。未启用计时不增加这些等待限制。计时值、等待计数和聊天都不进入 `Battle` 的状态哈希、日志或录像；真实输入与计时可能改变最终选择，相同行动记录仍按普通回放复现。
 
+### 2.2 可选禁用与选人能力（T-94）
+
+当前主客 hello 都附带 `"pickVersion":1`。只有启用禁用或选人的主机同时附带 `"pickCount":3`（可为 0、3、4）与 `"banOne":true`（布尔）；两个规则字段必须一起出现，不能为 null。主机拒绝客机声明任一规则字段。启用任一选项时，双方都要求对端能力为数值 1；缺省或其它类型/值均在创建 Battle 前报错。未启用选项时仍兼容没有该能力字段的旧 v3 对端，不升级主协议版本，也不改变普通对局选择编码。
+
+主机配置决定开场阶段：有禁用先 `Ban`，有选人再 `Pick`，最后 `Choose`。两种开局阶段双方都参与，分别由 `SubmitBan(int)` 和 `SubmitPick(IList<int>)` 提交；号位始终为原始六人下标。个人行动预算不计开局选择时间，但启用 timer 时全部承诺齐备后的 reveal 等待和结算后的 hash 等待仍各限 10 秒。
+
 ## 3. `commit` / `reveal`：锁定再公开选择
 
-`kind = "action"` 用于普通行动阶段，双方都参与；`kind = "replace"` 用于补位阶段，仅需要补位的方参与。两类选择共用同一承诺协议，没有独立的 `action` 或 `replace` 消息类型。
+`kind = "action"` 用于普通行动阶段，双方都参与；`kind = "replace"` 用于补位阶段，仅需要补位的方参与。协商开局扩展后，`kind = "ban"` 与 `kind = "pick"` 分别用于双方禁用和选人。这四类选择共用同一承诺协议，没有独立的 `action` 或 `replace` 消息类型。
 
 | `commit` 字段 | JSON 类型与约束 |
 |---|---|
 | `type` | string，`"commit"` |
 | `turn` | number，整数 1..2147483647；等于当前阶段保存的回合 |
-| `kind` | string，`"action"` 或 `"replace"`，必须与当前阶段一致 |
+| `kind` | string，`"action"`、`"replace"`、`"ban"` 或 `"pick"`，必须与当前阶段及已协商能力一致 |
 | `digest` | string，恰好 64 位小写十六进制 |
 
 | `reveal` 字段 | JSON 类型与约束 |
@@ -75,10 +81,12 @@ TCP 将每条字符串编码为严格 UTF-8，不写 BOM，并追加一个 LF �
 | `type` | string，`"reveal"` |
 | `turn` | number，整数 1..2147483647；等于当前阶段保存的回合 |
 | `kind` | string，与本阶段及承诺对应的类型一致 |
-| `action` | string，严格行动编码；补位只能为有效的 `W0`～`W5` |
+| `action` | string，严格行动编码；补位为有效的 `W0`～`W5`，禁用为 `B0`～`B5`，选人为 `K0,2,5` 等原始槽位列表 |
 | `nonce` | string，恰好 32 位小写十六进制 |
 
 行动编码仅允许 `S0`～`S4`（技能槽）、`W0`～`W5`（己方队伍位置）和 `P`（跳过），均从 0 编号。不允许空白、小写、前导零、额外字符或其他编码，例如 `S00`、`s1`、`W6` 不合法。`Struggle` 和 `PassControlled` 是结算派生动作；本地提交时若确实符合相应条件，会先映射为 `P`，结算仍由 Core 决定。
+
+禁用阶段只允许 `B0`～`B5`，指向原始对方名单；选人阶段只允许 `K` 加恰好 pickCount 个原始己方下标，以逗号分隔，如 `K5,0,2`。每个下标严格为单个 0～5 字符，顺序决定出战次序，不允许空白、前导零、重复或被禁成员。它们仅在协商启用的对应阶段有效，不能作为普通行动或补位编码。本地调用在发送承诺前验证，远端选择在摘要检查后严格验证；任何一方非法均不能让其中一份选择先行结算。
 
 每次有效本地提交生成 16 字节密码学随机数，编码为 32 位小写十六进制 nonce。摘要计算为：
 
@@ -103,6 +111,8 @@ digest = lowercase_hex(SHA256(UTF8(action + "|" + nonce)))
 | `hash` | string；发送值为 `Battle.StateHash().ToString("x16", InvariantCulture)` |
 
 双方选择收齐后，各端按固定的主机、客机参数顺序调用 `ResolveTurn`。补位收齐后按 0 方、1 方顺序分别调用 `Replace`，与网络到达次序无关。每次调用后立即保存状态哈希并发送一条 `hash`；本端保存快照队列，收到对方哈希后只与队首比较，不按回合号覆盖或查找。
+
+禁用或选人收齐后，各端恢复共享 RNG，按 0 方、1 方顺序调用两次 `ChooseBan` 或 `ChoosePick`，整组开局选择只产生一条 `hash`，其 turn 仍取操作前的 Battle.Turn（开场为 1）。在两份揭示全部验证前不调用 Core 选择接口；单方提交不会把秘密名单写入对端可读的 Battle/Record。后续阶段等这份哈希确认后开放。
 
 `turn` 标记操作调用前的回合：第 N 回合 `ResolveTurn` 的哈希标 N，随后补位通常标 N+1。同一补位阶段的两次 `Replace` 可以产生相同 `turn` 的两条不同哈希；后续第 N+1 回合的 `ResolveTurn` 也可以再次使用该回合号。接收方必须保持操作顺序。
 

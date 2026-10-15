@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public enum NetState { Handshake, Choose, Replace, Waiting, Over, Desync, Error }
+    public enum NetState { Handshake, Choose, Replace, Waiting, Over, Desync, Error, Ban, Pick }
 
     public sealed partial class NetSession
     {
@@ -37,7 +37,7 @@ namespace StreamDuel.Core
         }
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
-            double? turnSeconds = null, double? bankSeconds = null)
+            double? turnSeconds = null, double? bankSeconds = null, int pickCount = 0, bool banOne = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
@@ -46,6 +46,7 @@ namespace StreamDuel.Core
             this.myName = myName;
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
+            if (!ConfigurePick(host, pickCount, banOne)) return;
             if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
             var errors = TeamCheck.Validate(db, null, this.myTeam);
             if (errors.Count > 0 || myName == null)
@@ -59,7 +60,7 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + PickHello() + "}");
         }
 
         public void Poll()
@@ -186,13 +187,15 @@ namespace StreamDuel.Core
             }
             else sharedSeed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue);
             ReceiveTimerHello(obj);
+            ReceivePickHello(obj);
             var teams = new IList<string>[2];
             var names = new string[2];
             teams[MySide] = myTeam;
             teams[1 - MySide] = team;
             names[MySide] = myName;
             names[1 - MySide] = name;
-            Battle = new Battle(db, teams, names, sharedSeed);
+            Battle = new Battle(db, teams, names,
+                new BattleOptions { Seed = sharedSeed, PickCount = configuredPickCount, BanOne = configuredBanOne });
             rngCheckpoint = Battle.NetRngState;
             BeginPhase();
         }
@@ -202,7 +205,20 @@ namespace StreamDuel.Core
             if (Terminal || Battle == null || hashes.Count > 0) return;
             RevealIfReady();
             if (Faulted) return;
-            if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
+            if ((phase == Phase.Ban || phase == Phase.Pick) && revealed[0] && revealed[1])
+            {
+                State = NetState.Waiting;
+                Battle.RestoreReplayRng(rngCheckpoint);
+                // 双方都已公开并验证，才按固定顺序提交给规则层；不保存半组选人的网络快照。
+                int selectionTurn = Battle.Turn;
+                for (int side = 0; side < 2; side++)
+                {
+                    if (phase == Phase.Ban) Battle.ChooseBan(side, bans[side].Value);
+                    else Battle.ChoosePick(side, picks[side]);
+                }
+                CaptureHash(selectionTurn);
+            }
+            else if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
                 // 本端 AI 建议可能消费 RNG；只以双方共享的结算检查点推进对战随机流。
@@ -274,12 +290,16 @@ namespace StreamDuel.Core
             {
                 actions[side] = null;
                 replacements[side] = null;
+                bans[side] = null;
+                picks[side] = null;
                 needsReplacement[side] = Battle.Need[side];
             }
             if (phase == Phase.Over) State = NetState.Over;
             else if (phase == Phase.Choose) State = NetState.Choose;
             else if (phase == Phase.Replace) State = needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
-            else Fault(NetState.Error, "同步协议暂不支持禁用或首发选择阶段。");
+            else if (phase == Phase.Ban) State = NetState.Ban;
+            else if (phase == Phase.Pick) State = NetState.Pick;
+            else Fault(NetState.Error, "同步协议暂不支持独立首发选择阶段。");
             BeginTimerPhase();
         }
 

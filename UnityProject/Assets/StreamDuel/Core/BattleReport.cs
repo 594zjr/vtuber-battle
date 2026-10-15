@@ -34,7 +34,7 @@ namespace StreamDuel.Core
             for (int side = 0; side < b.Sides.Length; side++)
             {
                 var team = b.Sides[side].Team;
-                bool choosingOpening = b.Phase == Phase.Ban || b.Phase == Phase.Lead;
+                bool choosingOpening = b.Phase == Phase.Ban || b.Phase == Phase.Lead || b.Phase == Phase.Pick;
                 text.Append("### ").Append(SideName(side)).Append('：').Append(Inline(b.Sides[side].Name)).Append('\n').Append('\n');
                 // 开局重排后号位不再改变；当前场上者可能已经换人，不能用来标记首发。
                 text.Append("首发：").Append(choosingOpening ? "待双方确认" : team.Count == 0 ? "无" : Inline(team[0].Name)).Append('\n').Append('\n');

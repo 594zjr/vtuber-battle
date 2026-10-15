@@ -64,18 +64,28 @@ namespace StreamDuel.Core
         private void ValidateSelectionKind(Dictionary<string, object> obj)
         {
             string kind = NetJson.Text(obj, "kind");
-            if ((phase != Phase.Choose && phase != Phase.Replace) || kind != SelectionKind)
+            if ((phase != Phase.Choose && phase != Phase.Replace && phase != Phase.Ban && phase != Phase.Pick)
+                || kind != SelectionKind)
                 throw new FormatException("承诺或公开的类型与当前阶段不匹配。");
             if (phase == Phase.Replace && !needsReplacement[1 - MySide])
                 throw new FormatException("对方本阶段无需补位，不能发送补位承诺或公开。");
         }
 
-        private string SelectionKind { get { return phase == Phase.Choose ? "action" : "replace"; } }
+        private string SelectionKind
+        {
+            get { return phase == Phase.Ban ? "ban" : phase == Phase.Pick ? "pick" : phase == Phase.Choose ? "action" : "replace"; }
+        }
+
+        private bool SelectionParticipant(int side)
+        {
+            return phase == Phase.Choose || phase == Phase.Ban || phase == Phase.Pick
+                || phase == Phase.Replace && needsReplacement[side];
+        }
 
         private bool AllCommitmentsReady()
         {
             for (int side = 0; side < 2; side++)
-                if ((phase == Phase.Choose || needsReplacement[side]) && commitments[side] == null) return false;
+                if (SelectionParticipant(side) && commitments[side] == null) return false;
             return true;
         }
 
@@ -91,6 +101,12 @@ namespace StreamDuel.Core
 
         private void StoreRevealedSelection(int side, string wire)
         {
+            if (phase == Phase.Ban || phase == Phase.Pick)
+            {
+                StoreRevealedOpening(side, wire);
+                revealed[side] = true;
+                return;
+            }
             var action = BattleAction.FromWire(wire);
             if (phase == Phase.Choose) actions[side] = action;
             else

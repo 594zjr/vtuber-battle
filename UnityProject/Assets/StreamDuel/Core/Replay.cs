@@ -5,7 +5,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum BattleRecordEventType { Turn, Replace, Lead, Ban }
+    public enum BattleRecordEventType { Turn, Replace, Lead, Ban, Pick }
 
     public sealed class BattleRecordEvent
     {
@@ -14,6 +14,7 @@ namespace StreamDuel.Core
         public BattleAction A1 { get; set; }
         public int Side { get; set; }
         public int To { get; set; }
+        public IList<int> Indices { get; set; }
         // AI 选择也消耗同一随机流，回放不调用 AI，所以必须保存结算前的位置。
         public uint? RngState { get; set; }
     }
@@ -26,6 +27,7 @@ namespace StreamDuel.Core
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
         public bool BanOne { get; set; }
+        public int PickCount { get; set; }
         public List<string> Modifiers { get; set; }
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
@@ -33,6 +35,7 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
+            ValidatePickCount(PickCount);
             var sb = new StringBuilder();
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
@@ -44,6 +47,7 @@ namespace StreamDuel.Core
             }
             if (LeadPick) sb.Append(",\"leadPick\":true");
             if (BanOne) sb.Append(",\"banOne\":true");
+            if (PickCount > 0) sb.Append(",\"pickCount\":").Append(PickCount.ToString(CultureInfo.InvariantCulture));
             if (Modifiers != null && Modifiers.Count > 0)
             {
                 sb.Append(",\"modifiers\":[");
@@ -96,6 +100,18 @@ namespace StreamDuel.Core
                     sb.Append(e.Side.ToString(CultureInfo.InvariantCulture));
                     sb.Append(",\"to\":").Append(e.To.ToString(CultureInfo.InvariantCulture));
                 }
+                else if (e.Type == BattleRecordEventType.Pick)
+                {
+                    ValidatePickEvent(e, PickCount);
+                    sb.Append("{\"type\":\"pick\",\"side\":").Append(e.Side.ToString(CultureInfo.InvariantCulture));
+                    sb.Append(",\"indices\":[");
+                    for (int j = 0; j < e.Indices.Count; j++)
+                    {
+                        if (j > 0) sb.Append(',');
+                        sb.Append(e.Indices[j].ToString(CultureInfo.InvariantCulture));
+                    }
+                    sb.Append(']');
+                }
                 else throw new FormatException("未知回放事件类型：" + e.Type);
                 if (e.RngState.HasValue) sb.Append(",\"rng\":").Append(e.RngState.Value.ToString(CultureInfo.InvariantCulture));
                 sb.Append('}');
@@ -128,6 +144,11 @@ namespace StreamDuel.Core
             {
                 if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
                 record.BanOne = enabled;
+            }
+            if (root.TryGetValue("pickCount", out var pickCount))
+            {
+                record.PickCount = (int)ReadInteger(pickCount, "pickCount", 0, 4);
+                ValidatePickCount(record.PickCount);
             }
             if (root.TryGetValue("modifiers", out var modifiersValue))
             {
@@ -165,11 +186,37 @@ namespace StreamDuel.Core
                     e.Side = (int)ReadInteger(Required(obj, "side"), "side", 0, 1);
                     e.To = (int)ReadInteger(Required(obj, "to"), "to", 0, int.MaxValue);
                 }
+                else if (type == "pick")
+                {
+                    e.Type = BattleRecordEventType.Pick;
+                    e.Side = (int)ReadInteger(Required(obj, "side"), "side", 0, 1);
+                    e.Indices = new List<int>();
+                    foreach (var index in ReadArray(Required(obj, "indices"), "indices"))
+                        e.Indices.Add((int)ReadInteger(index, "出战号位", 0, 5));
+                    ValidatePickEvent(e, record.PickCount);
+                }
                 else throw new FormatException("未知回放事件类型：" + type);
                 if (obj.TryGetValue("rng", out var state)) e.RngState = (uint)ReadInteger(state, "rng", 0, uint.MaxValue);
                 record.Events.Add(e);
             }
             return record;
+        }
+
+        static void ValidatePickCount(int count)
+        {
+            if (count != 0 && count != 3 && count != 4)
+                throw new FormatException("选人人数只能是 0、3 或 4");
+        }
+
+        static void ValidatePickEvent(BattleRecordEvent entry, int count)
+        {
+            if (count == 0 || entry.Indices == null || entry.Indices.Count != count)
+                throw new FormatException("选人记录的人数与开局选项不一致");
+            if (entry.Side < 0 || entry.Side > 1) throw new FormatException("选人记录的对战方必须是 0 或 1");
+            var seen = new HashSet<int>();
+            foreach (int index in entry.Indices)
+                if (index < 0 || index >= 6 || !seen.Add(index))
+                    throw new FormatException("选人记录必须使用原始六人阵容中不重复的号位");
         }
 
         static void WriteAction(StringBuilder sb, BattleAction action)
@@ -244,7 +291,7 @@ namespace StreamDuel.Core
             }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
-                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
+                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, PickCount = r.PickCount, Modifiers = r.Modifiers });
             foreach (var e in r.Events)
             {
                 if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);
@@ -252,6 +299,7 @@ namespace StreamDuel.Core
                 else if (e.Type == BattleRecordEventType.Replace) battle.Replace(e.Side, e.To);
                 else if (e.Type == BattleRecordEventType.Lead) battle.ChooseLead(e.Side, e.To);
                 else if (e.Type == BattleRecordEventType.Ban) battle.ChooseBan(e.Side, e.To);
+                else if (e.Type == BattleRecordEventType.Pick) battle.ChoosePick(e.Side, e.Indices);
                 else throw new FormatException("未知回放事件类型：" + e.Type);
             }
             return battle;

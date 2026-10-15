@@ -125,6 +125,9 @@ namespace StreamDuel.Core
                     case BattleRecordEventType.Ban:
                         battle.ChooseBan(entry.Side, entry.To);
                         break;
+                    case BattleRecordEventType.Pick:
+                        battle.ChoosePick(entry.Side, entry.Indices);
+                        break;
                     default:
                         throw new FormatException("未知回放事件类型：" + entry.Type);
                 }
@@ -141,6 +144,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                PickCount = source.PickCount,
                 Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
@@ -157,6 +161,7 @@ namespace StreamDuel.Core
                 A1 = source.A1,
                 Side = source.Side,
                 To = source.To,
+                Indices = source.Indices == null ? null : new List<int>(source.Indices),
                 RngState = source.RngState
             };
         }
