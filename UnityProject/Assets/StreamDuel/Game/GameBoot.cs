@@ -44,6 +44,7 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Replay, () => new ReplayScreen());
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
+            router.Register(AnimPreviewScreen.ScreenId, () => new AnimPreviewScreen());
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
             // 纯 C# 对战数据无法跨脚本重载恢复，由旧画面的 OnEnable 安全回到组队。
             router.Show(ScreenIds.Legacy);

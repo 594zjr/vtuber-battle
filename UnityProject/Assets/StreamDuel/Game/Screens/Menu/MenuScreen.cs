@@ -22,6 +22,7 @@ namespace StreamDuel.Game
             AddPage(router, buttons, ScreenIds.Replay, "回看", args);
             AddPage(router, buttons, ScreenIds.Settings, "设置", args);
             AddPage(router, buttons, ScreenIds.Online, "联网", args);
+            AddPage(router, buttons, AnimPreviewScreen.ScreenId, "动画预览", args);
 
             var legend = new VisualElement { name = "track-legend" };
             legend.style.flexDirection = FlexDirection.Row;
