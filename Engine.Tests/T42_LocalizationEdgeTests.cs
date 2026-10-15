@@ -161,13 +161,20 @@ public class T42_LocalizationEdgeTests
         {
             Loc.Current = null;
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            var rows = T42_ChineseSnapshot.Collect(Resources,
+            var allRows = T42_ChineseSnapshot.Collect(Resources,
                 Path.Combine(Root, "Engine.Tests", "obj", "T42ChineseFixtures-" + Guid.NewGuid().ToString("N")));
+            // 第三期在迁移完成后加入；保留原四包基线，再单独锁定包含第三期的完整快照。
+            var rows = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            foreach (var row in allRows)
+                if (!row.Key.StartsWith("original_wave3.json/", StringComparison.Ordinal)) rows.Add(row.Key, row.Value);
             Assert.Equal(467, rows.Count);
             using var sha = SHA256.Create();
             string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
             // 在 9fb5e12 的独立 Core 源码副本上采集；覆盖所有内置包的效果、人设、赛道及代表错误分支。
             Assert.Equal("474298CBC608EDACA215EAFC4ED2DBDD28CB79B948B74A4157F0367C8F9C9CC7", actual);
+            Assert.Equal(633, allRows.Count);
+            string expanded = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(allRows))));
+            Assert.Equal("81A5A461D0EE70BE1AD93235CF8B72D187EF53CFC602ACC90976EFF88A98D82D", expanded);
         }
         finally
         {
