@@ -87,6 +87,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine();
                 Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
                 PrintTeams(battle);
+                Console.WriteLine(BattleSummary.From(battle).ToText());
                 return 0;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException

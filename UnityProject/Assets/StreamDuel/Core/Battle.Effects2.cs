@@ -50,7 +50,7 @@ namespace StreamDuel.Core
         int DamageWithReflection(Ctx ctx, Fighter target, int amount, string text)
         {
             var attacker = ctx.P;
-            int dealt = Damage(target, amount, ctx.Node, text, true);
+            int dealt = Damage(target, amount, ctx.Node, text, true, source: attacker);
             if (dealt <= 0 || attacker == target || attacker.Fainted || Phase == Phase.Over) return dealt;
             foreach (var field in target.Fields)
             {
@@ -59,7 +59,7 @@ namespace StreamDuel.Core
                 int reflected = Math.Max(1, (int)Math.Floor(dealt * definition.ReflectDamage));
                 // 直接记反弹伤害，不再进入反弹入口，也不触发受反弹者的下播人设。
                 Damage(attacker, reflected, ctx.Node,
-                    "「" + definition.Name + "」反弹：" + attacker.Name + " 人气 -{n}", true, false);
+                    "「" + definition.Name + "」反弹：" + attacker.Name + " 人气 -{n}", true, false, target);
                 if (attacker.Fainted) ctx.InterruptedByReflection = true;
                 if (attacker.Fainted || Phase == Phase.Over) break;
             }
