@@ -158,6 +158,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
             PrintTeams(battle);
             Console.WriteLine(BattleSummary.From(battle).ToText());
+            PrintReview(battle, mySide);
             bool shareFailed = false;
             try
             {
@@ -172,7 +173,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options);
+                SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
