@@ -91,8 +91,9 @@ public class GoldenTests
         {
             if (battle.Phase == Phase.Choose)
             {
-                var first = Ai.Choose(battle, 0, AiLevel.Normal);
-                var second = Ai.Choose(battle, 1, AiLevel.Normal);
+                // 固定历史策略的输入，让规则日志回归不随调参默认值一起漂移。
+                var first = Ai.ChooseWithWeights(battle, 0, AiLevel.Normal, AiWeights.Legacy);
+                var second = Ai.ChooseWithWeights(battle, 1, AiLevel.Normal, AiWeights.Legacy);
                 battle.ResolveTurn(first, second);
             }
             else
@@ -100,7 +101,7 @@ public class GoldenTests
                 Assert.Equal(Phase.Replace, battle.Phase);
                 Assert.Contains(true, battle.Need);
                 for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
-                    if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, AiLevel.Normal));
+                    if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacementWithWeights(battle, side, AiLevel.Normal, AiWeights.Legacy));
             }
         }
         Assert.True(battle.Phase == Phase.Over, "普通电脑对局未结束：包=" + battle.Db.PackId + "，种子=" + battle.Seed);

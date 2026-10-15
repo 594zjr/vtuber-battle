@@ -37,11 +37,12 @@ namespace StreamDuel.Core
         }
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
-            double? turnSeconds = null, double? bankSeconds = null)
+            double? turnSeconds = null, double? bankSeconds = null, bool enableTermination = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             MySide = host ? 0 : 1;
+            terminationEnabled = enableTermination;
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
@@ -54,12 +55,12 @@ namespace StreamDuel.Core
                 return;
             }
             contentHash = db.ContentHash();
-            Send("{\"type\":\"hello\",\"version\":" + Number(ProtocolVersion)
+            Send("{\"type\":\"hello\",\"version\":" + Number(SessionProtocolVersion)
                 + ",\"packId\":" + NetJson.Quote(db.PackId)
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + "}");
         }
 
         public void Poll()
@@ -87,6 +88,8 @@ namespace StreamDuel.Core
 
         public void Submit(BattleAction action)
         {
+            if (action.Type == ActionType.Surrender) { Surrender(); return; }
+            if (terminationFrozen) throw new InvalidOperationException("正在同步对战请求，请稍后提交行动。");
             if (State != NetState.Choose || HasSubmitted)
                 throw new InvalidOperationException("现在不能提交行动，或本阶段已经提交。");
             var legal = Battle.LegalFor(MySide);
@@ -101,6 +104,7 @@ namespace StreamDuel.Core
 
         public void SubmitReplace(int to)
         {
+            if (terminationFrozen) throw new InvalidOperationException("正在同步对战请求，请稍后提交补位。");
             if (State != NetState.Replace || HasSubmitted || !ValidReplacement(MySide, to))
                 throw new InvalidOperationException("现在不能提交该补位，或本阶段已经提交。");
             CommitSelection("replace", BattleAction.SwitchTo(to).ToWire());
@@ -144,6 +148,11 @@ namespace StreamDuel.Core
                 ReceiveHash(obj);
                 return true;
             }
+            if (type.StartsWith("termination-", StringComparison.Ordinal))
+            {
+                ReceiveTermination(type, obj);
+                return true;
+            }
             if (hashes.Count > 0) throw new FormatException("上一阶段哈希尚未确认，不能提前提交下一阶段。");
             int messageTurn = (int)NetJson.Integer(obj, "turn", 1, int.MaxValue);
             if (messageTurn != turn) throw new FormatException("消息回合不匹配：当前 " + Number(turn) + "，收到 " + Number(messageTurn) + "。");
@@ -157,7 +166,8 @@ namespace StreamDuel.Core
         {
             if (Battle != null) throw new FormatException("对方重复发送握手。");
             long version = NetJson.Integer(obj, "version", 0, int.MaxValue);
-            if (version != ProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(ProtocolVersion) + "，对方 " + version + "。");
+            if (version != SessionProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(SessionProtocolVersion) + "，对方 " + version + "。");
+            ReceiveTerminationHello(obj);
             string packId = NetJson.Text(obj, "packId");
             if (packId != db.PackId) throw new FormatException("内容包不同：本端「" + db.PackId + "」，对方「" + packId + "」。");
             string peerContentHash = NetJson.Text(obj, "contentHash");
@@ -199,9 +209,23 @@ namespace StreamDuel.Core
 
         private void Advance()
         {
-            if (Terminal || Battle == null || hashes.Count > 0) return;
+            if (Terminal || Battle == null || hashes.Count > 0 || terminationFrozen) return;
             RevealIfReady();
             if (Faulted) return;
+            if (!SelectionsReady()) return;
+            if (terminationEnabled) { RequestTerminationBarrier(); return; }
+            ResolveSelections();
+        }
+
+        private bool SelectionsReady()
+        {
+            return phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue
+                || phase == Phase.Replace && (!needsReplacement[0] || replacements[0].HasValue)
+                    && (!needsReplacement[1] || replacements[1].HasValue);
+        }
+
+        private void ResolveSelections()
+        {
             if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
@@ -258,12 +282,17 @@ namespace StreamDuel.Core
                 return;
             }
             hashes.Dequeue();
-            if (hashes.Count == 0) BeginPhase();
+            if (hashes.Count == 0)
+            {
+                if (terminationHashPending) CompleteTerminationBarrier();
+                else BeginPhase();
+            }
             else BeginHashTimer();
         }
 
         private void BeginPhase()
         {
+            if (terminationEnabled) terminationPhase++;
             phase = Battle.Phase;
             turn = Battle.Turn;
             // 等哈希期间也可能预先请求 AI 建议，下一阶段仍从已保存的结算点开始。

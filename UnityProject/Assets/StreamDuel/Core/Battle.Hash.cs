@@ -86,6 +86,7 @@ namespace StreamDuel.Core
                 }
                 hash.Text(EndReason);
             }
+            HashTermination(hash);
             return hash.Value;
         }
 

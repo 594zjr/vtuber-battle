@@ -464,4 +464,193 @@ public class T99_TurnCapTests
         Assert.Equal(rawRecord, battle.Record.ToJson());
         Assert.Equal(rawName, battle.Sides[0].Name);
     }
+
+    static void TerminationCopiesMatch(Battle battle)
+    {
+        string record = battle.Record.ToJson();
+        ulong hash = battle.StateHash();
+        var replay = Replay.Run(battle.Db, BattleRecord.FromJson(record));
+        var cursor = new ReplayCursor(battle.Db, BattleRecord.FromJson(record), snapshotEvery: 1);
+        Assert.Equal("", cursor.Current.EndReason);
+        while (cursor.Next()) { }
+        var stepped = cursor.Current.Clone();
+        Assert.True(cursor.Prev());
+        Assert.Equal("", cursor.Current.EndReason);
+        Assert.Equal("", BattleSummary.From(cursor.Current).EndReason);
+        cursor.ToEnd();
+        foreach (var copy in new[] { battle.Clone(), replay, stepped, cursor.Current })
+        {
+            Assert.Equal(battle.Phase, copy.Phase);
+            Assert.Equal(battle.Winner, copy.Winner);
+            Assert.Equal(battle.EndReason, copy.EndReason);
+            Assert.Equal(battle.EndReason, BattleSummary.From(copy).EndReason);
+            Assert.Equal(record, copy.Record.ToJson());
+            Assert.Equal(hash, copy.StateHash());
+            Assert.Equal(FullLog(battle), FullLog(copy));
+            Assert.Equal(FullEvents(battle), FullEvents(copy));
+            Assert.Equal(BattleSummary.From(battle).ToText(), BattleSummary.From(copy).ToText());
+            Assert.Equal(battle.Clone().Random(), copy.Clone().Random());
+            if (battle.Phase == Phase.Over) Ended(copy, battle.Winner, battle.EndReason);
+            else Assert.DoesNotContain(copy.Events, item => item.Kind == BattleEventKind.End);
+        }
+        Assert.Equal(hash, battle.StateHash());
+        Assert.Equal(record, battle.Record.ToJson());
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(false, -1)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    [InlineData(true, -1)]
+    public void SurrenderReasonSurvivesCloneReplayAndCursorAfterRealDamage(bool capped, int surrendering)
+    {
+        var battle = Make(capped);
+        HitThenHeal(battle, 0);
+        Assert.Equal(100, BattleSummary.From(battle).Sides[0].Sum(stats => stats.DamageDealt));
+        Assert.Equal("", battle.EndReason);
+        int turn = battle.Turn;
+        int damageEvents = battle.Events.Count(item => item.Kind == BattleEventKind.Damage);
+        if (surrendering < 0) battle.ResolveSurrenders(true, true);
+        else battle.Surrender(surrendering);
+        int winner = surrendering < 0 ? -1 : 1 - surrendering;
+        Ended(battle, winner, "投降", "投降");
+        Assert.Equal(turn, battle.Turn);
+        Assert.Equal(damageEvents, battle.Events.Count(item => item.Kind == BattleEventKind.Damage));
+        Assert.Equal(2, BattleSummary.From(battle).Turns);
+        TerminationCopiesMatch(battle);
+        int logCount = battle.Log.Count, eventCount = battle.Events.Count;
+        Assert.Throws<InvalidOperationException>(() => battle.Surrender(0));
+        Assert.Throws<InvalidOperationException>(() => battle.ResolveSurrenders(true, true));
+        Assert.Equal(logCount, battle.Log.Count);
+        Assert.Equal(eventCount, battle.Events.Count);
+    }
+
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    public void RejectedDrawHasNoEndReasonAndAcceptedDrawKeepsAgreementReasonEverywhere(bool capped, int offering)
+    {
+        var battle = Make(capped);
+        HitThenHeal(battle, 0);
+        battle.OfferDraw(offering);
+        Assert.Equal("", battle.EndReason);
+        Assert.Equal("", BattleSummary.From(battle).EndReason);
+        battle.RespondDraw(1 - offering, false);
+        Assert.Equal(Phase.Choose, battle.Phase);
+        Assert.Equal("", battle.EndReason);
+        Assert.Equal("", BattleSummary.From(battle).EndReason);
+        Assert.DoesNotContain(battle.Events, item => item.Kind == BattleEventKind.End);
+        TerminationCopiesMatch(battle);
+
+        battle.OfferDraw(1 - offering);
+        battle.RespondDraw(offering, true);
+        Ended(battle, -1, "和局", "同意和局");
+        Assert.Equal(100, BattleSummary.From(battle).Sides[0].Sum(stats => stats.DamageDealt));
+        Assert.Equal(2, BattleSummary.From(battle).Turns);
+        TerminationCopiesMatch(battle);
+        int logCount = battle.Log.Count, eventCount = battle.Events.Count;
+        Assert.Throws<InvalidOperationException>(() => battle.OfferDraw(0));
+        Assert.Throws<InvalidOperationException>(() => battle.RespondDraw(1, true));
+        Assert.Equal(logCount, battle.Log.Count);
+        Assert.Equal(eventCount, battle.Events.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DrawOffersDoNotReplaceTheCapReasonOrChangeItsRulesAfterVersionUpgrade(bool reject)
+    {
+        var battle = Make();
+        HitThenHeal(battle, 0);
+        battle.OfferDraw(1);
+        if (reject) battle.RespondDraw(0, false);
+        Assert.Equal(3, battle.Record.Version);
+        Assert.Equal("", battle.EndReason);
+        Assert.Equal(!reject, battle.HasDrawOffer(1));
+        Assert.Equal(60, battle.EffectiveTurnCap);
+        while (battle.Phase != Phase.Over) Pass(battle);
+        Ended(battle, 0, "回合上限", "累计伤害");
+        Assert.Equal(60, battle.Turn);
+        Assert.Equal(60, BattleSummary.From(battle).Turns);
+        Assert.Equal(3, battle.Record.Version);
+        Assert.Equal(new[] { "turn_cap_60" }, battle.Record.Modifiers);
+        TerminationCopiesMatch(battle);
+    }
+
+    [Theory]
+    [InlineData(false, "surrender")]
+    [InlineData(true, "surrender")]
+    [InlineData(false, "double")]
+    [InlineData(true, "double")]
+    [InlineData(false, "draw")]
+    [InlineData(true, "draw")]
+    [InlineData(false, "cap")]
+    [InlineData(true, "cap")]
+    public void TerminationAndCapTemplatesRemainSafeWithoutChangingRawHistoryOrHash(bool capped, string ending)
+    {
+        string first = "甲 投降，乙\n\u200b" + new string('长', 18);
+        string second = "乙 同意和局，双方平局\u202e" + new string('名', 18);
+        var battle = new Battle(Content(), Teams, new[] { first, second }, new BattleOptions
+        {
+            Seed = 99, Modifiers = capped ? new List<string> { "turn_cap_60" } : null
+        });
+        HitThenHeal(battle, 0);
+        int logStart = battle.Log.Count;
+        if (ending == "surrender") battle.Surrender(1);
+        else if (ending == "double") battle.ResolveSurrenders(true, true);
+        else if (ending == "draw")
+        {
+            battle.OfferDraw(0);
+            battle.RespondDraw(1, false);
+            battle.OfferDraw(1);
+            battle.RespondDraw(0, true);
+        }
+        else while (battle.Phase != Phase.Over) Pass(battle);
+        string expectedReason = ending == "cap" ? "回合上限" : ending == "draw" ? "和局" : "投降";
+        int winner = ending == "surrender" || ending == "cap" && capped ? 0 : -1;
+        Ended(battle, winner, expectedReason);
+        var rawLog = FullLog(battle);
+        string rawRecord = battle.Record.ToJson();
+        ulong hash = battle.StateHash();
+        var display = TextInput.ForDisplay(battle);
+        string cleanFirst = TextInput.Clean(first, TextInputKind.PlayerName).Text;
+        string cleanSecond = TextInput.Clean(second, TextInputKind.PlayerName).Text;
+        string expectedLast = ending == "surrender" ? cleanSecond + " 投降，" + cleanFirst + " 获胜"
+            : ending == "double" ? "双方同时投降，平局"
+            : ending == "draw" ? cleanFirst + " 同意和局，双方平局"
+            : capped ? "回合上限（60 回合）：双方剩余人数和剩余人气比例总和相同，按累计伤害判定，" + cleanFirst + " 获胜"
+            : "达到 120 回合上限，按剩余人气判定";
+        Assert.Equal(expectedLast, display.Log.Last().Text);
+        if (ending == "draw")
+            Assert.Equal(new[]
+            {
+                cleanFirst + " 提议和局", cleanSecond + " 拒绝和局，继续对战",
+                cleanSecond + " 提议和局", cleanFirst + " 同意和局，双方平局"
+            }, display.Log.Skip(logStart).Select(entry => entry.Text));
+        foreach (var entry in display.Log)
+        {
+            // 按实际字符检查；文化比较可能把零宽格式字符视为空串。
+            Assert.DoesNotContain("\n", entry.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u200b", entry.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202e", entry.Text, StringComparison.Ordinal);
+        }
+        Assert.Equal(expectedReason, display.EndReason);
+        Assert.Equal(expectedReason, BattleSummary.From(display).EndReason);
+        Assert.Equal(hash, display.StateHash());
+        Assert.Equal(FullEvents(battle), FullEvents(display));
+        Assert.Equal(rawLog, FullLog(battle));
+        Assert.Equal(rawRecord, battle.Record.ToJson());
+        Assert.Equal(hash, battle.StateHash());
+        Assert.Equal(new[] { first, second }, battle.Record.Names);
+        Assert.Equal(new[] { first, second }, battle.Sides.Select(side => side.Name));
+        Assert.Equal(FullLog(display), FullLog(TextInput.ForDisplay(display)));
+        var replay = Replay.Run(battle.Db, BattleRecord.FromJson(rawRecord));
+        Assert.Equal(hash, replay.StateHash());
+        Assert.Equal(rawLog, FullLog(replay));
+        Assert.Equal(FullLog(display), FullLog(TextInput.ForDisplay(replay)));
+    }
 }

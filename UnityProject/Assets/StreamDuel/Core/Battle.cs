@@ -16,7 +16,7 @@ namespace StreamDuel.Core
     }
 
     public enum Phase { Choose, Replace, Over, Lead, Ban }
-    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
+    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled, Surrender }
 
     public partial struct BattleAction
     {
@@ -24,6 +24,7 @@ namespace StreamDuel.Core
         public static BattleAction Skill(int i) { return new BattleAction { Type = ActionType.Skill, Index = i }; }
         public static BattleAction SwitchTo(int i) { return new BattleAction { Type = ActionType.Switch, Index = i }; }
         public static BattleAction Pass() { return new BattleAction { Type = ActionType.Pass }; }
+        public static BattleAction Surrender() { return new BattleAction { Type = ActionType.Surrender }; }
         public override string ToString() { return Type + ":" + Index; }
     }
 
@@ -611,6 +612,11 @@ namespace StreamDuel.Core
         // ================= 主流程 =================
         public void ResolveTurn(BattleAction a0, BattleAction a1)
         {
+            if (a0.Type == ActionType.Surrender || a1.Type == ActionType.Surrender)
+            {
+                ResolveSurrenders(a0.Type == ActionType.Surrender, a1.Type == ActionType.Surrender);
+                return;
+            }
             if (Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
             Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Turn, A0 = a0, A1 = a1, RngState = rng.State });
             var acts = new[] { Normalize(0, a0), Normalize(1, a1) };

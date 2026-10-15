@@ -149,14 +149,32 @@ namespace StreamDuel.Core
                 }
                 if (prefix != null && value.StartsWith(prefix, StringComparison.Ordinal))
                     return replacement + value.Substring(prefix.Length);
+                if (entry.Kind == "info" && (entry.Node == Node.Start || entry.Node == Node.TurnStart || entry.Node == Node.Replace))
+                {
+                    if (value == rawNames[side] + " 提议和局") return names[side] + " 提议和局";
+                    if (value == rawNames[side] + " 拒绝和局，继续对战") return names[side] + " 拒绝和局，继续对战";
+                }
             }
-            if (entry.Node == Node.Over && entry.Kind == "turn" && winner >= 0 && winner < names.Length)
+            if (entry.Node == Node.Over && entry.Kind == "turn")
             {
-                string result = rawNames[winner] + " 获胜";
-                if (value == result) return names[winner] + " 获胜";
-                if (value.StartsWith("回合上限（" + turnCap + " 回合）：", StringComparison.Ordinal)
-                    && value.EndsWith("，" + result, StringComparison.Ordinal))
-                    return value.Substring(0, value.Length - result.Length) + names[winner] + " 获胜";
+                if (winner >= 0 && winner < names.Length)
+                {
+                    string result = rawNames[winner] + " 获胜";
+                    if (value == result) return names[winner] + " 获胜";
+                    int loser = 1 - winner;
+                    if (value == rawNames[loser] + " 投降，" + rawNames[winner] + " 获胜")
+                        return names[loser] + " 投降，" + names[winner] + " 获胜";
+                    if (value.StartsWith("回合上限（" + turnCap + " 回合）：", StringComparison.Ordinal)
+                        && value.EndsWith("，" + result, StringComparison.Ordinal))
+                        return value.Substring(0, value.Length - result.Length) + names[winner] + " 获胜";
+                }
+                else if (winner == -1)
+                {
+                    // 终局日志未标回应方；用完整原名加固定后缀匹配，不按可能出现在昵称里的分隔词切割。
+                    for (int responder = 0; responder < names.Length; responder++)
+                        if (value == rawNames[responder] + " 同意和局，双方平局")
+                            return names[responder] + " 同意和局，双方平局";
+                }
             }
             return value;
         }
