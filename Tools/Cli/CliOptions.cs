@@ -31,6 +31,8 @@ namespace StreamDuel.Cli
         public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
+        public string TournamentReportFile;
+        public bool Json;
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
@@ -73,6 +75,12 @@ namespace StreamDuel.Cli
                 {
                     if (options.Overwrite) throw new ArgumentException("--overwrite 不能重复指定。");
                     options.Overwrite = true;
+                    continue;
+                }
+                if (option == "--json")
+                {
+                    if (options.Json) throw new ArgumentException("--json 不能重复指定。");
+                    options.Json = true;
                     continue;
                 }
                 if (option == "--hotseat")
@@ -183,7 +191,7 @@ namespace StreamDuel.Cli
                 }
                 if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
-                    && option != "--report" && option != "--tournament"
+                    && option != "--report" && option != "--tournament" && option != "--tournament-report"
                     && option != "--save-dir" && option != "--backup" && option != "--restore"
                     && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
@@ -200,6 +208,11 @@ namespace StreamDuel.Cli
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(option + " 需要非空的备份 JSON 文件路径。");
                         if (option == "--backup") options.BackupFile = value;
                         else options.RestoreFile = value;
+                        break;
+                    case "--tournament-report":
+                        if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament-report 需要非空的赛事 JSON 文件路径。");
+                        options.TournamentReportFile = value;
                         break;
                     case "--tournament":
                         if (options.TournamentFile != null) throw new ArgumentException("--tournament 不能重复指定。");
@@ -323,6 +336,19 @@ namespace StreamDuel.Cli
                 if (unsupported.Length > 0)
                     throw new ArgumentException("备份与恢复是独立操作，只支持 --save-dir，以及恢复时的 --overwrite；不能与 "
                         + string.Join("、", unsupported) + " 同用。");
+            }
+            if (!options.Help)
+            {
+                if (options.Json && options.TournamentReportFile == null)
+                    throw new ArgumentException("--json 只能与 --tournament-report 同用。");
+                if (options.TournamentReportFile != null)
+                {
+                    var unsupported = provided.Where(option => option != "--tournament-report" && option != "--json"
+                        && option != "--pack" && option != "--pack-dir").Distinct().ToArray();
+                    if (unsupported.Length > 0)
+                        throw new ArgumentException("--tournament-report 是独立只读查询，只可搭配 --json、--pack、--pack-dir；不能与 "
+                            + string.Join("、", unsupported) + " 同用。");
+                }
             }
             if (options.Advice && !options.Help)
             {

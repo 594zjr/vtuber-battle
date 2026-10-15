@@ -621,7 +621,7 @@ CLI 的 `--advice` 仅用于带 `--ban` 或 `--lead` 的新本地对局，在首
 
 `Backup.Export(store, replayDir, exportedAt, includeReplays = true)` 返回单个 UTF-8 JSON 备份；日期必须由调用方传入，与战斗随机流无关。`ISaveStore` 的文件实现通过 `IBackupFileStore.RootDirectory` 提供边界，当前由 `FileSaveStore` 实现；不支持文件根目录的存档后端会明确报错。`replayDir` 必须是根目录内独立的子目录，不能与旧 `replays` 或自动 `backups` 目录重叠。CLI 使用 `replay-library`。
 
-格式版本为 1：根字段为 `format: "StreamDuelBackup"`、`version`、ISO 8601 `exportedAt`、`includeReplays`、`settings`、`profile`、`teams`、`replays`、`library`、`libraryIndex`。前三个数据对象沿用现有存档格式；两个录像数组均为 `{id, json}`，`json` 保留完整原文。旧 `replays` 只包含 `FileSaveStore` 已识别并管理的文件，兼容已有任意文本载荷；新库保留录像 id、日期、原始昵称、备注和全部对战记录。索引从实际录像重建，不修改源索引，也不信任输入索引决定访问或删除哪些文件。关闭录像选项时，两个数组及索引条目均为空。未保存过的设置、统计和预设按既有默认值导出。不收集账号、设备、网络信息，不打包未列出的文件或目录。
+格式版本为 1：根字段为 `format: "StreamDuelBackup"`、`version`、ISO 8601 `exportedAt`、`includeReplays`、`settings`、`profile`、`teams`、`replays`、`library`、`libraryIndex`。前三个数据对象沿用现有存档格式；两个录像数组均为 `{id, json}`，`json` 保留完整原文。旧 `replays` 只包含 `FileSaveStore` 已识别并管理的文件，兼容已有任意文本载荷；新库保留录像 id、日期、原始昵称、备注和全部对战记录。所选录像库中的可选 `library.tournament` 关联按 §12.1 校验并原样保留，重建索引也保留该关联；独立赛事配置及其同名附属录像目录仍按 §12.1 另行转移，不扫描存档根目录外的文件。索引从实际录像重建，不修改源索引，也不信任输入索引决定访问或删除哪些文件。关闭录像选项时，两个数组及索引条目均为空。未保存过的设置、统计和预设按既有默认值导出。不收集账号、设备、网络信息，不打包未列出的文件或目录。
 
 `Backup.Validate(json)` 纯校验；`Backup.Import(store, replayDir, json, importedAt, mode)` 在任何写入前校验整份 JSON、当前及嵌套版本、结构、类型、日期、录像元数据和安全 id。损坏内容、未来版本、重复字段或仅大小写不同的重复录像 id 均给中文错误；最大备份为 64 MiB。现有受管理数据损坏时也拒绝恢复，不能用默认值替换坏档后继续覆盖。缺失或损坏的源索引是可重建缓存，不阻止导出。新库的损坏录像则明确报错，不静默丢弃。
 
@@ -636,6 +636,12 @@ CLI 独立模式为 `--backup <文件> [--save-dir <目录>]` 与 `--restore <�
 ## 9. 电脑对手（`Ai.cs`）
 
 估算每个可用技能的价值：伤害技能按“估算伤害 / 对手当前人气”，能击倒加大权重，先手击倒再加；状态、能力、直播间效果、驱散、净化按局面加分。普通难度的随机扰动上限、换人概率及其它策略系数由 `AiWeights.Default` 提供，困难难度使用 `AiWeights.HardDefault`。T-95 的自我对弈协议、完整参数与强度验证见 `ai-tuning.md`；这些参数只影响选择偏好，不改变合法行动和战斗结算。简单难度继续使用 `AiWeights.Legacy` 的历史策略（普通估值分支随机扰动上限 0.08、换人概率 60%，简单难度自身仍不主动换人）。补位选对位分最高的；简单难度补位使用旧权重，普通难度使用当前权重。
+
+专家保留三次采样、第一层前三名及分数并列者的向前搜索，默认每次行动或补位最多模拟 **128 个节点**。一个节点是副本中一次实际执行的 `ResolveTurn` 或 `Replace`，调用前扣除；双方补位分别计数。克隆、评分、困难难度启发式和已经结束的分支不计节点。预算限制确定性的模拟工作量，不读取系统时间；具体机器上的耗时由 `Tools/Bench` 测量，不承诺任意硬件下的墙钟时限。
+
+`Ai.ChooseExpert(battle, side, budget)` 与 `Ai.ChooseExpertReplacement(battle, side, budget)` 返回 `ExpertDecision`：`Action`、`SimulatedNodes`、`BudgetExhausted`。补位的 `Action` 是 `SwitchTo`。`Ai.Choose` / `ChooseReplacement` 的专家入口使用 `ExpertBudget.Default`；显式 `new ExpertBudget(maxNodes)` 可调节上限，0 合法，负数拒绝，null 预算拒绝。预算对象不可变，每次决策重新计数，可安全复用。`ExpertBudget.Unlimited` 用 `int.MaxValue` 保留旧专家的完整搜索顺序、估值与平局随机数处理，供强度对照。
+
+预算耗尽时只使用已完成的结果：第一层优先比较完成全部三次采样的候选；若没有，则比较已有完整样本的均值，忽略未完成补位的分支。第二层只在某个候选的全部样本扩展完成后更新评分；中断时从已完整扩展者中选择，尚无完整扩展者则使用第一层评分，避免混用不同搜索深度。补位须完成自身及对方必要补位与后续采样才计为一个完整样本。没有任何完整样本（含零预算）时返回顺序中的首个合法行动或可补位成员。仅当仍需模拟而无法取得下一节点时 `BudgetExhausted=true`，恰好用完并完成搜索不算截断。所有模拟在独立副本上执行，真实战斗只可能因最终并列选择消耗自身随机数。
 
 ### 9.1 主播的出招风格
 
@@ -788,3 +794,31 @@ id 按 ordinal 比较，区分大小写；未知 id 在构造对战时抛出 `Ke
 `ToJson()` / `Tournament.FromJson(db, json)` 保存并恢复版本 1 的赛事，记录内容包 id、内容指纹、赛制、配置轮数、报名队伍码、已排出的轮次与各场结果（未报结果为 null）。读取时校验内容一致性、队伍和赛程，按历史顺序重建配对并核对存档，不信任外部提供的积分或排名缓存；损坏存档拒绝载入，未完成轮可继续报分。
 
 CLI 的 `--tournament <文件>` 创建或继续赛事，手动录入已完成的对局结果；`--auto` 用普通难度电脑完成未报结果的对阵。自动对局种子由稳定的对阵编号派生，AI 选择和对战结算只使用该 Battle 的随机流。赛事保存与玩家战绩、普通对战录像分别管理。
+
+### 12.1 完整赛事战报与录像关联
+
+`Tournament.Pairings` 只读列出已排出的全部对阵；读取历史不调用会推进赛程的 `NextRound()`。`TournamentReport.Build(t, lib)` 建立不可变报告，`ToText()` 输出中文纯文本，`ToJson()` 输出版本 1 的 JSON。积分榜直接采用 `Tournament.Standings()` 的排序与数值；已排轮次中的待赛、轮空和已完成结果全部列出。尚未生成的轮次不虚构配对。玩家姓名用 8.7 的 `PlayerName` 入口清理，报名编号保留，源赛事的原始姓名不变。
+
+CLI 的 `--tournament-report <赛事文件> [--json]` 是独立只读查询，可额外使用 `--pack`、`--pack-dir`，省略 `--pack` 时读取赛事内保存的包。输出只写标准输出，不包含账号、设备、网络信息、文件路径或导出时间。缺少赛事文件时失败，不创建空赛事。内容包和内容指纹须与赛事相符；下架策略继续生效。
+
+自动赛事将每场实际完成的 `Battle` 通过 `ReplayLibrary.SaveTournament(t, pairing, battle)` 保存到 `<赛事文件完整路径>.replay-library`，先归档再保存比分。手动录入比分不凭空生成录像。归档失败时仍保存已完成比分，CLI 提示失败并返回非零退出码。赛事录像不更新普通玩家档案；转移完整赛事时同时复制 JSON 文件和同名旁库目录。报告读取使用 `ReplayLibrary.OpenReadOnly()`，不会创建目录、锁、索引，也不修复索引或裁剪录像；缺库等同无归档。读取遇到真实权限或路径错误时失败，不把它冒充为缺失录像。
+
+录像库版本 1 的 `library` 元数据可增加 `tournament: {version: 1, key: string, pairingId: int}`。普通录像不增加此字段，赛事 JSON 仍为原版本 1 的确定性格式，不加入时间或随机标识。`key` 是域前缀 `StreamDuel.TournamentArchive.v1\n` 加规范配置 JSON 的 UTF-8 字节的 SHA-256 小写十六进制：配置依次含 `version`、`format`、配置的 `rounds`、`packId`、`contentHash`、按报名顺序的 `players`（`id`、原始 `name`、`teamCode`）。不含比分或已排轮数，因此续赛关联不变；它是库内配置关联键，不是全球唯一赛事编号，相同配置的独立赛事应使用独立旁库。
+
+归档验证对阵归属、已完成状态、包与指纹、原始双方姓名和队伍顺序、已报结果的一致性。写锁内相同关联和相同记录重试返回原 id，不重复保存；不同或不可用的既有记录拒绝覆盖。自动添加赛事备注，沿用有备注录像不被普通容量裁剪的规则。修改备注保留关联。报告只接受显式关联，不按种子、姓名或文件时间猜测；重复关联标为不明确，不任选一份；归档重试发现多份关联也拒绝返回成功，不改写任何一份录像。可识别关联但损坏的记录保留 id 和失败状态；关联标签或 JSON 本身无法识别时，不能归入某场对阵。
+
+数据之最只取已报比分、关联唯一、内容兼容且完整重放后的胜负一致的录像。缺失、损坏、下架、内容不符或重放失败的对局均不补零，并公布统计覆盖范围；`lib=null` 等同无录像库。最高单次伤害是所有正 `Damage.Amount` 的最大值，即实际扣血，包含固定伤害、持续伤害、反弹和自伤。其 `side`、`slot` 与主播指向**受击者**，不推断施伤者；同值按对阵编号、日志顺序取首。最多击倒沿用 `BattleSummary` 的既有归属，跨双方、跨局按主播 id 累加；出场按每局每方实际 `Enter` 的主播去重，未登场替补不计，同一主播在镜像双方都登场计两局次。这两项同值按主播 id 的 Ordinal 顺序取首。没有有效录像或某指标没有正值时，该指标为 null。
+
+战报 JSON 字段如下；列表按积分榜顺序、轮次/对阵编号顺序输出，固定字段顺序和不依赖区域设置的数值格式保证相同输入逐字节相同：
+
+| 字段 | 含义 |
+|---|---|
+| `version`, `packId`, `format` | 战报版本 1、内容包 id、`roundrobin` 或 `swiss`。 |
+| `roundCount`, `playedRounds`, `isFinished` | 配置对应的总轮数、已排轮数（可能仍有待赛）、是否结束。 |
+| `standings[]` | 每项含 `rank`（从 1 开始）、`player`（报名编号）、过滤后的 `name`、`points`、`opponentPoints`、`headToHeadPoints`、`wins`、`draws`、`losses`、`byes`。 |
+| `rounds[]` | 每项含 `number`（从 1 开始）和 `matches[]`。 |
+| `matches[]` | 每项含 `pairingId`、`player0`、`player1`、`name0`、`name1`、`winnerSide`、中文 `result`、`replay`；轮空的 `player1/name1` 为 null，待赛的 `winnerSide` 为 null，平局为 -1。其余玩家、对阵编号从 0 开始。 |
+| `replay` | `status`、`id`、中文 `message`。状态为 `saved`、`not_saved`、`unavailable`、`corrupt`、`mismatch`、`ambiguous`、`not_applicable` 或 `pending`；有唯一可识别关联时保留库 id，即使不可复算，否则 id 为 null。`not_saved` 提示“未保存”。 |
+| `coverage` | `completedGames` 为已报非轮空局数，`archivedGames` 为可严格复算局数，`missingGames` 为未保存局数，`invalidGames` 为其余不能用于统计的已报局数；后三项之和等于第一项。 |
+| `maxDamage` | null 或含 `amount`、`pairingId`、`round`、`turn`、`logIndex`、`side`、`slot`、`streamerId`、`streamerName`、`replayId` 的对象；日志、方、号位从 0 开始。 |
+| `mostKos`, `mostAppearances` | null 或含 `streamerId`、`streamerName`、`count` 的对象；count 为累计击倒次数或出场局次。 |

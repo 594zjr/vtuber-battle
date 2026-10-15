@@ -194,6 +194,71 @@ try {
     }
     $help = Invoke-Check '37-help' @('--help')
     Assert-Check ($help.Contains('--backup') -and $help.Contains('--restore') -and $help.Contains('--overwrite')) '帮助应列出三个参数'
+
+    # 赛事关联必须由真实归档 API 产生，避免只验证手写元数据的形状。
+    $binary = [IO.Path]::GetDirectoryName($cli)
+    Add-Type -Path (Join-Path $binary 'StreamDuel.Core.dll')
+    $content = Join-Path $binary 'Content'
+    $db = [StreamDuel.Core.ContentDb]::FromJson(
+        [IO.File]::ReadAllText((Join-Path $content 'StreamDuelRules.json')),
+        [IO.File]::ReadAllText((Join-Path $content 'Packs/original.json')))
+    $tournament = [StreamDuel.Core.Tournament]::new($db, 'roundrobin', 0)
+    for ($side = 0; $side -lt 2; $side++) {
+        $preset = [StreamDuel.Core.TeamPreset]::new()
+        $preset.PackId = $db.PackId
+        $preset.Name = '备份赛事队伍'
+        foreach ($id in $record.teams[$side]) { $preset.Ids.Add($id) }
+        $tournament.AddPlayer(('选手' + ($side + 1)), [StreamDuel.Core.TeamCode]::Encode($preset))
+    }
+    $pairing = @($tournament.NextRound())[0]
+    $firstPlayer = $tournament.Players[$pairing.Player0]
+    $secondPlayer = $tournament.Players[$pairing.Player1]
+    $tournamentTeams = [Collections.Generic.IList[string][]]@(
+        [Collections.Generic.List[string]]@($firstPlayer.Team),
+        [Collections.Generic.List[string]]@($secondPlayer.Team))
+    $tournamentBattle = [StreamDuel.Core.Battle]::new($db, $tournamentTeams,
+        [string[]]@($firstPlayer.Name, $secondPlayer.Name), [uint32]110)
+    $tournamentBattle.Surrender(1)
+    $tournament.ReportResult($pairing, $tournamentBattle.Winner)
+    $tournamentSource = Join-Path $run 'tournament-source'
+    $tournamentTarget = Join-Path $run 'tournament-restored'
+    $tournamentLibrary = [StreamDuel.Core.ReplayLibrary]::new((Join-Path $tournamentSource 'replay-library'))
+    $tournamentReplayId = $tournamentLibrary.SaveTournament($tournament, $pairing, $tournamentBattle)
+    $tournamentReplay = Join-Path $tournamentSource "replay-library/$tournamentReplayId.json"
+    $tournamentReplayJson = [IO.File]::ReadAllText($tournamentReplay)
+    $tag = ($tournamentReplayJson | ConvertFrom-Json).library.tournament
+    Assert-Check ($tag.version -eq 1 -and $tag.key -cmatch '^[0-9a-f]{64}$' -and $tag.pairingId -eq $pairing.Id) '真实 API 应生成合法赛事关联'
+    $tournamentBefore = Snapshot $tournamentSource
+    $tournamentArchive = Join-Path $run 'tournament-backup.json'
+    $null = Invoke-Check '38-tournament-export' @('--backup', $tournamentArchive, '--save-dir', $tournamentSource)
+    $null = Invoke-Check '39-tournament-restore' @('--restore', $tournamentArchive, '--save-dir', $tournamentTarget)
+    $tournamentRoundtrip = Join-Path $run 'tournament-roundtrip.json'
+    $null = Invoke-Check '40-tournament-reexport' @('--backup', $tournamentRoundtrip, '--save-dir', $tournamentTarget)
+    Assert-Check ((ComparableArchive $tournamentArchive) -ceq (ComparableArchive $tournamentRoundtrip)) '赛事录像备份往返除导出时间外须完全一致'
+    $restoredTournamentReplay = Join-Path $tournamentTarget "replay-library/$tournamentReplayId.json"
+    Assert-Check ([IO.File]::ReadAllText($restoredTournamentReplay) -ceq $tournamentReplayJson) '赛事关联和录像原文必须完整保留'
+    $expectedTournamentReport = [StreamDuel.Core.TournamentReport]::Build($tournament, $tournamentLibrary).ToJson()
+    $restoredTournamentLibrary = [StreamDuel.Core.ReplayLibrary]::OpenReadOnly((Join-Path $tournamentTarget 'replay-library'))
+    $restoredTournamentReport = [StreamDuel.Core.TournamentReport]::Build($tournament, $restoredTournamentLibrary).ToJson()
+    Assert-Check ($restoredTournamentReport -ceq $expectedTournamentReport) '恢复后赛事报告必须仍识别同一局归档录像'
+    Assert-Check ((Snapshot $tournamentSource) -ceq $tournamentBefore) '赛事备份及只读报告不得改写源目录'
+
+    $tournamentFile = Join-Path $run 'tournament.json'
+    [IO.File]::WriteAllText($tournamentFile, $tournament.ToJson(), $utf8)
+    $reportText = Invoke-Check '41-tournament-report-text' @('--tournament-report', $tournamentFile)
+    $reportJson = Invoke-Check '42-tournament-report-json' @('--tournament-report', $tournamentFile, '--json')
+    $withoutArchive = [StreamDuel.Core.TournamentReport]::Build($tournament, $null)
+    Assert-Check ($reportText.TrimEnd("`r", "`n") -ceq $withoutArchive.ToText().TrimEnd("`r", "`n")) '独立赛事文本入口须保持原语义'
+    Assert-Check ($reportJson.TrimEnd("`r", "`n") -ceq $withoutArchive.ToJson()) '独立赛事 JSON 入口须保持原语义'
+    Assert-Check (-not [IO.Directory]::Exists($tournamentFile + '.replay-library')) '只读赛事报告不得创建缺失录像目录'
+    foreach ($case in @(
+        @{ name = '43-backup-report-conflict'; args = @('--backup', $archive, '--tournament-report', $tournamentFile) },
+        @{ name = '44-restore-report-conflict'; args = @('--restore', $archive, '--tournament-report', $tournamentFile) },
+        @{ name = '45-backup-json-conflict'; args = @('--backup', $archive, '--json') },
+        @{ name = '46-restore-json-conflict'; args = @('--restore', $archive, '--json') },
+        @{ name = '47-report-save-dir-conflict'; args = @('--tournament-report', $tournamentFile, '--save-dir', $source) }
+    )) { $null = Invoke-Check $case.name $case.args 1 '独立' }
+    $null = Invoke-Check '48-report-overwrite-conflict' @('--tournament-report', $tournamentFile, '--overwrite') 1 '--overwrite 只能'
     Assert-Check ((Snapshot $source) -ceq $sourceBefore) '全部验收后源存档须保持不变'
     Assert-Check (@(Get-ChildItem -LiteralPath (Join-Path $run 'portable') -File -Filter '.backup-*.tmp').Count -eq 0) '导出成功或被拒绝后不能遗留临时文件'
     $report = [ordered]@{ passed = $true; commands = $results.Count; runDirectory = $run; backupSha256 = $archiveBefore; checks = $results }

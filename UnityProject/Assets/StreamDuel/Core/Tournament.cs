@@ -72,7 +72,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class Tournament
+    public sealed partial class Tournament
     {
         readonly ContentDb db;
         readonly string packId, contentHash;

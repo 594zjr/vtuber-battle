@@ -735,6 +735,211 @@ public class T106_BackupTests
         finally { Directory.Delete(link); }
     }
 
+    sealed class TournamentSavedData
+    {
+        public SavedData Saved;
+        public ContentDb Db;
+        public string TournamentJson, ReplayId, RecordJson, Key, ReportJson;
+        public int PairingId;
+        public byte[] ReplayBytes;
+    }
+
+    static TournamentSavedData SeedTournament(string root, string name, DateTimeOffset date)
+    {
+        var saved = Seed(root, second: false);
+        var db = saved.FirstBattle.Db;
+        var tournament = new Tournament(db, "roundrobin");
+        for (int player = 0; player < 2; player++)
+            tournament.AddPlayer(name + "选手" + player, TeamCode.Encode(new TeamPreset
+            {
+                Name = "赛事阵容", PackId = db.PackId,
+                Ids = db.Streamers.Skip(player * 6).Take(6).Select(unit => unit.Id).ToList()
+            }));
+        var pairing = Assert.Single(tournament.NextRound());
+        var first = tournament.Players[pairing.Player0];
+        var second = tournament.Players[pairing.Player1];
+        var battle = new Battle(db, new IList<string>[] { first.Team.ToArray(), second.Team.ToArray() },
+            new[] { first.Name, second.Name }, 110);
+        battle.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        battle.Surrender(1);
+        tournament.ReportResult(pairing, battle.Winner);
+        Assert.True(tournament.IsFinished);
+        var library = new ReplayLibrary(saved.LibraryDirectory, clock: () => date);
+        string id = library.SaveTournament(tournament, pairing, battle);
+        byte[] bytes = File.ReadAllBytes(Path.Combine(saved.LibraryDirectory, id + ".json"));
+        using var document = JsonDocument.Parse(bytes);
+        var tag = document.RootElement.GetProperty("library").GetProperty("tournament");
+        Assert.Equal(1, tag.GetProperty("version").GetInt32());
+        Assert.Equal(pairing.Id, tag.GetProperty("pairingId").GetInt32());
+        Assert.Matches("^[0-9a-f]{64}$", tag.GetProperty("key").GetString());
+        return new TournamentSavedData
+        {
+            Saved = saved, Db = db, TournamentJson = tournament.ToJson(), ReplayId = id,
+            RecordJson = battle.Record.ToJson(), PairingId = pairing.Id, Key = tag.GetProperty("key").GetString(),
+            ReplayBytes = bytes,
+            ReportJson = TournamentReport.Build(tournament, ReplayLibrary.OpenReadOnly(saved.LibraryDirectory)).ToJson()
+        };
+    }
+
+    static void AssertTournamentRestored(TournamentSavedData expected, string libraryDirectory)
+    {
+        Assert.Equal(expected.ReplayBytes, File.ReadAllBytes(Path.Combine(libraryDirectory, expected.ReplayId + ".json")));
+        // 先直接检查恢复出来的索引，不能让 List 的自动修复掩盖关联丢失。
+        using var index = JsonDocument.Parse(File.ReadAllText(Path.Combine(libraryDirectory, "index.json")));
+        var entry = Assert.Single(index.RootElement.GetProperty("entries").EnumerateArray(),
+            item => item.GetProperty("id").GetString() == expected.ReplayId);
+        var tag = entry.GetProperty("tournament");
+        Assert.Equal(1, tag.GetProperty("version").GetInt32());
+        Assert.Equal(expected.Key, tag.GetProperty("key").GetString());
+        Assert.Equal(expected.PairingId, tag.GetProperty("pairingId").GetInt32());
+        var before = Tree(libraryDirectory);
+        var library = ReplayLibrary.OpenReadOnly(libraryDirectory);
+        Assert.Equal(expected.RecordJson, library.Load(expected.ReplayId).ToJson());
+        var tournament = Tournament.FromJson(expected.Db, expected.TournamentJson);
+        string report = TournamentReport.Build(tournament, library).ToJson();
+        Assert.Equal(expected.ReportJson, report);
+        using var document = JsonDocument.Parse(report);
+        var coverage = document.RootElement.GetProperty("coverage");
+        Assert.Equal(1, coverage.GetProperty("archivedGames").GetInt32());
+        Assert.Equal(0, coverage.GetProperty("missingGames").GetInt32());
+        Assert.Equal(0, coverage.GetProperty("invalidGames").GetInt32());
+        var match = Assert.Single(document.RootElement.GetProperty("rounds").EnumerateArray()
+            .SelectMany(round => round.GetProperty("matches").EnumerateArray()));
+        Assert.Equal(expected.ReplayId, match.GetProperty("replay").GetProperty("id").GetString());
+        Assert.Equal("saved", match.GetProperty("replay").GetProperty("status").GetString());
+        Assert.Equal(before, Tree(libraryDirectory));
+    }
+
+    [Theory]
+    [InlineData("empty")]
+    [InlineData("merge")]
+    [InlineData("overwrite")]
+    public void TournamentReplayBytesAndAssociationsSurviveRestoreMergeAndAutomaticBackup(string mode)
+    {
+        using var dir = new TestDirectory();
+        var source = SeedTournament(dir.Child("source"), "导入赛事", Epoch.AddHours(1));
+        var sourceBefore = Tree(source.Saved.Root);
+        string payload = Export(source.Saved);
+        Backup.Validate(payload);
+        var exported = JsonNode.Parse(payload);
+        var exportedReplay = Assert.Single(exported["library"].AsArray(),
+            item => item["id"].GetValue<string>() == source.ReplayId);
+        Assert.Equal(File.ReadAllText(Path.Combine(source.Saved.LibraryDirectory, source.ReplayId + ".json")),
+            exportedReplay["json"].GetValue<string>());
+        var exportedIndex = Assert.Single(exported["libraryIndex"]["entries"].AsArray(),
+            item => item["id"].GetValue<string>() == source.ReplayId);
+        Assert.Equal(source.Key, exportedIndex["tournament"]["key"].GetValue<string>());
+        if (mode == "empty")
+        {
+            // 合法但过期的输入索引不能覆盖录像原文里的赛事归属。
+            exportedIndex["tournament"]["key"] = new string('0', 64);
+            exportedIndex["tournament"]["pairingId"] = source.PairingId + 1;
+            payload = exported.ToJsonString();
+        }
+        TournamentSavedData previous = mode == "empty" ? null
+            : SeedTournament(dir.Child("target"), "本机赛事", Epoch.AddHours(2));
+        var destination = previous == null ? new FileSaveStore(dir.Child("target")) : previous.Saved.Store;
+        string targetLibrary = dir.Child("target/replay-library");
+
+        var result = Backup.Import(destination, targetLibrary, payload, Epoch.AddDays(3),
+            mode == "overwrite" ? BackupImportMode.Overwrite : BackupImportMode.Merge);
+
+        AssertTournamentRestored(source, targetLibrary);
+        Assert.Equal(mode == "merge" ? 1 : 2, result.ImportedLibraryReplays);
+        string ordinary = Path.Combine(targetLibrary, source.Saved.FirstId + ".json");
+        Assert.Equal(File.ReadAllBytes(Path.Combine(source.Saved.LibraryDirectory, source.Saved.FirstId + ".json")),
+            File.ReadAllBytes(ordinary));
+        using var ordinaryJson = JsonDocument.Parse(File.ReadAllText(ordinary));
+        Assert.False(ordinaryJson.RootElement.GetProperty("library").TryGetProperty("tournament", out _));
+        if (mode == "merge")
+        {
+            Assert.Null(result.AutomaticBackupPath);
+            AssertTournamentRestored(previous, targetLibrary);
+        }
+        else if (mode == "overwrite")
+        {
+            Assert.False(string.IsNullOrWhiteSpace(result.AutomaticBackupPath));
+            Assert.False(File.Exists(Path.Combine(targetLibrary, previous.ReplayId + ".json")));
+            string automatic = File.ReadAllText(result.AutomaticBackupPath);
+            Backup.Validate(automatic);
+            var recovered = new FileSaveStore(dir.Child("recovered"));
+            string recoveredLibrary = dir.Child("recovered/replay-library");
+            Backup.Import(recovered, recoveredLibrary, automatic, Epoch.AddDays(4));
+            AssertTournamentRestored(previous, recoveredLibrary);
+            Assert.False(File.Exists(Path.Combine(recoveredLibrary, source.ReplayId + ".json")));
+        }
+        else Assert.Null(result.AutomaticBackupPath);
+        Assert.Equal(sourceBefore, Tree(source.Saved.Root));
+    }
+
+    [Theory]
+    [InlineData("not-object")]
+    [InlineData("null-tournament")]
+    [InlineData("unknown-field")]
+    [InlineData("missing-key")]
+    [InlineData("version-type")]
+    [InlineData("future-version")]
+    [InlineData("key-type")]
+    [InlineData("key-format")]
+    [InlineData("pairing-type")]
+    [InlineData("pairing-negative")]
+    [InlineData("pairing-fraction")]
+    [InlineData("pairing-overflow")]
+    public void InvalidTournamentMetadataInRecordsOrIndexIsRejectedBeforeAnyTargetChange(string defect)
+    {
+        using var dir = new TestDirectory();
+        var source = SeedTournament(dir.Child("source"), "导入赛事", Epoch.AddHours(1));
+        var target = Seed(dir.Child("target"), wins: 91, second: false);
+        string valid = Export(source.Saved);
+        var before = Tree(target.Root);
+        foreach (string location in new[] { "library", "index" })
+        {
+            string payload = Change(valid, root =>
+            {
+                if (location == "library")
+                {
+                    var entry = Assert.Single(root["library"].AsArray(), item => item["id"].GetValue<string>() == source.ReplayId);
+                    entry["json"] = Change(entry["json"].GetValue<string>(),
+                        record => CorruptTournamentMetadata(record["library"].AsObject(), defect));
+                }
+                else
+                {
+                    var entry = Assert.Single(root["libraryIndex"]["entries"].AsArray(),
+                        item => item["id"].GetValue<string>() == source.ReplayId);
+                    CorruptTournamentMetadata(entry.AsObject(), defect);
+                }
+            });
+            ChineseFailure(() => Backup.Validate(payload));
+            Assert.Equal(before, Tree(target.Root));
+            foreach (var mode in new[] { BackupImportMode.Merge, BackupImportMode.Overwrite })
+            {
+                ChineseFailure(() => Backup.Import(target.Store, target.LibraryDirectory, payload, Epoch.AddDays(3), mode));
+                Assert.Equal(before, Tree(target.Root));
+            }
+        }
+    }
+
+    static void CorruptTournamentMetadata(JsonObject metadata, string defect)
+    {
+        if (defect == "not-object") { metadata["tournament"] = false; return; }
+        if (defect == "null-tournament") { metadata["tournament"] = null; return; }
+        var tag = metadata["tournament"].AsObject();
+        switch (defect)
+        {
+            case "unknown-field": tag["unexpected"] = true; break;
+            case "missing-key": tag.Remove("key"); break;
+            case "version-type": tag["version"] = "1"; break;
+            case "future-version": tag["version"] = 2; break;
+            case "key-type": tag["key"] = 123; break;
+            case "key-format": tag["key"] = new string('A', 64); break;
+            case "pairing-type": tag["pairingId"] = "0"; break;
+            case "pairing-negative": tag["pairingId"] = -1; break;
+            case "pairing-fraction": tag["pairingId"] = 0.5; break;
+            case "pairing-overflow": tag["pairingId"] = (long)int.MaxValue + 1; break;
+            default: throw new InvalidOperationException("未知测试缺陷。");
+        }
+    }
+
     static void CreateDirectoryLink(string link, string target)
     {
         if (Path.DirectorySeparatorChar != '\\') { Directory.CreateSymbolicLink(link, target); return; }

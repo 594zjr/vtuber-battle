@@ -119,6 +119,15 @@ dotnet run --project Tools/Cli -- --tournament ./tournaments/weekend.json --auto
 
 赛事文件必须与玩家档案、旧回放目录 `replays` 和新录像库 `replay-library` 分开保存；这些目录及其子目录不能作为赛事文件位置。
 
+导出整场战报（积分榜、每轮结果、录像 id 和全场数据之最）：
+
+```powershell
+dotnet run --project Tools/Cli -- --tournament-report ./tournaments/weekend.json
+dotnet run --project Tools/Cli -- --tournament-report ./tournaments/weekend.json --json > weekend-report.json
+```
+
+自动赛事会把已完成对局保存到赛事文件旁的 `weekend.json.replay-library` 目录；转移赛事时同时复制这个目录。手动报分和旧赛事没有录像的局会标为“未保存”。数据之最仅统计可完整复算的归档，并显示覆盖局数；最高单次伤害指实际扣血，包含持续伤害、反弹和自伤，标出的主播是受击者。击倒沿用引擎归属，出场按每局每方实际登场去重。导出不会修改赛事、录像或索引；只可搭配 `--json`、`--pack`、`--pack-dir`。自动归档失败仍保存比分，并提示失败、返回非零退出码。
+
 ## 同屏双人对战（命令行）
 
 两位玩家共用一台电脑，用 `--hotseat` 轮流手动选择。A 方通过 `--team` 或 `--team-code` 指定阵容，B 方通过 `--team-b` 指定；省略时，A 方自动建议组队，B 方先选包内未入 A 队的主播，不足六人再从 A 队补齐。双方阵容都会在开局前校验。显示名可用 `--name-a` / `--name-b` 设置，默认“玩家 A” / “玩家 B”；`--team-b`、`--name-a`、`--name-b` 仅用于同屏模式。

@@ -144,6 +144,11 @@ namespace StreamDuel.Core
                 text.Append(",\"winner\":").Append(entry.Winner.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"turns\":").Append(entry.Turns.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"note\":").Append(BackupJsonQuote(entry.Note));
+                if (entry.TournamentArchive != null)
+                {
+                    text.Append(",\"tournament\":{\"version\":1,\"key\":").Append(BackupJsonQuote(entry.TournamentArchive.Key));
+                    text.Append(",\"pairingId\":").Append(entry.TournamentArchive.PairingId.ToString(CultureInfo.InvariantCulture)).Append('}');
+                }
                 text.Append(",\"packId\":").Append(BackupJsonQuote(entry.PackId));
                 text.Append(",\"names\":[").Append(string.Join(",", entry.Names.Select(BackupJsonQuote))).Append(']');
                 text.Append(",\"teams\":[").Append(string.Join(",", entry.Teams.Select(team => "[" + string.Join(",", team.Select(BackupJsonQuote)) + "]"))).Append(']');
@@ -171,7 +176,7 @@ namespace StreamDuel.Core
             var root = BackupJsonObject(BackupJsonParse(json), "录像");
             BackupJsonVersion(root, "录像", BattleRecord.CurrentVersion, false);
             var metadata = BackupJsonObject(BackupJsonRequired(root, "library"), "录像库元数据");
-            BackupJsonFields(metadata, "录像库元数据", "version", "id", "date", "winner", "turns", "note");
+            BackupJsonFields(metadata, "录像库元数据", "version", "id", "date", "winner", "turns", "note", "tournament");
             BackupJsonVersion(metadata, "录像库元数据", 1, true);
             if (!string.Equals(BackupJsonText(metadata, "id"), id, StringComparison.Ordinal))
                 throw new FormatException("录像库元数据 id 与条目 id 不一致。");
@@ -189,8 +194,21 @@ namespace StreamDuel.Core
             return new ReplayEntry
             {
                 Id = id, Date = date, PackId = record.PackId, Names = record.Names ?? new[] { "你", "对手" },
-                Teams = record.Teams, Winner = winner, Turns = turns, Note = string.IsNullOrWhiteSpace(note) ? null : note
+                Teams = record.Teams, Winner = winner, Turns = turns, Note = string.IsNullOrWhiteSpace(note) ? null : note,
+                TournamentArchive = BackupJsonTournament(metadata)
             };
+        }
+
+        static TournamentArchiveTag BackupJsonTournament(Dictionary<string, object> metadata)
+        {
+            if (!metadata.TryGetValue("tournament", out var value)) return null;
+            var source = BackupJsonObject(value, "赛事录像关联");
+            BackupJsonFields(source, "赛事录像关联", "version", "key", "pairingId");
+            BackupJsonVersion(source, "赛事录像关联", 1, true);
+            string key = BackupJsonText(source, "key");
+            if (key.Length != 64 || !key.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f'))
+                throw new FormatException("赛事录像关联键必须是 64 位小写十六进制字符串。");
+            return new TournamentArchiveTag { Key = key, PairingId = BackupJsonInteger(source, "pairingId", 0, int.MaxValue) };
         }
 
         static int BackupJsonValidateIndex(object value)
@@ -204,8 +222,9 @@ namespace StreamDuel.Core
             {
                 var entry = BackupJsonObject(item, "录像库索引条目");
                 BackupJsonFields(entry, "录像库索引条目", "version", "id", "date", "winner", "turns", "note",
-                    "packId", "names", "teams", "isCorrupt", "error", "isUnavailable", "unavailableReason");
+                    "packId", "names", "teams", "isCorrupt", "error", "isUnavailable", "unavailableReason", "tournament");
                 BackupJsonVersion(entry, "录像库索引条目", 1, true);
+                BackupJsonTournament(entry);
                 string id = BackupJsonText(entry, "id");
                 ValidateReplayId(id, true);
                 if (!ids.Add(id)) throw new FormatException("录像库索引包含重复 id。");
