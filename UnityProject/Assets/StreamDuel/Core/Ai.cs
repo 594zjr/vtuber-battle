@@ -5,6 +5,12 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
+    public enum AiLevel
+    {
+        Easy,
+        Normal
+    }
+
     public static class Ai
     {
         static double Estimate(Battle b, int s, SkillDef sk, bool assumeFirst)
@@ -128,6 +134,23 @@ namespace StreamDuel.Core
                 if (Matchup(b, s, c) > Matchup(b, s, b.Sides[s].Active) + 0.5 && b.Random() < 0.6) return BattleAction.SwitchTo(c);
             }
             return best;
+        }
+
+        public static BattleAction Choose(Battle b, int s, AiLevel level)
+        {
+            if (level == AiLevel.Normal) return Choose(b, s);
+
+            var legal = b.LegalFor(s);
+            if (legal.Controlled != null) return BattleAction.Pass();
+            if (legal.Struggle) return new BattleAction { Type = ActionType.Struggle };
+
+            var skills = legal.Skills.Where(option => option.Usable).ToList();
+            if (skills.Count == 0) return BattleAction.Pass();
+            if (b.Random() < 0.5)
+                return BattleAction.Skill(skills[(int)(b.Random() * skills.Count)].Index);
+
+            var action = Choose(b, s);
+            return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
         }
 
         public static int ChooseReplacement(Battle b, int s)

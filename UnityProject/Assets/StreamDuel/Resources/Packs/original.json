@@ -2,6 +2,7 @@
   "id": "original",
   "name": "原创主播",
   "notice": "全部为本作原创角色。",
+  "seasons": { "s1": { "name": "第一赛季", "banned": ["kei"], "limited": [ { "max": 1, "ids": ["bell", "bee"] } ] } },
   "streamers": [
     { "id": "enka",   "name": "绯月炎华", "type": "game",   "stats": { "hp": 380, "atk": 330, "def": 250, "spa": 220, "sdef": 240, "spd": 320 }, "persona": "comeback",   "skills": ["aim_burst", "quick_mic", "yolo_rush", "pregame"], "fifth": "endgame", "blurb": "FPS 主播，反应快，残血越打越狠。" },
     { "id": "shiori", "name": "深海汐汐", "type": "asmr",   "stats": { "hp": 460, "atk": 260, "def": 300, "spa": 250, "sdef": 300, "spd": 180 }, "persona": "healing",    "skills": ["whisper_tide", "wave_mic", "deep_breath", "mod_guard"], "fifth": "late_reply", "blurb": "助眠主播，慢热耐打，后手反而更痛。" },

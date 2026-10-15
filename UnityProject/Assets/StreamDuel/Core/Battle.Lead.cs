@@ -19,6 +19,7 @@ namespace StreamDuel.Core
             if (leadChoices[side] >= 0) throw new InvalidOperationException("这一方已经选择首发");
             if (index < 0 || index >= Sides[side].Team.Count) throw new ArgumentOutOfRangeException(nameof(index), "首发位置不在队伍中");
 
+            Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Lead, Side = side, To = index, RngState = rng.State });
             leadChoices[side] = index;
             if (leadChoices[0] < 0 || leadChoices[1] < 0) return;
 
