@@ -22,6 +22,7 @@ namespace StreamDuel.Core
             // 历史不参与未来结算；只清理独立副本，避免分支重复复制整场日志。
             root.Log.Clear();
             root.Record.Events.Clear();
+            root.ClearEventHistory();
             return root;
         }
 

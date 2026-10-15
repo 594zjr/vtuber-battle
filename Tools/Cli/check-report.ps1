@@ -185,6 +185,30 @@ try {
     }
     $checks.Add('尚不存在的存档目录、回放目录、双方临时文件和锁路径均拒绝作为新局战报目标')
 
+    $settingsReserved = @('settings.json', '.settings.json.tmp', '.settings.lock',
+        'replays/.replay-ownership.json', 'replays/.replay-ownership.json.tmp')
+    $caseNumber = 0
+    foreach ($relative in $settingsReserved) {
+        foreach ($mode in @('game', 'replay')) {
+            foreach ($form in @('ordinary', 'extended')) {
+                $caseNumber++
+                $directory = New-Case ("settings-reserved-$caseNumber")
+                $savePath = Join-Path $directory 'saves'
+                $reservedPath = Join-Path $savePath $relative
+                [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($reservedPath))
+                [IO.File]::WriteAllText($reservedPath, 'preserve local data', $utf8)
+                $fingerprint = Save-Fingerprint $directory
+                $target = if ($form -eq 'extended') { '\\?\' + $reservedPath } else { $reservedPath }
+                $parameters = if ($mode -eq 'game') { $gameArguments } else { @('--replay', $recordPath, '--auto') }
+                $conflict = Invoke-CliCheck ("08-settings-reserved-$caseNumber") $directory ($parameters + @('--save-dir', $savePath, '--report', $target)) '' 1
+                Assert-ReportFailed $conflict
+                Assert-Check ((Save-Fingerprint $directory) -ceq $fingerprint) "$relative 在 $mode/$form 路径冲突后被改写。"
+                Assert-Check (-not $conflict.Out.Contains('对战开始')) '设置路径冲突未在开局或回看前拒绝。'
+            }
+        }
+    }
+    $checks.Add('设置及回放管理索引的五种保留路径：新局/回看和普通/扩展路径均拒绝，原文件不变')
+
     $report = [ordered]@{ status = 'PASS'; checks = $checks.ToArray(); invocations = $invocations.ToArray() }
     [IO.File]::WriteAllText((Join-Path $runDirectory 'report.json'), ($report | ConvertTo-Json -Depth 8), $utf8)
     Write-Output "PASS：$($checks.Count) 组战报与路径保护检查；证据：$runDirectory"
