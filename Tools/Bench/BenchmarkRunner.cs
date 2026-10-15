@@ -154,6 +154,19 @@ namespace StreamDuel.Bench
                 index => middle, battle => battle.Clone()));
             metrics.Add(Measure("battle.state_hash", "中盘 StateHash", 20, quick ? 600 : 6000,
                 index => middle, battle => battle.StateHash()));
+
+            // 复用同一真实回合的两个独立快照，计时只包含差量计算及其结果分配。
+            var viewBattle = middle.Clone();
+            var beforeView = BattleViewModel.From(viewBattle, 0);
+            var firstAction = Ai.Choose(viewBattle, 0, AiLevel.Normal);
+            var secondAction = Ai.Choose(viewBattle, 1, AiLevel.Normal);
+            viewBattle.ResolveTurn(firstAction, secondAction);
+            var afterView = BattleViewModel.From(viewBattle, 0);
+            snapshots.Add(new SnapshotResult("差量结算后", viewBattle));
+            metrics.Add(Measure("view.diff", "一回合 ViewDiff.Between", 20, quick ? 200 : 2000,
+                index => (Before: beforeView, After: afterView),
+                input => ViewDiff.Between(input.Before, input.After)));
+
             for (int packIndex = 0; packIndex < sources.Count; packIndex++)
             {
                 string json = sources[packIndex];
@@ -166,8 +179,10 @@ namespace StreamDuel.Bench
                 + "计时包含 Battle 构造、双方普通 AI 行动/补位与完整结算，保留所有日志和回放历史；吞吐为样本数除以累计计时。"
                 + "AI 局面由种子 52001 的普通对普通对局确定，取开局、行动回合数中点及四分之三处，轮换双方且等量采样；"
                 + "每次在计时外 Clone 恢复，仅计时 Ai.Choose。Clone 和 StateHash 使用中盘完整历史。"
+                + "ViewDiff 使用该中盘局面再结算一回合前后的 0 方视图；Clone、普通 AI 选招、ResolveTurn 和视图构造均在计时外，"
+                + "所有样本复用这对独立快照，仅计时 ViewDiff.Between；快照表同时记录差量结算后的局面。"
                 + "所有内置内容包的 JSON 在计时外预读；加载仅计解析、合并和校验，不含磁盘 IO。"
-                + "每项先预热：对局 2 次、每种 AI 6 次、Clone/StateHash 各 20 次、每包加载 3 次；"
+                + "每项先预热：对局 2 次、每种 AI 6 次、Clone/StateHash/ViewDiff 各 20 次、每包加载 3 次；"
                 + "不主动触发 GC，不扣计时器开销；P95 为最近秩 ceil(0.95*n)。"
                 + "TerminalChecksum 为测量对局的 Seed/Winner/Turn/StateHash 按顺序各写 8 字节小端序计算的 FNV-1a 64 位摘要。";
             return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics);
