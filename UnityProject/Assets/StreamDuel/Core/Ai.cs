@@ -52,6 +52,45 @@ namespace StreamDuel.Core
             return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? 0.2 : 0);
         }
 
+        static bool CanInflictWeak(Battle b, int s)
+        {
+            foreach (var option in b.LegalFor(s).Skills)
+            {
+                if (!option.Usable) continue;
+                if (b.Db.Skills[option.Id].Effects.Any(e => e.Code == "STATUS" && e.Target == "foe"
+                    && e.Chance > 0 && !b.Db.Statuses[e.Status].IsControl)) return true;
+            }
+            var persona = b.PersonaOf(b.Active(s));
+            return persona.Code == "T_CONTACT_STATUS" && persona.P("chance") > 0 && persona.Status != null
+                && !b.Db.Statuses[persona.Status].IsControl
+                && b.LegalFor(1 - s).Skills.Any(o => o.Usable && b.Db.Skills[o.Id].Cat == "interact");
+        }
+
+        static double FieldValue(Battle b, int s, EffectDef effect, double threat, bool goFirst)
+        {
+            var p = b.Active(s); var f = b.Active(1 - s);
+            var target = effect.Target == "self" ? p : f;
+            if (target.HasField(effect.Field)) return 0;
+            var field = b.Db.Fields[effect.Field];
+            if (field.ReflectDamage > 0)
+            {
+                if (effect.Target != "self" || (!goFirst && threat >= 1)) return 0;
+                double incoming = Math.Min(p.Hp, threat * p.Hp);
+                return Math.Min(0.7, incoming * field.ReflectDamage / Math.Max(1, f.Hp) * 2);
+            }
+            if (field.ImmuneWeak)
+            {
+                if (effect.Target != "self" || p.Fields.Any(x => b.Db.Fields[x.Id].ImmuneWeak)) return 0;
+                return CanInflictWeak(b, 1 - s) ? 0.4 : 0;
+            }
+            if (field.PreventSwitch)
+            {
+                if (effect.Target != "foe" || b.LegalFor(1 - s).Switches.Count == 0) return 0;
+                return b.ControlOf(f) != null || f.Statuses.Any(x => !b.Db.Statuses[x.Id].IsControl) ? 0.4 : 0.22;
+            }
+            return threat < 0.6 ? 0.32 : 0.12;
+        }
+
         public static int ChooseLead(Battle b, int s)
         {
             if (b == null) throw new ArgumentNullException(nameof(b));
@@ -87,6 +126,7 @@ namespace StreamDuel.Core
             if (L.Struggle) return new BattleAction { Type = ActionType.Struggle };
             double threat = Threat(b, s);
             bool foeLocked = b.ControlOf(f) != null || f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneControl);
+            bool foeWeakImmune = f.Fields.Any(x => b.Db.Fields[x.Id].ImmuneWeak);
             double bestV = double.MinValue; BattleAction best = BattleAction.Pass();
             foreach (var o in L.Skills)
             {
@@ -108,7 +148,7 @@ namespace StreamDuel.Core
                         case "STATUS":
                             if (e.Target != "foe") break;
                             if (b.Db.Statuses[e.Status].IsControl) { if (!foeLocked) v += 0.5 * ch; }
-                            else if (!f.HasStatus(e.Status)) v += 0.3 * ch;
+                            else if (!foeWeakImmune && !f.HasStatus(e.Status)) v += 0.3 * ch;
                             break;
                         case "STAGE":
                             if (e.Target == "self")
@@ -119,9 +159,24 @@ namespace StreamDuel.Core
                             else if (sk.Power == 0) v += 0.18;
                             break;
                         case "HEAL": if (p.HpRatio < 0.5) v += (1 - p.HpRatio) * 0.9; break;
-                        case "FIELD": { var t = e.Target == "self" ? p : f; if (!t.HasField(e.Field)) v += threat < 0.6 ? 0.32 : 0.12; break; }
-                        case "DISPEL_TURNS": v += 0.2 * f.Fields.Count(x => b.Db.Fields[x.Id].Dispel); break;
+                        case "FIELD": v += FieldValue(b, s, e, threat, goFirst) * ch; break;
+                        case "DISPEL_TURNS":
+                            v += f.Fields.Where(x => b.Db.Fields[x.Id].Dispel)
+                                .Sum(x => b.Db.Fields[x.Id].PreventSwitch ? -0.2 : 0.2);
+                            break;
                         case "DISPEL_BOOST": v += 0.12 * f.Stages.Values.Count(x => x > 0); break;
+                        case "STEAL_BOOST":
+                        {
+                            if (e.Target != "foe") break;
+                            string why;
+                            if (!b.CondMet(p, f, goFirst ? Node.First : Node.Second, e.Cond, out why)) break;
+                            foreach (var stage in f.Stages.Where(kv => kv.Value > 0))
+                            {
+                                int gain = Math.Min(stage.Value, 6 - p.Stages[stage.Key]);
+                                v += (0.12 + 0.08 * gain) * ch;
+                            }
+                            break;
+                        }
                         case "CLEANSE": if (p.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) v += 0.4; break;
                     }
                 }

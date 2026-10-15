@@ -162,7 +162,8 @@ namespace StreamDuel.Cli
                 }
             }
             PrintSwitches(battle, legal.Switches, false);
-            if (legal.Controlled != null) Console.WriteLine("  [0] 受「" + legal.Controlled + "」控制，跳过本次行动（仍可换人）");
+            if (legal.Controlled != null) Console.WriteLine("  [0] 受「" + legal.Controlled + "」控制，跳过本次行动"
+                + (legal.Switches.Count > 0 ? "（仍可换人）" : ""));
             else if (legal.Struggle) Console.WriteLine("  [0] 所有技能无 PP，使用「" + battle.Db.Struggle.Name + "」");
 
             while (true)
@@ -181,7 +182,10 @@ namespace StreamDuel.Cli
 
         private static int? ReadReplacement(Battle battle)
         {
-            var choices = battle.LegalFor(0).Switches;
+            // 补位不受主动换人的锁麦限制，最终选择仍交给 Core.Replace 校验。
+            var side = battle.Sides[0];
+            var choices = Enumerable.Range(0, side.Team.Count)
+                .Where(index => index != side.Active && !side.Team[index].Fainted).ToList();
             PrintSwitches(battle, choices, true);
             while (true)
             {
