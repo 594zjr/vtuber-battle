@@ -11,6 +11,11 @@ namespace StreamDuel.Game
     public sealed partial class BattleScreen : MonoBehaviour
     {
         public System.Action MainMenuRequested;
+        public System.Action<Battle> ResultRequested;
+
+        public void RematchFromResult() { StartBattle(lastTeams); }
+        public void ReturnToTeamFromResult() { view = View.Team; b = null; }
+        public ContentDb FindLoadedPack(string packId) { return packs.FirstOrDefault(pack => pack.PackId == packId); }
         const float RefW = 1600f, RefH = 900f;
         enum View { Team, Battle }
 
@@ -822,13 +827,15 @@ namespace StreamDuel.Game
         void DrawResult()
         {
             Fill(new Rect(0, 0, RefW, RefH), new Color(Bg.r, Bg.g, Bg.b, 0.75f));
-            var r = new Rect(RefW / 2 - 260, RefH / 2 - 150, 520, 300);
+            var r = new Rect(RefW / 2 - 260, RefH / 2 - 185, 520, 370);
             Box(r);
             string res = b.Winner == 0 ? "胜利" : b.Winner == 1 ? "失败" : "平局";
             GUI.Label(new Rect(r.x, r.y + 30, r.width, 90), res, sHuge);
             GUI.Label(new Rect(r.x, r.y + 130, r.width, 30), "共 " + b.Log[b.Log.Count - 1].Turn + " 回合", sCenter);
             if (GUI.Button(new Rect(r.x + 40, r.y + 200, 230, 50), "同样阵容再来一局", sBtn)) Do(() => StartBattle(lastTeams));
             if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (ResultRequested != null && GUI.Button(new Rect(r.x + 40, r.y + 270, 440, 50), "查看结算、保存与回看", sBtn))
+                Do(() => ResultRequested(b));
         }
     }
 }

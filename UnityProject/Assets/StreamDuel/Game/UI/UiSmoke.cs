@@ -8,7 +8,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    public sealed class UiSmoke : MonoBehaviour
+    public sealed partial class UiSmoke : MonoBehaviour
     {
         [Serializable]
         sealed class Report
@@ -168,6 +168,13 @@ namespace StreamDuel.Game
                 "默认入口没有保持可用的旧版对战。");
             Require(document.rootVisualElement.panel != null, "UIDocument 未连接到运行时面板。");
             report.steps.Add("单一 UIDocument，默认旧版对战入口已启用。");
+
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "--t70-smoke") >= 0)
+            {
+                yield return RunT70();
+                report.completed = true;
+                yield break;
+            }
 
             var rules = Resources.Load<TextAsset>("StreamDuelRules");
             var pack = Resources.Load<TextAsset>("Packs/original");
@@ -458,6 +465,7 @@ namespace StreamDuel.Game
             running = false;
             try
             {
+                RestoreT70Clipboard();
                 portraits?.Dispose();
                 portraits = null;
                 report.failure = failure;

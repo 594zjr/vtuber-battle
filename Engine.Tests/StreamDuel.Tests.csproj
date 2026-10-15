@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
+    <Compile Include="../UnityProject/Assets/StreamDuel/Game/Screens/Replay/ReplayNavigator.cs" Link="T70/ReplayNavigator.cs" />
     <None Include="../UnityProject/Assets/StreamDuel/Resources/**/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Content" />
   </ItemGroup>
 </Project>

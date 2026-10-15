@@ -41,10 +41,17 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Team, () => new TeamScreen());
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
-            router.Register(ScreenIds.Replay, () => new ReplayScreen());
+            router.Register(ScreenIds.Replay, () => new ReplayScreen(legacy.FindLoadedPack));
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
+            legacy.ResultRequested = battle => router.Show(ScreenIds.Result, new ResultScreenArgs
+            {
+                Battle = battle,
+                ResolvePack = legacy.FindLoadedPack,
+                Rematch = () => { legacy.RematchFromResult(); router.Show(ScreenIds.Legacy); },
+                ReturnToTeam = () => { legacy.ReturnToTeamFromResult(); router.Show(ScreenIds.Legacy); }
+            });
             // 纯 C# 对战数据无法跨脚本重载恢复，由旧画面的 OnEnable 安全回到组队。
             router.Show(ScreenIds.Legacy);
         }
