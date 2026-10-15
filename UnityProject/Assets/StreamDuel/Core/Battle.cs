@@ -588,6 +588,8 @@ namespace StreamDuel.Core
                 {
                     int amt = Math.Max(1, (int)(p.MaxHp * d.Dot));
                     Damage(p, amt, Node.TurnEnd, p.Name + " 因「" + d.Name + "」人气 -{n}", false);
+                    // 最后一位下播后整局立即停止，不能再引流回血或追加结束后的日志。
+                    if (Phase == Phase.Over) return;
                     if (d.Leech) { var f = Active(1 - s); if (!f.Fainted) Heal(f, amt, Node.TurnEnd, "引流："); }
                 }
                 if (p.Fainted || Phase == Phase.Over) return;

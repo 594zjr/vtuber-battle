@@ -61,6 +61,10 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 | `UnityProject/Assets/StreamDuel/Game/` | 第一版画面（Unity 自带的即时 GUI，零美术资源） |
 | `Engine/`、`Engine.Tests/` | 不开 Unity 也能编译和测试规则：`dotnet test Engine.Tests` |
 
+模糊测试：`dotnet test Engine.Tests --filter FullyQualifiedName~FuzzTests` 默认对每个内容包跑 300 局随机合法组队、随机禁用/首发、六项修饰器的随机组合和任意回合行动（包括非法选择），逐步检查人气、PP、能力、控制状态、阶段与结束节点，再完整回放并比较状态哈希。启用 `stage_cap_3` 时，能力等级还须满足 ±3 上限；每包必须覆盖每项修饰器的启用和关闭、无修饰器与多项组合，以及换到已下播者、受控出招和零 PP 出招，计数写入测试输出。设置环境变量 `SD_FUZZ=2000` 可跑每包 2000 局；变量必须是不小于 300 的整数，运行后清除即可恢复默认。失败断言包含内容包、固定种子、当时操作和记录 JSON。
+
+确定性回归：每个内容包有 10 个固定种子的普通 AI 对战完整日志，`dotnet test Engine.Tests --filter FullyQualifiedName~GoldenTests` 会逐字比较 `Engine.Tests/Golden/` 基线，缺文件即失败。**只有有意修改规则、内容或日志行为，或新增内容包时才更新 golden，并在 PR 描述中说明原因**：设置 `SD_UPDATE_GOLDEN=1` 后运行该测试，检查差异，再清除变量并运行普通测试；完整命令见[基线说明](Engine.Tests/Golden/README.md)。
+
 平衡模拟：`dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1`，标准输出为主播胜率及技能使用次数两段 CSV；胜率按入选队伍统计，详情见 `--help`。
 
 模拟器可加 `--level easy|normal|hard|expert` 指定双方行动和补位的难度，默认 `normal`（普通）。例如 `dotnet run --project Tools/Sim -- --pack original --level expert --games 100 --seed 1` 使用专家难度。`--tune` 固定搜索普通难度的评分权重，不能与 `--level` 同用。
