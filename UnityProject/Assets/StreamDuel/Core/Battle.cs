@@ -348,8 +348,8 @@ namespace StreamDuel.Core
         // ================= 伤害 =================
         public sealed class DamageResult { public int Dmg; public double Eff = 1; public bool Crit; public List<string> Notes = new List<string>(); }
 
-        /// <summary>纯计算。estimate=true 时不掷骰、不暴击，给电脑估算用。</summary>
-        public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate)
+        /// <summary>纯计算。estimate=true 时不掷骰、不暴击，可指定随机系数供预览使用。</summary>
+        public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate, double estimateRandomFactor = 0.925)
         {
             var r = new DamageResult();
             var p = Active(s); var f = Active(1 - s);
@@ -371,7 +371,7 @@ namespace StreamDuel.Core
             double dm; string dn;
             if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
             if (!estimate && rng.Next() < 1.0 / 16) { r.Crit = true; mul *= 1.5; r.Notes.Add("暴击 ×1.5"); }
-            double rand = estimate ? 0.925 : 0.85 + rng.Next() * 0.15;
+            double rand = estimate ? estimateRandomFactor : 0.85 + rng.Next() * 0.15;
             r.Dmg = Math.Max(1, (int)Math.Floor((50 * power * A / D / 50 + 2) * mul * rand));
             return r;
         }
