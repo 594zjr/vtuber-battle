@@ -16,6 +16,7 @@ namespace StreamDuel.Cli
         public string[] Team = null;
         public string SaveDir = "saves";
         public string ReplayFile;
+        public string ReplayCode;
         public string ReportFile;
         public int? HostPort;
         public string JoinHost;
@@ -26,7 +27,9 @@ namespace StreamDuel.Cli
         public bool Hash;
         public bool Help;
         public bool ListPacks;
+        public bool Share;
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
+        public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
 
         public static CliOptions Parse(string[] args)
         {
@@ -61,6 +64,11 @@ namespace StreamDuel.Cli
                     options.Hash = true;
                     continue;
                 }
+                if (option == "--share")
+                {
+                    options.Share = true;
+                    continue;
+                }
                 if (option == "--help" || option == "-h")
                 {
                     options.Help = true;
@@ -68,7 +76,7 @@ namespace StreamDuel.Cli
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
                     && option != "--report"
-                    && option != "--save-dir" && option != "--replay" && option != "--pack-dir"
+                    && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
@@ -94,6 +102,11 @@ namespace StreamDuel.Cli
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--replay 需要非空的回放文件路径。");
                         options.ReplayFile = value;
+                        break;
+                    case "--replay-code":
+                        if (string.IsNullOrWhiteSpace(value))
+                            throw new ArgumentException("--replay-code 需要非空的回放分享码。");
+                        options.ReplayCode = value;
                         break;
                     case "--save-dir":
                         if (string.IsNullOrWhiteSpace(value))
@@ -134,11 +147,14 @@ namespace StreamDuel.Cli
             }
             if (options.HostPort.HasValue && options.JoinHost != null)
                 throw new ArgumentException("--host 与 --join 不能同时使用，请选择创建或加入一场对战。");
+            if (options.ReplayFile != null && options.ReplayCode != null)
+                throw new ArgumentException("--replay 与 --replay-code 不能同时使用，请选择回放文件或分享码。");
             if (options.Network && !options.Help)
             {
                 var unsupported = new[]
                 {
                     options.ReplayFile != null ? "--replay" : null,
+                    options.ReplayCode != null ? "--replay-code" : null,
                     options.Ban ? "--ban" : null,
                     options.Lead ? "--lead" : null,
                     options.ListPacks ? "--list-packs" : null
@@ -146,8 +162,9 @@ namespace StreamDuel.Cli
                 if (unsupported.Length > 0)
                     throw new ArgumentException("联网会话目前仅支持基础对战，不支持 " + string.Join("、", unsupported) + "。");
             }
-            if (options.ReplayFile != null && options.Hash && !options.Help)
-                throw new ArgumentException("--replay 不支持 --hash；回看按保存的日志播放，不提供历史逐回合状态哈希。");
+            if (options.ReplayMode && options.Hash && !options.Help)
+                throw new ArgumentException((options.ReplayCode != null ? "--replay-code" : "--replay")
+                    + " 不支持 --hash；回看按保存的日志播放，不提供历史逐回合状态哈希。");
             return options;
         }
 

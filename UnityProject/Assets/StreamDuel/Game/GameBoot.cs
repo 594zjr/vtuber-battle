@@ -15,6 +15,7 @@ namespace StreamDuel.Game
                 cam.tag = "MainCamera";
                 cam.clearFlags = CameraClearFlags.SolidColor;
                 cam.backgroundColor = new Color32(12, 17, 36, 255);
+                cam.gameObject.AddComponent<AudioListener>();
             }
             var go = new GameObject("StreamDuel");
             go.AddComponent<BattleScreen>();

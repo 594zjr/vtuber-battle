@@ -342,7 +342,7 @@ namespace StreamDuel.Core
                     {
                         if (effect.Target != "foe") break;
                         foreach (var stage in foe.Stages.Where(change => change.Value > 0))
-                            benefit += 0.12 + 0.08 * Math.Min(stage.Value, 6 - me.Stages[stage.Key]);
+                            benefit += 0.12 + 0.08 * Math.Min(stage.Value, b.StageLimit - me.Stages[stage.Key]);
                         benefit += HardProtectionBonus(b, s, effect, node, action, incoming.Max);
                         break;
                     }
@@ -414,11 +414,13 @@ namespace StreamDuel.Core
             Phase = source.Phase;
             Winner = source.Winner;
             leadPickAfterBan = source.leadPickAfterBan;
+            modifiers = new List<string>(source.modifiers).AsReadOnly();
             Record = new BattleRecord
             {
                 Version = source.Record.Version, ContentHash = source.Record.ContentHash,
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
                 BanOne = source.Record.BanOne,
+                Modifiers = source.Record.Modifiers == null ? null : new List<string>(source.Record.Modifiers),
                 Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
                 Teams = source.Record.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
