@@ -11,6 +11,14 @@ $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $repositoryPrefix = $repository.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $project = Join-Path $PSScriptRoot 'Ladder.csproj'
 $ladderDll = Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Ladder.dll"
+$coreDll = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "bin/$Configuration/net8.0/StreamDuel.Core.dll"))
+$rulesPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Content/StreamDuelRules.json"))
+$packPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Content/Packs/original.json"))
+foreach ($path in @($project, $ladderDll, $coreDll, $rulesPath, $packPath)) {
+    if (-not [IO.Path]::GetFullPath($path).StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw '验收使用的工程、程序集和内容文件必须位于当前仓库内。'
+    }
+}
 $runRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ('obj/verification/' + [Guid]::NewGuid().ToString('N'))))
 if (-not $runRoot.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
     throw '验收目录必须位于当前仓库内。'
@@ -19,6 +27,7 @@ if (-not $runRoot.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnor
 $utf8 = [Text.UTF8Encoding]::new($false)
 $invariant = [Globalization.CultureInfo]::InvariantCulture
 $invocations = [Collections.Generic.List[object]]::new()
+$suggestionChecks = [Collections.Generic.List[object]]::new()
 
 function Assert-Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "$Message 验收证据：$runRoot" }
@@ -184,13 +193,51 @@ function Assert-Csv([string]$Directory, [int]$TeamCount, [int]$Rounds, [string]$
     Assert-Check ($sumDealt -gt 0) '正常模拟应产生伤害统计。'
 }
 
+function Assert-SuggestedTeams([string]$Directory, [int]$TeamCount, [uint32]$Seed, [string]$Season = '') {
+    $csvPath = [IO.Path]::GetFullPath((Join-Path $Directory 'teams.csv'))
+    Assert-Check ($csvPath.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) '阵容对照只能读取当前仓库内的 CSV。'
+    $teams = @(Import-Csv -LiteralPath $csvPath -Encoding utf8)
+    $suggestedCount = [int][Math]::Floor($TeamCount / 2.0)
+    # PowerShell 调用 string 参数时用 NullString 保留真正的 null，不能变成空赛季编号。
+    $seasonId = if ([string]::IsNullOrEmpty($Season)) { [System.Management.Automation.Language.NullString]::Value } else { $Season }
+    $verified = [Collections.Generic.List[object]]::new()
+    for ($teamIndex = 0; $teamIndex -lt $suggestedCount; $teamIndex++) {
+        # CSV 按比赛成绩排序，必须按固定 team_id 查找，不能把榜单前半当作生成顺序。
+        $teamId = ($teamIndex + 1).ToString($invariant)
+        $rows = @($teams | Where-Object { $_.team_id -ceq $teamId })
+        Assert-Check ($rows.Count -eq 1) "自动组队对照缺少唯一的 team_id=$teamId。"
+        $teamSeed = [uint32](([uint64]$Seed + [uint64]$teamIndex) -band [uint64]4294967295)
+        # 直接调用同一份已构建 Core 的公开 API，不复用 Ladder 的生成器或预先写死阵容。
+        $expected = [StreamDuel.Core.TeamBuilder]::Suggest($builderDb, $seasonId, $null, $teamSeed)
+        Assert-Check ($expected.Count -eq 6) "TeamBuilder 对照阵容 $teamId 应有六位主播。"
+        $actual = @($rows[0].slot1, $rows[0].slot2, $rows[0].slot3, $rows[0].slot4, $rows[0].slot5, $rows[0].slot6)
+        for ($slot = 0; $slot -lt 6; $slot++) {
+            Assert-Check ([string]::Equals($actual[$slot], $expected[$slot], [StringComparison]::Ordinal)) "team_id=$teamId 的第 $($slot + 1) 号位不是 Suggest(seed=$teamSeed, season=$Season) 的结果。"
+        }
+        $verified.Add([ordered]@{ team_id = $teamIndex + 1; seed = $teamSeed; slots = @($expected) })
+    }
+    Assert-Check ($verified.Count -eq $suggestedCount) '自动组队对照数量应为 floor(teams/2)。'
+    $suggestionChecks.Add([ordered]@{
+        directory = $Directory; teams = $TeamCount; seed = $Seed; season = $Season
+        suggested_count = $suggestedCount; verified = $verified.ToArray()
+    })
+}
+
 [void](Invoke-ProcessCheck '00-build' @('build', $project, '-c', $Configuration, '--nologo'))
-$pack = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Content/Packs/original.json")) | ConvertFrom-Json
+Assert-Check (Test-Path -LiteralPath $coreDll -PathType Leaf) '构建输出缺少 StreamDuel.Core.dll，无法独立核对自动组队。'
+$coreAssembly = [Reflection.Assembly]::LoadFrom($coreDll)
+Assert-Check ([string]::Equals([IO.Path]::GetFullPath($coreAssembly.Location), $coreDll, [StringComparison]::OrdinalIgnoreCase)) '当前 PowerShell 已加载其他路径的 Core，请用新进程运行验收脚本。'
+$rulesJson = [IO.File]::ReadAllText($rulesPath)
+$packJson = [IO.File]::ReadAllText($packPath)
+$builderDb = [StreamDuel.Core.ContentDb]::FromJson($rulesJson, $packJson)
+$pack = $packJson | ConvertFrom-Json
 $baselineArguments = @('--pack', 'original', '--teams', '16', '--rounds', '3', '--seed', '1', '--level', 'normal')
 $first = Invoke-LadderCheck '01-repeat-a' $baselineArguments
 $second = Invoke-LadderCheck '02-repeat-b' $baselineArguments
 Assert-Csv $first.Directory 16 3
 Assert-Csv $second.Directory 16 3
+Assert-SuggestedTeams $first.Directory 16 1
+Assert-SuggestedTeams $second.Directory 16 1
 Assert-Check ($first.Process.Seconds -lt 60 -and $second.Process.Seconds -lt 60) '16 队 3 轮应在一分钟内完成（不含构建）。'
 foreach ($name in @('teams.csv', 'streamers.csv')) {
     $firstHash = (Get-FileHash -LiteralPath (Join-Path $first.Directory $name) -Algorithm SHA256).Hash
@@ -202,10 +249,13 @@ Assert-Check ((Get-FileHash -LiteralPath $first.Process.ErrPath -Algorithm SHA25
 
 $season = Invoke-LadderCheck '03-season' ($baselineArguments + @('--season', 's1'))
 Assert-Csv $season.Directory 16 3 's1'
+Assert-SuggestedTeams $season.Directory 16 1 's1'
 $odd = Invoke-LadderCheck '04-odd' @('--pack', 'original', '--teams', '5', '--rounds', '6', '--seed', '7')
 Assert-Csv $odd.Directory 5 6
+Assert-SuggestedTeams $odd.Directory 5 7
 $hard = Invoke-LadderCheck '05-hard' @('--pack', 'original', '--teams', '2', '--rounds', '1', '--seed', '1', '--level', 'hard')
 Assert-Csv $hard.Directory 2 1
+Assert-SuggestedTeams $hard.Directory 2 1
 [void](Invoke-LadderCheck '06-unknown-season' @('--pack', 'original', '--teams', '2', '--rounds', '1', '--season', 'missing_season') 1)
 [void](Invoke-LadderCheck '07-invalid-team-count' @('--teams', '1') 1)
 [void](Invoke-LadderCheck '08-invalid-level' @('--level', 'easy') 1)
@@ -216,9 +266,10 @@ $report = [ordered]@{
     result = 'PASS'
     first_16x3_seconds = $first.Process.Seconds
     second_16x3_seconds = $second.Process.Seconds
-    checks = @('CSV与控制台字节可复现', '16x3耗时', '合法阵容与赛季限制', '对局积分胜负守恒', 'Elo零和', '实际登场及累计统计', '加权Elo范围与零登场', '奇数轮空', '困难难度', '无效参数不输出CSV')
+    checks = @('CSV与控制台字节可复现', '16x3耗时', '合法阵容与赛季限制', 'Core TeamBuilder独立对照前半阵容（偶数、奇数、赛季）', '对局积分胜负守恒', 'Elo零和', '实际登场及累计统计', '加权Elo范围与零登场', '奇数轮空', '困难难度', '无效参数不输出CSV')
     weighted_elo_limit = 'CSV未提供各阵容逐主播登场权重；脚本检查分母、数值范围和空值，精确加权公式由独立源码审查确认。'
     invocations = $invocations
+    suggested_teams = $suggestionChecks.ToArray()
 }
 [IO.File]::WriteAllText((Join-Path $runRoot 'report.json'), ($report | ConvertTo-Json -Depth 10), $utf8)
 Write-Output "PASS：可复现、性能、合法阵容、积分/Elo、登场统计、轮空、困难模式与无效输入。证据：$runRoot"

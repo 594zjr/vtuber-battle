@@ -43,14 +43,24 @@ namespace StreamDuel.Core
 
         static double Matchup(Battle b, int s, int idx)
         {
-            return Matchup(b, b.Sides[s].Team[idx], b.Active(1 - s));
+            return Matchup(b, s, idx, AiWeights.Default);
+        }
+
+        static double Matchup(Battle b, int s, int idx, AiWeights w)
+        {
+            return Matchup(b, b.Sides[s].Team[idx], b.Active(1 - s), w);
         }
 
         static double Matchup(Battle b, Fighter cand, Fighter f)
         {
+            return Matchup(b, cand, f, AiWeights.Default);
+        }
+
+        static double Matchup(Battle b, Fighter cand, Fighter f, AiWeights w)
+        {
             double mine = cand.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, f.Type, f.Type2) * (cand.HasType(k.Type) ? 1.5 : 1)).DefaultIfEmpty(0).Max();
             double theirs = f.Skills.Select(sl => b.Db.Skills[sl.Id]).Where(k => k.Power > 0).Select(k => b.Db.TypeMul(k.Type, cand.Type, cand.Type2) * (f.HasType(k.Type) ? 1.5 : 1)).DefaultIfEmpty(0).Max();
-            return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? 0.2 : 0);
+            return mine - theirs + cand.HpRatio - (cand.Def.Stats["spd"] < f.Def.Stats["spd"] ? w.MatchupSlowerPenalty : 0);
         }
 
         static bool CanInflictWeak(Battle b, int s)
@@ -69,6 +79,11 @@ namespace StreamDuel.Core
 
         static double FieldValue(Battle b, int s, EffectDef effect, double threat, bool goFirst)
         {
+            return FieldValue(b, s, effect, threat, goFirst, AiWeights.Default);
+        }
+
+        static double FieldValue(Battle b, int s, EffectDef effect, double threat, bool goFirst, AiWeights w)
+        {
             var p = b.Active(s); var f = b.Active(1 - s);
             var target = effect.Target == "self" ? p : f;
             if (target.HasField(effect.Field)) return 0;
@@ -77,19 +92,19 @@ namespace StreamDuel.Core
             {
                 if (effect.Target != "self" || (!goFirst && threat >= 1)) return 0;
                 double incoming = Math.Min(p.Hp, threat * p.Hp);
-                return Math.Min(0.7, incoming * field.ReflectDamage / Math.Max(1, f.Hp) * 2);
+                return Math.Min(w.ReflectScoreCap, incoming * field.ReflectDamage / Math.Max(1, f.Hp) * w.ReflectDamageScoreMultiplier);
             }
             if (field.ImmuneWeak)
             {
                 if (effect.Target != "self" || p.Fields.Any(x => b.Db.Fields[x.Id].ImmuneWeak)) return 0;
-                return CanInflictWeak(b, 1 - s) ? 0.4 : 0;
+                return CanInflictWeak(b, 1 - s) ? w.WeakImmunityScore : 0;
             }
             if (field.PreventSwitch)
             {
                 if (effect.Target != "foe" || b.LegalFor(1 - s).Switches.Count == 0) return 0;
-                return b.ControlOf(f) != null || f.Statuses.Any(x => !b.Db.Statuses[x.Id].IsControl) ? 0.4 : 0.22;
+                return b.ControlOf(f) != null || f.Statuses.Any(x => !b.Db.Statuses[x.Id].IsControl) ? w.TrapAfflictedScore : w.TrapScore;
             }
-            return threat < 0.6 ? 0.32 : 0.12;
+            return threat < w.FieldMaxThreatRatio ? w.FieldSafeScore : w.FieldThreatenedScore;
         }
 
         public static int ChooseBan(Battle b, int s)
@@ -141,11 +156,16 @@ namespace StreamDuel.Core
 
         public static BattleAction Choose(Battle b, int s)
         {
+            return ChooseNormal(b, s, AiWeights.Default);
+        }
+
+        static BattleAction ChooseNormal(Battle b, int s, AiWeights w)
+        {
             var L = b.LegalFor(s); var p = b.Active(s); var f = b.Active(1 - s);
             if (L.Controlled != null)
             {
-                if (L.Switches.Count > 0 && p.HpRatio > 0.3 && b.Random() < 0.35)
-                    return BattleAction.SwitchTo(L.Switches.OrderByDescending(i => Matchup(b, s, i)).First());
+                if (L.Switches.Count > 0 && p.HpRatio > w.ControlledSwitchMinHpRatio && b.Random() < w.ControlledSwitchProbability)
+                    return BattleAction.SwitchTo(L.Switches.OrderByDescending(i => Matchup(b, s, i, w)).First());
                 return BattleAction.Pass();
             }
             if (L.Struggle) return new BattleAction { Type = ActionType.Struggle };
@@ -162,8 +182,8 @@ namespace StreamDuel.Core
                 if (sk.Power > 0)
                 {
                     double est = Estimate(b, s, sk, goFirst) / Math.Max(1, f.Hp);
-                    v = est >= 1 ? 1.6 + (goFirst ? 0.6 : 0) : est;
-                    if (threat >= 1 && goFirst && est >= 1) v += 1;
+                    v = est >= 1 ? w.KnockoutScore + (goFirst ? w.FirstKnockoutBonus : 0) : est;
+                    if (threat >= 1 && goFirst && est >= 1) v += w.ThreatenedFirstKnockoutBonus;
                 }
                 foreach (var e in sk.Effects)
                 {
@@ -172,24 +192,24 @@ namespace StreamDuel.Core
                     {
                         case "STATUS":
                             if (e.Target != "foe") break;
-                            if (b.Db.Statuses[e.Status].IsControl) { if (!foeLocked) v += 0.5 * ch; }
-                            else if (!foeWeakImmune && !f.HasStatus(e.Status)) v += 0.3 * ch;
+                            if (b.Db.Statuses[e.Status].IsControl) { if (!foeLocked) v += w.ControlStatusScore * ch; }
+                            else if (!foeWeakImmune && !f.HasStatus(e.Status)) v += w.WeakStatusScore * ch;
                             break;
                         case "STAGE":
                             if (e.Target == "self")
                             {
-                                int up = e.Changes.Count(kv => kv.Value > 0 && p.Stages[kv.Key] < 2);
-                                if (up > 0 && p.HpRatio > 0.6 && threat < 0.5) v += 0.22 * up;
+                                int up = e.Changes.Count(kv => kv.Value > 0 && p.Stages[kv.Key] < w.StageBoostTarget);
+                                if (up > 0 && p.HpRatio > w.StageMinHpRatio && threat < w.StageMaxThreatRatio) v += w.StageScore * up;
                             }
-                            else if (sk.Power == 0) v += 0.18;
+                            else if (sk.Power == 0) v += w.FoeStageScore;
                             break;
-                        case "HEAL": if (p.HpRatio < 0.5) v += (1 - p.HpRatio) * 0.9; break;
-                        case "FIELD": v += FieldValue(b, s, e, threat, goFirst) * ch; break;
+                        case "HEAL": if (p.HpRatio < w.HealMaxHpRatio) v += (1 - p.HpRatio) * w.HealMissingHpScore; break;
+                        case "FIELD": v += FieldValue(b, s, e, threat, goFirst, w) * ch; break;
                         case "DISPEL_TURNS":
                             v += f.Fields.Where(x => b.Db.Fields[x.Id].Dispel)
-                                .Sum(x => b.Db.Fields[x.Id].PreventSwitch ? -0.2 : 0.2);
+                                .Sum(x => b.Db.Fields[x.Id].PreventSwitch ? w.DispelTrapScore : w.DispelFieldScore);
                             break;
-                        case "DISPEL_BOOST": v += 0.12 * f.Stages.Values.Count(x => x > 0); break;
+                        case "DISPEL_BOOST": v += w.DispelBoostScore * f.Stages.Values.Count(x => x > 0); break;
                         case "STEAL_BOOST":
                         {
                             if (e.Target != "foe") break;
@@ -198,20 +218,20 @@ namespace StreamDuel.Core
                             foreach (var stage in f.Stages.Where(kv => kv.Value > 0))
                             {
                                 int gain = Math.Min(stage.Value, 6 - p.Stages[stage.Key]);
-                                v += (0.12 + 0.08 * gain) * ch;
+                                v += (w.StealBoostBaseScore + w.StealBoostPerStageScore * gain) * ch;
                             }
                             break;
                         }
-                        case "CLEANSE": if (p.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) v += 0.4; break;
+                        case "CLEANSE": if (p.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) v += w.CleanseScore; break;
                     }
                 }
-                v += b.Random() * 0.08;
+                v += b.Random() * w.RandomScoreRange;
                 if (v > bestV) { bestV = v; best = BattleAction.Skill(o.Index); }
             }
-            if (L.Switches.Count > 0 && threat >= 0.9 && bestV < 0.5)
+            if (L.Switches.Count > 0 && threat >= w.SwitchMinThreatRatio && bestV < w.SwitchMaxActionScore)
             {
-                int c = L.Switches.OrderByDescending(i => Matchup(b, s, i)).First();
-                if (Matchup(b, s, c) > Matchup(b, s, b.Sides[s].Active) + 0.5 && b.Random() < 0.6) return BattleAction.SwitchTo(c);
+                int c = L.Switches.OrderByDescending(i => Matchup(b, s, i, w)).First();
+                if (Matchup(b, s, c, w) > Matchup(b, s, b.Sides[s].Active, w) + w.SwitchMinMatchupGain && b.Random() < w.SwitchProbability) return BattleAction.SwitchTo(c);
             }
             return best;
         }
@@ -232,6 +252,13 @@ namespace StreamDuel.Core
 
             var action = Choose(b, s);
             return action.Type == ActionType.Switch ? BattleAction.Skill(skills[0].Index) : action;
+        }
+
+        public static BattleAction Choose(Battle b, int s, AiLevel level, AiWeights w)
+        {
+            if (level != AiLevel.Normal) return Choose(b, s, level);
+            if (w == null) throw new ArgumentNullException(nameof(w));
+            return ChooseNormal(b, s, w);
         }
 
         public static int ChooseReplacement(Battle b, int s)

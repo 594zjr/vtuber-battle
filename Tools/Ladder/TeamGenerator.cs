@@ -34,6 +34,11 @@ namespace StreamDuel.Ladder
             var random = new Random(unchecked((int)seed));
             for (int teamIndex = 0; teamIndex < count; teamIndex++)
             {
+                if (teamIndex < count / 2)
+                {
+                    teams.Add(TeamBuilder.Suggest(db, seasonId, null, unchecked(seed + (uint)teamIndex)).ToArray());
+                    continue;
+                }
                 var order = Enumerable.Range(0, candidates.Length).ToArray();
                 Shuffle(order, random);
                 var selected = new int[TeamSize];

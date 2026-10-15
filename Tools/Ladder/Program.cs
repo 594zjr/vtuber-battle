@@ -22,6 +22,7 @@ namespace StreamDuel.Ladder
                 {
                     Console.WriteLine("用法：dotnet run --project Tools/Ladder -- --pack original --teams 64 --rounds 10 --seed 1 [--level normal|hard] [--season s1] [--out ./ladder_out]");
                     Console.WriteLine("默认：原创包、64 支队伍、10 轮、种子 1、普通难度；teams 至少 2，rounds 至少 1，seed 为 0..4294967295。");
+                    Console.WriteLine("前一半阵容自动组队，其余随机生成；奇数队伍时随机阵容多一队，均遵守赛季限制。");
                     Console.WriteLine("每队六人不重复，按号位保存；不同参赛队可抽到同一阵容。每轮按积分配对，优先减少重复对手，每对换边打两局，使用不同的确定性种子。");
                     Console.WriteLine("每局胜 1/平 0.5/负 0 分；Elo 初始 1500，每局 K=24，同对两局共用赛前期望。奇数队伍轮空得 2 分，不计对局、不改 Elo。");
                     Console.WriteLine("主播加权 Elo = Σ(所在阵容最终 Elo × 实际上场局数) / 总上场局数；从未上场的 Elo 留空，后排仅入队不算上场。");

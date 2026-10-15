@@ -94,7 +94,7 @@ namespace StreamDuel.Game
 
         void RandomPick()
         {
-            pick = db.Streamers.Select(s => s.Id).OrderBy(_ => Random.value).Take(6).ToList();
+            pick = TeamBuilder.Suggest(db, null, new string[0], unchecked((uint)System.Environment.TickCount));
             SavePick();
         }
         void SavePick() { PlayerPrefs.SetString("sd.pick." + db.PackId, string.Join(",", pick)); }
