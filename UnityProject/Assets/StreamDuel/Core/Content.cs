@@ -39,6 +39,7 @@ namespace StreamDuel.Core
     public sealed class SkillDef
     {
         public string Id, Name, Type, Cat; // Cat: "interact" 互动 / "talent" 才艺 / "status" 状态
+        public bool PackDefined;
         public int Power, Pp, Acc = 100, Prio;
         public List<EffectDef> Effects = new List<EffectDef>();
     }
@@ -46,6 +47,7 @@ namespace StreamDuel.Core
     public sealed class PersonaDef
     {
         public string Id, Name, Code, Node, Desc, Status, Field;
+        public bool PackDefined;
         public Dictionary<string, double> Params = new Dictionary<string, double>();
         public double P(string k) { double v; return Params.TryGetValue(k, out v) ? v : 0; }
     }
@@ -107,7 +109,7 @@ namespace StreamDuel.Core
 
         // ---------- 读取 ----------
         // rulesJson：赛道、状态、效果、技能、人设等规则数据；packJson：主播名单内容包（原创包或同人包），
-        // 内容包还可以给技能、效果、状态、人设换显示名，机制不变。
+        // 包内定义先合并再绑定主播，允许技能和人设引用同包的状态、效果。
         public static ContentDb FromJson(string rulesJson, string packJson)
         {
             var root = (Dictionary<string, object>)MiniJson.Parse(rulesJson);
@@ -125,41 +127,12 @@ namespace StreamDuel.Core
                 foreach (var c in (Dictionary<string, object>)kv.Value) row[c.Key] = (double)c.Value;
                 db.Chart[kv.Key] = row;
             }
-            foreach (var kv in Obj(root, "statuses"))
-            {
-                var o = (Dictionary<string, object>)kv.Value;
-                db.Statuses[kv.Key] = new StatusDef
-                {
-                    Id = kv.Key, Name = Str(o, "name"), Cat = Str(o, "cat"), Desc = Str(o, "desc"),
-                    Skip = Int(o, "skip"), Turns = Int(o, "turns"), Dot = Num(o, "dot", 0), InteractMul = Num(o, "interactMul", 1),
-                    Leech = Bool(o, "leech"), Cleanse = Bool(o, "cleanse"), WakeOnHit = Bool(o, "wakeOnHit"),
-                };
-            }
-            foreach (var kv in Obj(root, "fields"))
-            {
-                var o = (Dictionary<string, object>)kv.Value;
-                db.Fields[kv.Key] = new FieldDef
-                {
-                    Id = kv.Key, Name = Str(o, "name"), Kind = Str(o, "kind"), When = Str(o, "when"), Desc = Str(o, "desc"),
-                    Dispel = Bool(o, "dispel"), Consume = Bool(o, "consume"), ImmuneControl = Bool(o, "immuneControl"),
-                    ImmuneWeak = Bool(o, "immuneWeak"), PreventSwitch = Bool(o, "preventSwitch"),
-                    DmgTakenMul = Num(o, "dmgTakenMul", 1), Heal = Num(o, "heal", 0), Dot = Num(o, "dot", 0), TalentMul = Num(o, "talentMul", 1),
-                    ReflectDamage = Num(o, "reflectDamage", 0),
-                    Prio = Int(o, "prio"), MaxStacks = Int(o, "maxStacks"),
-                };
-            }
-            foreach (var kv in Obj(root, "personas"))
-            {
-                var o = (Dictionary<string, object>)kv.Value;
-                var p = new PersonaDef { Id = kv.Key, Name = Str(o, "name"), Code = Str(o, "code"), Node = Str(o, "node"), Desc = Str(o, "desc"), Status = Str(o, "status"), Field = Str(o, "field") };
-                foreach (var pk in Obj(o, "params")) p.Params[pk.Key] = (double)pk.Value;
-                db.Personas[kv.Key] = p;
-            }
-            foreach (var kv in Obj(root, "skills")) db.Skills[kv.Key] = ReadSkill(kv.Key, (Dictionary<string, object>)kv.Value);
+            db.ReadDefinitions(root, false);
             db.Struggle = ReadSkill("struggle", (Dictionary<string, object>)root["struggle"]);
 
             var pack = (Dictionary<string, object>)MiniJson.Parse(packJson);
             db.PackId = Str(pack, "id"); db.PackName = Str(pack, "name"); db.PackNotice = Str(pack, "notice");
+            db.ReadDefinitions(pack, true);
             foreach (var kv in Obj(pack, "skillNames")) { if (!db.Skills.ContainsKey(kv.Key)) throw new KeyError("内容包改名的技能不存在：" + kv.Key); db.Skills[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "fieldNames")) { if (!db.Fields.ContainsKey(kv.Key)) throw new KeyError("内容包改名的效果不存在：" + kv.Key); db.Fields[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "statusNames")) { if (!db.Statuses.ContainsKey(kv.Key)) throw new KeyError("内容包改名的状态不存在：" + kv.Key); db.Statuses[kv.Key].Name = (string)kv.Value; }
@@ -177,7 +150,8 @@ namespace StreamDuel.Core
                 PersonaDef basePersona;
                 if ((pName != null || pDesc != null || pStatus != null) && db.Personas.TryGetValue(s.Persona, out basePersona))
                 {
-                    var copy = new PersonaDef { Id = s.Id + "#" + basePersona.Id, Name = pName ?? basePersona.Name, Code = basePersona.Code, Node = basePersona.Node, Desc = pDesc ?? basePersona.Desc, Status = pStatus ?? basePersona.Status, Field = basePersona.Field, Params = new Dictionary<string, double>(basePersona.Params) };
+                    var copy = new PersonaDef { Id = s.Id + "#" + basePersona.Id, Name = pName ?? basePersona.Name, Code = basePersona.Code, Node = basePersona.Node, Desc = pDesc ?? basePersona.Desc, Status = pStatus ?? basePersona.Status, Field = basePersona.Field, Params = new Dictionary<string, double>(basePersona.Params), PackDefined = basePersona.PackDefined };
+                    if (db.Personas.ContainsKey(copy.Id)) throw new KeyError("主播 " + s.Id + " 的人设副本 personas id 重复：" + copy.Id);
                     db.Personas[copy.Id] = copy;
                     s.Persona = copy.Id;
                 }
@@ -207,6 +181,64 @@ namespace StreamDuel.Core
             }
             db.Validate();
             return db;
+        }
+
+        void ReadDefinitions(Dictionary<string, object> source, bool packDefined)
+        {
+            ReadSection(source, "statuses", Statuses, ReadStatus);
+            ReadSection(source, "fields", Fields, ReadField);
+            ReadSection(source, "personas", Personas, ReadPersona);
+            ReadSection(source, "skills", Skills, ReadSkill);
+            if (packDefined)
+            {
+                foreach (var kv in Obj(source, "skills")) Skills[kv.Key].PackDefined = true;
+                foreach (var kv in Obj(source, "personas")) Personas[kv.Key].PackDefined = true;
+            }
+        }
+
+        static void ReadSection<T>(Dictionary<string, object> source, string category,
+            Dictionary<string, T> destination, Func<string, Dictionary<string, object>, T> read)
+        {
+            object value;
+            if (!source.TryGetValue(category, out value)) return;
+            var definitions = value as Dictionary<string, object>;
+            if (definitions == null) throw new KeyError("内容类别 " + category + " 必须是对象");
+            foreach (var kv in definitions)
+            {
+                if (destination.ContainsKey(kv.Key)) throw new KeyError("内容类别 " + category + " 的 id 重复：" + kv.Key);
+                var definition = kv.Value as Dictionary<string, object>;
+                if (definition == null) throw new KeyError("内容类别 " + category + " 的定义 " + kv.Key + " 必须是对象");
+                destination.Add(kv.Key, read(kv.Key, definition));
+            }
+        }
+
+        static StatusDef ReadStatus(string id, Dictionary<string, object> o)
+        {
+            return new StatusDef
+            {
+                Id = id, Name = Str(o, "name"), Cat = Str(o, "cat"), Desc = Str(o, "desc"),
+                Skip = Int(o, "skip"), Turns = Int(o, "turns"), Dot = Num(o, "dot", 0), InteractMul = Num(o, "interactMul", 1),
+                Leech = Bool(o, "leech"), Cleanse = Bool(o, "cleanse"), WakeOnHit = Bool(o, "wakeOnHit"),
+            };
+        }
+
+        static FieldDef ReadField(string id, Dictionary<string, object> o)
+        {
+            return new FieldDef
+            {
+                Id = id, Name = Str(o, "name"), Kind = Str(o, "kind"), When = Str(o, "when"), Desc = Str(o, "desc"),
+                Dispel = Bool(o, "dispel"), Consume = Bool(o, "consume"), ImmuneControl = Bool(o, "immuneControl"),
+                ImmuneWeak = Bool(o, "immuneWeak"), PreventSwitch = Bool(o, "preventSwitch"),
+                DmgTakenMul = Num(o, "dmgTakenMul", 1), Heal = Num(o, "heal", 0), Dot = Num(o, "dot", 0), TalentMul = Num(o, "talentMul", 1),
+                ReflectDamage = Num(o, "reflectDamage", 0), Prio = Int(o, "prio"), MaxStacks = Int(o, "maxStacks"),
+            };
+        }
+
+        static PersonaDef ReadPersona(string id, Dictionary<string, object> o)
+        {
+            var persona = new PersonaDef { Id = id, Name = Str(o, "name"), Code = Str(o, "code"), Node = Str(o, "node"), Desc = Str(o, "desc"), Status = Str(o, "status"), Field = Str(o, "field") };
+            foreach (var kv in Obj(o, "params")) persona.Params[kv.Key] = (double)kv.Value;
+            return persona;
         }
 
         static SkillDef ReadSkill(string id, Dictionary<string, object> o)
@@ -240,13 +272,23 @@ namespace StreamDuel.Core
         {
             foreach (var sk in Skills.Values)
             {
-                if (!Types.ContainsKey(sk.Type)) throw new KeyError("技能 " + sk.Id + " 的赛道不存在：" + sk.Type);
+                if (sk.Type == null || !Types.ContainsKey(sk.Type)) throw new KeyError("技能 " + sk.Id + " 的赛道不存在：" + sk.Type);
                 foreach (var e in sk.Effects)
                 {
                     if (e.At != "pre" && e.At != "post") throw new KeyError("技能 " + sk.Id + " 的效果缺少判定时机 at");
+                    if (e.Code == "STATUS" && e.Status == null) throw new KeyError("技能 " + sk.Id + " 的 STATUS 缺少状态 status");
+                    if ((e.Code == "FIELD" || e.Code == "ADD_MARK" || e.Code == "POWER_PER_MARK") && e.Field == null)
+                        throw new KeyError("技能 " + sk.Id + " 的 " + e.Code + " 缺少效果 field");
                     if (e.Status != null && !Statuses.ContainsKey(e.Status)) throw new KeyError("技能 " + sk.Id + " 用到不存在的状态：" + e.Status);
                     if (e.Field != null && !Fields.ContainsKey(e.Field)) throw new KeyError("技能 " + sk.Id + " 用到不存在的效果：" + e.Field);
                 }
+            }
+            foreach (var persona in Personas.Values)
+            {
+                if (persona.Code == "T_CONTACT_STATUS" && persona.Status == null) throw new KeyError("人设 " + persona.Id + " 缺少状态 status");
+                if (persona.Code == "T_ENTER_FIELD" && persona.Field == null) throw new KeyError("人设 " + persona.Id + " 缺少效果 field");
+                if (persona.Status != null && !Statuses.ContainsKey(persona.Status)) throw new KeyError("人设 " + persona.Id + " 用到不存在的状态：" + persona.Status);
+                if (persona.Field != null && !Fields.ContainsKey(persona.Field)) throw new KeyError("人设 " + persona.Id + " 用到不存在的效果：" + persona.Field);
             }
             if (Streamers.Count < 6) throw new KeyError("内容包至少需要 6 位主播（一队 6 位），现在只有 " + Streamers.Count + " 位");
             foreach (var s in Streamers)
