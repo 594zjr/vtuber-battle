@@ -14,6 +14,7 @@ namespace StreamDuel.Core
             public BattleAction Action;
             public double Score;
             public double Preference;
+            public int CompletedSamples;
             public readonly List<Battle> Outcomes = new List<Battle>();
         }
 
@@ -47,8 +48,14 @@ namespace StreamDuel.Core
 
         static BattleAction ChooseExpert(Battle live, int s)
         {
+            return ChooseExpert(live, s, ExpertBudget.Default).Action;
+        }
+
+        public static ExpertDecision ChooseExpert(Battle live, int s, ExpertBudget budget)
+        {
             ExpertValidate(live, s);
             if (live.Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
+            var search = new ExpertSearch(budget);
             var root = ExpertRoot(live);
             var options = ExpertActions(root, s).Select(action => new ExpertOption { Action = action }).ToList();
 
@@ -60,15 +67,18 @@ namespace StreamDuel.Core
                 var opponent = ChooseHard(start.Clone(), 1 - s);
                 foreach (var option in options)
                 {
+                    if (!search.TryVisit()) return ExpertPartial(live, root, s, options, search, true);
                     var next = start.Clone();
                     ExpertResolve(next, s, option.Action, opponent);
-                    ExpertFillReplacements(next);
+                    if (!ExpertFillReplacements(next, search))
+                        return ExpertPartial(live, root, s, options, search, true);
                     option.Score += ExpertValue(next, s) / ExpertSamples;
                     option.Outcomes.Add(next);
+                    option.CompletedSamples++;
                 }
             }
 
-            // 只扩展第一层领先的少量候选，搜索量固定，不受机器时钟影响。
+            // 保留并列候选的原有顺序；节点预算同时约束并列扩展和补位。
             foreach (var option in options)
             {
                 option.Preference = StylePreference(root, s, option.Action) * 0.25;
@@ -78,36 +88,70 @@ namespace StreamDuel.Core
             double cutoff = finalists.Last().Score;
             foreach (var option in options.Except(finalists).Where(option => Math.Abs(option.Score - cutoff) <= 1e-9))
                 finalists.Add(option);
+            var expanded = new List<ExpertOption>();
             foreach (var option in finalists)
             {
-                double future = option.Outcomes.Average(next => ExpertRollout(next, s));
+                double total = 0;
+                foreach (var next in option.Outcomes)
+                {
+                    if (!ExpertRollout(next, s, search, out double value))
+                        return search.Finish(HardPick(live, expanded.Count > 0 ? expanded : finalists,
+                            candidate => candidate.Score).Action);
+                    total += value;
+                }
+                double future = total / option.Outcomes.Count;
                 option.Score = option.Score * 0.3 + future * 0.7 + option.Preference * 0.7;
+                expanded.Add(option);
             }
-            return HardPick(live, finalists, option => option.Score).Action;
+            return search.Finish(HardPick(live, finalists, option => option.Score).Action);
         }
 
         static int ChooseExpertReplacement(Battle live, int s)
         {
+            return ChooseExpertReplacement(live, s, ExpertBudget.Default).Action.Index;
+        }
+
+        public static ExpertDecision ChooseExpertReplacement(Battle live, int s, ExpertBudget budget)
+        {
             ExpertValidate(live, s);
             if (live.Phase != Phase.Replace || !live.Need[s])
                 throw new InvalidOperationException("这一方现在不需要补位");
+            var search = new ExpertSearch(budget);
             var root = ExpertRoot(live);
             var options = new List<ExpertOption>();
             for (int index = 0; index < root.Sides[s].Team.Count; index++)
             {
                 if (index == root.Sides[s].Active || root.Sides[s].Team[index].Fainted) continue;
                 var option = new ExpertOption { Action = BattleAction.SwitchTo(index) };
+                options.Add(option);
                 for (int sample = 0; sample < ExpertSamples; sample++)
                 {
+                    if (!search.TryVisit()) return ExpertPartial(live, root, s, options, search, false);
                     var next = root.Clone();
                     for (int i = 0; i < sample * 11; i++) next.Random();
                     next.Replace(s, index);
-                    ExpertFillReplacements(next);
-                    option.Score += (ExpertValue(next, s) * 0.3 + ExpertRollout(next, s) * 0.7) / ExpertSamples;
+                    if (!ExpertFillReplacements(next, search) || !ExpertRollout(next, s, search, out double future))
+                        return ExpertPartial(live, root, s, options, search, false);
+                    option.Score += (ExpertValue(next, s) * 0.3 + future * 0.7) / ExpertSamples;
+                    option.CompletedSamples++;
                 }
-                options.Add(option);
             }
-            return HardPick(live, options, option => option.Score).Action.Index;
+            return search.Finish(HardPick(live, options, option => option.Score).Action);
+        }
+
+        static ExpertDecision ExpertPartial(Battle live, Battle root, int s,
+            List<ExpertOption> options, ExpertSearch search, bool includePreference)
+        {
+            // 不将缺少的样本记为零，也不把未完成补位的中间状态当成候选结果。
+            var ready = options.Where(option => option.CompletedSamples == ExpertSamples).ToList();
+            if (ready.Count == 0) ready = options.Where(option => option.CompletedSamples > 0).ToList();
+            if (ready.Count == 0) return search.Finish(options[0].Action);
+            foreach (var option in ready)
+            {
+                option.Score *= (double)ExpertSamples / option.CompletedSamples;
+                if (includePreference) option.Score += StylePreference(root, s, option.Action) * 0.25;
+            }
+            return search.Finish(HardPick(live, ready, option => option.Score).Action);
         }
 
         static void ExpertResolve(Battle b, int s, BattleAction mine, BattleAction theirs)
@@ -116,21 +160,33 @@ namespace StreamDuel.Core
             else b.ResolveTurn(theirs, mine);
         }
 
-        static void ExpertFillReplacements(Battle b)
+        static bool ExpertFillReplacements(Battle b, ExpertSearch search)
         {
             for (int side = 0; side < 2 && b.Phase == Phase.Replace; side++)
-                if (b.Need[side]) b.Replace(side, ChooseHardReplacement(b, side));
+                if (b.Need[side])
+                {
+                    if (!search.TryVisit()) return false;
+                    b.Replace(side, ChooseHardReplacement(b, side));
+                }
+            return true;
         }
 
-        static double ExpertRollout(Battle after, int s)
+        static bool ExpertRollout(Battle after, int s, ExpertSearch search, out double value)
         {
-            if (after.Phase == Phase.Over) return ExpertValue(after, s);
+            value = 0;
+            if (after.Phase == Phase.Over)
+            {
+                value = ExpertValue(after, s);
+                return true;
+            }
+            if (!search.TryVisit()) return false;
             var next = after.Clone();
             var a0 = ChooseHard(next, 0);
             var a1 = ChooseHard(next, 1);
             next.ResolveTurn(a0, a1);
-            ExpertFillReplacements(next);
-            return ExpertValue(next, s);
+            if (!ExpertFillReplacements(next, search)) return false;
+            value = ExpertValue(next, s);
+            return true;
         }
 
         static double ExpertValue(Battle b, int s)

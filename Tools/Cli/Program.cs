@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.TournamentReportFile != null) return PrintTournamentReport(options);
                 if (options.TournamentFile != null) return RunTournament(options);
                 if (options.ListReplays) return ListReplays(options);
                 if (options.LanList) return ListLanRooms();
@@ -213,6 +214,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    只可搭配 --pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("                    报名时空姓名开始赛事；q 或输入结束保存退出。每次报名、排轮和报分立即保存。");
             Console.WriteLine("                    自动种子为 0x9E3779B9 加存档中的零起点对局编号（uint 回绕）；不接受 --seed。");
+            Console.WriteLine("                    自动完成的对局归档到赛事文件路径加 .replay-library 的旁库；不计入普通玩家战绩。");
+            Console.WriteLine("  --tournament-report 文件  只读导出完整赛事战报到标准输出；默认中文纯文本，--json 输出 JSON。");
+            Console.WriteLine("                    仅可搭配 --json、--pack、--pack-dir；默认使用赛事存档内容包，读取赛事文件旁的专属录像库。");
             Console.WriteLine("  --timer 10,30     每阶段基本时间、每方总时间（有限非负秒数）；超时默认跳过，补位选最小可用号位。");
             Console.WriteLine("                    禁用与首发不计时；联网以房主预算为准，客机 --timer 不覆盖房主。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
