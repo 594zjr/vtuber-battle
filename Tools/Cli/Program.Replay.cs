@@ -13,7 +13,7 @@ namespace StreamDuel.Cli
             try
             {
                 record = options.ReplayCode != null ? ShareCode.Decode(options.ReplayCode)
-                    : BattleRecord.FromJson(File.ReadAllText(options.ReplayFile));
+                    : LoadReplay(options);
             }
             catch (IndexOutOfRangeException ex)
             {

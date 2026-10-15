@@ -157,7 +157,8 @@ namespace StreamDuel.Cli
             Console.WriteLine();
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
             PrintTeams(battle);
-            Console.WriteLine(BattleSummary.From(battle).ToText());
+            var summary = BattleSummary.From(battle);
+            Console.WriteLine(summary.ToText());
             bool shareFailed = false;
             try
             {
@@ -192,11 +193,29 @@ namespace StreamDuel.Cli
                 replayWarning = "回放保存失败：" + ex.Message;
             }
             if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
+            bool libraryFailed = false;
+            try
+            {
+                new ReplayLibrary(ReplayLibraryDirectory(options)).Save(battle.Record, summary);
+                Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
+            }
+            catch (ReplayLibraryMaintenanceException ex)
+            {
+                Console.Error.WriteLine("警告：录像已写入，但录像库维护失败：" + ex.Message);
+                libraryFailed = true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                || ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)
+            {
+                // 独立录像库的故障不能影响旧版回放和档案，已完成的对局仍须累计战绩。
+                Console.Error.WriteLine("警告：录像库保存失败：" + ex.Message);
+                libraryFailed = true;
+            }
             var profile = ProfileStore.Record(battle, options.SaveDir, mySide);
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed && !shareFailed ? 0 : 1;
+            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
         }
     }
 }
