@@ -135,8 +135,10 @@ public class T29_NetSessionEdgeTests
         Assert.False(pair.Guest.HasSubmitted);
         Assert.Equal(NetState.Waiting, pair.Host.State);
         Assert.Equal(NetState.Choose, pair.Guest.State);
-        Assert.Single(pair.HostTransport.Messages("action"));
-        Assert.Empty(pair.GuestTransport.Messages("action"));
+        Assert.Single(pair.HostTransport.Messages("commit"));
+        Assert.Empty(pair.GuestTransport.Messages("commit"));
+        Assert.Empty(pair.HostTransport.Messages("reveal"));
+        Assert.Empty(pair.GuestTransport.Messages("reveal"));
 
         pair.Guest.Submit(BattleAction.Pass());
         pair.Pump(20);
@@ -388,10 +390,11 @@ public class T29_NetSessionEdgeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void DuplicateHelloOrActionIsRejected(bool hello)
+    public void DuplicateHelloOrCommitIsRejected(bool hello)
     {
         var pair = new Pair();
-        string message = hello ? pair.GuestTransport.Messages("hello").Single() : "{\"type\":\"action\",\"turn\":1,\"action\":\"P\"}";
+        string message = hello ? pair.GuestTransport.Messages("hello").Single() :
+            "{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\",\"digest\":\"" + new string('0', 64) + "\"}";
         pair.HostTransport.Inject(message);
         if (!hello) pair.HostTransport.Inject(message);
         pair.Pump();
@@ -409,7 +412,8 @@ public class T29_NetSessionEdgeTests
         var hello = json.RootElement;
         pair.HostTransport.Inject(JsonSerializer.Serialize(new
         {
-            type = "hello", version = 2, packId = hello.GetProperty("packId").GetString(),
+            type = "hello", version = NetSession.ProtocolVersion + 1, packId = hello.GetProperty("packId").GetString(),
+            contentHash = hello.GetProperty("contentHash").GetString(),
             seed = (uint?)null, name = "客机", team = GuestTeam
         }));
         pair.Pump();
@@ -457,7 +461,8 @@ public class T29_NetSessionEdgeTests
         pair.Guest.Submit(BattleAction.Pass());
         pair.Pump();
         reference.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
-        using var message = JsonDocument.Parse(pair.HostTransport.Messages("action").Single());
+        using var message = JsonDocument.Parse(pair.HostTransport.Messages("reveal").Single());
+        Assert.Single(pair.HostTransport.Messages("commit"));
         Assert.Equal("P", message.RootElement.GetProperty("action").GetString());
         Assert.Equal(reference.StateHash(), pair.Host.Battle.StateHash());
         Assert.Equal(reference.StateHash(), pair.Guest.Battle.StateHash());
