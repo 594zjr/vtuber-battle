@@ -25,8 +25,12 @@ namespace StreamDuel.Sim
             public long Games;
             public long Wins;
             public long Turns;
+            public long DamageDealt;
+            public long Kos;
             public double WinRate { get { return Games == 0 ? 0 : (double)Wins / Games; } }
             public double AverageTurns { get { return Games == 0 ? 0 : (double)Turns / Games; } }
+            public double AverageDamageDealt { get { return Games == 0 ? 0 : (double)DamageDealt / Games; } }
+            public double AverageKos { get { return Games == 0 ? 0 : (double)Kos / Games; } }
         }
 
         private static int Main(string[] args)
@@ -42,6 +46,7 @@ namespace StreamDuel.Sim
                     Console.WriteLine("默认：--pack original，--games 5000，--seed 1；games 为正整数，seed 为 0..4294967295。");
                     Console.WriteLine("games 按入选队伍计数（包括未上场的后排）；wins 为所在队伍获胜次数，平局不计胜场。");
                     Console.WriteLine("winrate 为 wins/games（0..1），avg_turns 为这些对局的平均回合数；双方都有同一主播时分别计数。");
+                    Console.WriteLine("avg_damage_dealt、avg_kos 为每次入选队伍的平均造成伤害、平均击倒数，未上场也计入分母；统计口径由 Core.BattleSummary 定义。");
                     Console.WriteLine("uses 只统计实际执行的技能（含未命中、免扣 PP、硬撑），未执行的选择不计入；未使用项为 0。");
                     Console.WriteLine("标准输出为两段 CSV；标准错误包含总局数、平局数和耗时，耗时不参与可复现比较。");
                     return 0;
@@ -64,16 +69,20 @@ namespace StreamDuel.Sim
                 {
                     var teams = DrawTeams(roster, teamRandom);
                     var battle = new Battle(db, teams, new[] { "甲方", "乙方" }, unchecked(options.Seed + (uint)game));
-                    int turns = RunBattle(battle, uses);
+                    int turns = RunBattle(battle);
+                    var summary = BattleSummary.From(battle);
                     if (battle.Winner == -1) draws++;
                     for (int side = 0; side < 2; side++)
                     {
-                        foreach (string id in teams[side])
+                        foreach (var fighter in summary.Sides[side])
                         {
-                            var stats = streamers[id];
+                            var stats = streamers[fighter.StreamerId];
                             stats.Games++;
                             if (battle.Winner == side) stats.Wins++;
                             stats.Turns += turns;
+                            stats.DamageDealt += fighter.DamageDealt;
+                            stats.Kos += fighter.Kos;
+                            foreach (var skill in fighter.SkillUses) uses[skill.Key] += skill.Value;
                         }
                     }
                 }
@@ -151,7 +160,7 @@ namespace StreamDuel.Sim
             return shuffled.Take(count).ToArray();
         }
 
-        private static int RunBattle(Battle battle, Dictionary<string, long> uses)
+        private static int RunBattle(Battle battle)
         {
             int turns = 0;
             while (battle.Phase != Phase.Over)
@@ -166,24 +175,8 @@ namespace StreamDuel.Sim
                 }
 
                 var actions = new[] { Ai.Choose(battle, 0), Ai.Choose(battle, 1) };
-                var selectedSkills = new string[2];
-                for (int side = 0; side < 2; side++)
-                {
-                    if (actions[side].Type == ActionType.Skill)
-                        selectedSkills[side] = battle.Active(side).Skills[actions[side].Index].Id;
-                    else if (actions[side].Type == ActionType.Struggle)
-                        selectedSkills[side] = battle.Db.Struggle.Id;
-                }
-
-                int logStart = battle.Log.Count;
                 battle.ResolveTurn(actions[0], actions[1]);
                 turns++;
-                // 扣 PP 会漏掉免扣人设，按选择计数会多算被控制或下播的行动；日志确认真正执行。
-                for (int i = logStart; i < battle.Log.Count; i++)
-                {
-                    var entry = battle.Log[i];
-                    if (entry.Kind == "act") uses[selectedSkills[entry.Side]]++;
-                }
             }
             return turns;
         }
@@ -191,12 +184,13 @@ namespace StreamDuel.Sim
         private static void WriteCsv(IEnumerable<StreamerStats> streamers,
             Dictionary<string, SkillDef> skills, Dictionary<string, long> uses)
         {
-            Console.WriteLine("id,name,games,wins,winrate,avg_turns");
+            Console.WriteLine("id,name,games,wins,winrate,avg_turns,avg_damage_dealt,avg_kos");
             foreach (var stats in streamers.OrderByDescending(s => s.WinRate).ThenBy(s => s.Streamer.Id, StringComparer.Ordinal))
             {
                 Console.WriteLine(string.Join(",", Csv(stats.Streamer.Id), Csv(stats.Streamer.Name),
                     stats.Games.ToString(CultureInfo.InvariantCulture), stats.Wins.ToString(CultureInfo.InvariantCulture),
-                    stats.WinRate.ToString("F6", CultureInfo.InvariantCulture), stats.AverageTurns.ToString("F6", CultureInfo.InvariantCulture)));
+                    stats.WinRate.ToString("F6", CultureInfo.InvariantCulture), stats.AverageTurns.ToString("F6", CultureInfo.InvariantCulture),
+                    stats.AverageDamageDealt.ToString("F6", CultureInfo.InvariantCulture), stats.AverageKos.ToString("F6", CultureInfo.InvariantCulture)));
             }
             Console.WriteLine();
             Console.WriteLine("skill_id,skill_name,uses");
