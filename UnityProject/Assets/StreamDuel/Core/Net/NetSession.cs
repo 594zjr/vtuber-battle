@@ -72,6 +72,11 @@ namespace StreamDuel.Core
                     Advance();
                 }
             }
+            catch (TcpDisconnectedException ex)
+            {
+                // 终局仍接收迟到的协议报错，只有排队消息处理完后的纯断线可以忽略。
+                if (State != NetState.Over) Fault(NetState.Error, ex.Message, false);
+            }
             catch (Exception ex)
             {
                 Fault(NetState.Error, "接收或处理消息失败：" + ex.Message);

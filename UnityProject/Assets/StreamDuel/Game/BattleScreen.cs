@@ -101,7 +101,7 @@ namespace StreamDuel.Game
         void LoadPack(string id)
         {
             db = packs.First(p => p.PackId == id);
-            PlayerPrefs.SetString("sd.pack", id);
+            if (!SmokeRequested) PlayerPrefs.SetString("sd.pack", id);
             var saved = PlayerPrefs.GetString("sd.pick." + id, "");
             pick = saved.Split(',').Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
             if (pick.Count == 0) RandomPick();
@@ -114,7 +114,10 @@ namespace StreamDuel.Game
             pick = TeamBuilder.Suggest(db, null, new string[0], unchecked((uint)System.Environment.TickCount));
             SavePick();
         }
-        void SavePick() { PlayerPrefs.SetString("sd.pick." + db.PackId, string.Join(",", pick)); }
+        void SavePick()
+        {
+            if (!SmokeRequested) PlayerPrefs.SetString("sd.pick." + db.PackId, string.Join(",", pick));
+        }
 
         void EnsureStyles()
         {

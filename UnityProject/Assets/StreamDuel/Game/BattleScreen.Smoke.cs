@@ -10,6 +10,9 @@ namespace StreamDuel.Game
 {
     public sealed partial class BattleScreen
     {
+        // Awake 会先加载内容包；在 Start 前就识别验收模式，避免覆盖玩家偏好。
+        static bool SmokeRequested => Array.IndexOf(Environment.GetCommandLineArgs(), "--smoke-test") >= 0;
+
         [Serializable]
         sealed class SmokeResult
         {
