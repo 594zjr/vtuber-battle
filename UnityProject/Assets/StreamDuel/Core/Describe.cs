@@ -135,5 +135,46 @@ namespace StreamDuel.Core
             switch (f.Kind) { case "turn": return Loc.T("describe.field.turn"); case "mark": return Loc.T("describe.field.mark"); case "protect": return Loc.T("describe.field.protect"); }
             return f.Kind;
         }
+
+        public static string StatusKind(StatusDef status)
+        {
+            return status.IsControl ? Loc.T("describe.status.control") : Loc.T("describe.status.weak");
+        }
+
+        public static string StatusDuration(StatusDef status, int remaining)
+        {
+            return status.IsControl ? Loc.T("describe.duration.actions", remaining) : Loc.T("describe.duration.turns", remaining);
+        }
+
+        public static string StatusTiming(StatusDef status)
+        {
+            return status.IsControl ? Loc.T("describe.at.self.action") : Loc.T("describe.at.turn.end");
+        }
+
+        public static string StatusTooltip(StatusDef status, int remaining)
+        {
+            // 控制消耗的是行动次数，不能把它写成按回合结束倒数。
+            return Loc.T("describe.status.tooltip", status.Name, StatusKind(status), StatusDuration(status, remaining),
+                StatusTiming(status), status.Cleanse ? Loc.T("describe.dispel.cleanse") : Loc.T("describe.dispel.no.cleanse"), status.Desc);
+        }
+
+        public static string FieldDuration(FieldDef field, int turns, int stacks)
+        {
+            return field.MaxStacks > 0 ? Loc.T("describe.duration.stacks", stacks) :
+                turns < 0 ? Loc.T("describe.duration.until.leave") : Loc.T("describe.duration.turns", turns);
+        }
+
+        public static string FieldTooltip(FieldDef field, int turns, int stacks)
+        {
+            string remaining = turns < 0 ? Loc.T("describe.duration.until.leave") : Loc.T("describe.duration.turns", turns);
+            string layers = field.MaxStacks > 0 ? Loc.T("describe.field.layers", Loc.T("describe.duration.stacks", stacks)) : "";
+            return Loc.T("describe.field.tooltip", field.Name, FieldKind(field), layers, remaining, field.When,
+                field.Dispel ? Loc.T("describe.dispel.turns") : Loc.T("describe.dispel.no.turns"), field.Desc);
+        }
+
+        public static string EffectTiming(string at)
+        {
+            return at == "pre" ? Loc.T("describe.at.pre.short") : Loc.T("describe.at.post.short");
+        }
     }
 }
