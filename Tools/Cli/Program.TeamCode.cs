@@ -18,6 +18,8 @@ namespace StreamDuel.Cli
             {
                 throw new FormatException("队伍码无效：" + ex.Message, ex);
             }
+            if (preset.NameInput.Changed)
+                Console.WriteLine("文字提示：队伍名称将按输入规范清理后显示。");
             if (!options.PackSpecified) options.Pack = preset.PackId;
             return preset;
         }

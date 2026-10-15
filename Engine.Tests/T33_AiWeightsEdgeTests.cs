@@ -28,7 +28,7 @@ public class T33_AiWeightsEdgeTests
         return new Battle(db, new IList<string>[] { own, rotated.Skip(6).Take(6).ToList() }, new[] { "A", "B" }, seed);
     }
 
-    static string Play(uint seed, AiLevel level, Func<Battle, int, BattleAction> choose)
+    static string Play(uint seed, AiLevel level, Func<Battle, int, BattleAction> choose, bool legacy = false)
     {
         var previousCulture = CultureInfo.CurrentCulture;
         try
@@ -41,7 +41,9 @@ public class T33_AiWeightsEdgeTests
             {
                 if (battle.Phase == Phase.Choose) battle.ResolveTurn(choose(battle, 0), choose(battle, 1));
                 else for (int side = 0; side < 2; side++)
-                    if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, level));
+                    if (battle.Need[side]) battle.Replace(side, legacy
+                        ? Ai.ChooseReplacementWithWeights(battle, side, level, AiWeights.Legacy)
+                        : Ai.ChooseReplacement(battle, side, level));
             }
             Assert.Equal(Phase.Over, battle.Phase);
             return JsonSerializer.Serialize(new
@@ -79,9 +81,11 @@ public class T33_AiWeightsEdgeTests
         // 当时 Ai.cs SHA256: FA1FFCE0785CA4CF02B381CAECD9F8134D512BE0D5FACF1D335F1A555A191FA3。
         // T-82 先用 32f190e 资源重现全部五个旧摘要，再同步三项显示名替换影响的四个摘要。
         // 胜方、回合、下一次随机数及所有日志非 Text 字段逐项相同；本地证据：bin/t82-ai-audit/audit.json。
-        string actual = Play(seed, level, (battle, side) => Ai.Choose(battle, side, level));
+        // T-95 明确区分冻结的旧策略回归与新默认重载一致性，保留所有历史摘要。
+        string actual = Play(seed, level, (battle, side) => Ai.ChooseWithWeights(battle, side, level, AiWeights.Legacy), true);
         output.WriteLine("{0}/{1}: {2}", level, seed, Hash(actual));
         Assert.Equal(expected, Hash(actual));
+        actual = Play(seed, level, (battle, side) => Ai.Choose(battle, side, level));
         Assert.Equal(actual, Play(seed, level, (battle, side) => Ai.Choose(battle, side, level, AiWeights.Default)));
         if (level == AiLevel.Normal)
             Assert.Equal(actual, Play(seed, level, (battle, side) => Ai.Choose(battle, side)));

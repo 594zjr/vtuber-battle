@@ -204,7 +204,7 @@ namespace StreamDuel.Cli
 
         private static void PrintTimeout(Battle battle, int side, bool replacement)
         {
-            Console.WriteLine(battle.Sides[side].Name + (replacement
+            Console.WriteLine(TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text + (replacement
                 ? "：补位超时，提交编号最小的可上场队友。"
                 : "：超时，提交默认跳过（按当前状态结算）。"));
         }

@@ -120,9 +120,9 @@ try {
     $checks.Add('指纹不符默认拒绝；显式文件/分享码回看警告，战报标注，来源和再分享记录不变')
 
     $futureRecord = [StreamDuel.Core.BattleRecord]::FromJson($originalJson)
-    $futureRecord.Version = 3
+    $futureRecord.Version = [StreamDuel.Core.BattleRecord]::CurrentVersion + 1
     $futurePath = Write-Fixture 'future' $futureRecord.ToJson()
-    Assert-Check ([StreamDuel.Core.BattleRecord]::FromJson($futureRecord.ToJson()).Version -eq 3) '读取器未保留任意正版本号的历史行为。'
+    Assert-Check ([StreamDuel.Core.BattleRecord]::FromJson($futureRecord.ToJson()).Version -eq $futureRecord.Version) '读取器未保留任意正版本号的历史行为。'
     foreach ($extra in @(@(), @('--replay-best-effort'))) {
         $future = Invoke-Cli ('future-' + $extra.Count) (@('--replay', $futurePath, '--auto') + $extra) 1
         Assert-Check ($future.Err.Contains('录像来自更新的版本') -and -not $future.Err.Contains(' at ')) '未来版本回看未给中文提示或泄漏堆栈。'
@@ -132,7 +132,7 @@ try {
         $futureShare = Invoke-Cli ('future-share-' + $extra.Count) (@('--replay-code', $futureCode, '--auto') + $extra) 1
         Assert-Check ($futureShare.Err.Contains('录像来自更新的版本')) '未来分享码没有版本提示。'
     }
-    $malformedFuturePath = Write-Fixture 'malformed-future' '{"version":3,"teams":false}'
+    $malformedFuturePath = Write-Fixture 'malformed-future' ('{"version":' + $futureRecord.Version + ',"teams":false}')
     $malformedFuture = Invoke-Cli 'malformed-future' @('--replay', $malformedFuturePath, '--auto') 1
     Assert-Check ($malformedFuture.Err.Contains('teams 必须是数组')) '未来版本的坏结构未继续校验。'
     $checks.Add('未来版本可解析，文件与分享码的严格/尽力回看均由兼容检查拒绝；坏结构仍报错')
@@ -212,7 +212,7 @@ try {
     Assert-Check ($libraryReplay.Out.Contains('结果可能不同') -and $libraryReplay.Out.Contains('回看结束：')) '录像编号回看未使用兼容入口。'
     $futureLibraryPath = Join-Path $libraryDirectory 'future.json'
     $futureLibraryJson = [IO.File]::ReadAllText((Join-Path $libraryDirectory ($replayId + '.json')))
-    $futureLibraryJson = $futureLibraryJson.Replace('"version":2', '"version":3').Replace('"id":"' + $replayId + '"', '"id":"future"')
+    $futureLibraryJson = $futureLibraryJson.Replace('"version":' + $changed.Version, '"version":' + $futureRecord.Version).Replace('"id":"' + $replayId + '"', '"id":"future"')
     [IO.File]::WriteAllText($futureLibraryPath, $futureLibraryJson, $utf8)
     $futureHash = (Get-FileHash -LiteralPath $futureLibraryPath -Algorithm SHA256).Hash
     $listed = Invoke-Cli 'library-list-future' @('--replays', '--save-dir', $librarySave)

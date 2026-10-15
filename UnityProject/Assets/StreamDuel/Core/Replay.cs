@@ -203,6 +203,9 @@ namespace StreamDuel.Core
                 || entry.Type == BattleRecordEventType.DrawResponse || entry.Type == BattleRecordEventType.Turn
                 && (entry.A0.Type == ActionType.Surrender || entry.A1.Type == ActionType.Surrender);
             if (termination && version < TerminationVersion) throw new FormatException("投降或和局事件需要录像版本 3。");
+            if (entry.Type == BattleRecordEventType.Turn
+                && (entry.A0.Type == ActionType.Surrender || entry.A1.Type == ActionType.Surrender))
+                throw new FormatException("投降必须使用独立 surrender 录像事件，不能记录为普通回合。");
             if (entry.Type == BattleRecordEventType.Surrender && (entry.Side < -1 || entry.Side > 1)
                 || (entry.Type == BattleRecordEventType.DrawOffer || entry.Type == BattleRecordEventType.DrawResponse) && (entry.Side < 0 || entry.Side > 1))
                 throw new FormatException("终局协商事件的对战方不合法。");

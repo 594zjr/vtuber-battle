@@ -7,6 +7,7 @@ namespace StreamDuel.Cli
     {
         private static void PrintReview(Battle battle, int viewerSide)
         {
+            battle = TextInput.ForDisplay(battle);
             Console.WriteLine();
             Console.WriteLine(Loc.Current.T("review.heading"));
             Console.WriteLine(Loc.Current.T("review.perspective", battle.Sides[viewerSide].Name));

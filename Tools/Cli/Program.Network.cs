@@ -44,13 +44,17 @@ namespace StreamDuel.Cli
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
-                Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
+                Console.WriteLine("连接成功；本方：" + session.DisplayNames[session.MySide] + "；房主种子：" + battle.Seed);
+                var nameInputs = session.NameInputs;
+                for (int side = 0; side < nameInputs.Count; side++)
+                    if (nameInputs[side].Changed)
+                        Console.WriteLine((side == session.MySide ? "本方" : "对方") + "昵称提示：" + nameInputs[side].Message);
                 if (session.Clock != null)
                     Console.WriteLine("已启用房主计时：每阶段 " + session.Clock.TurnLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture)
                         + " 秒；总时间 " + session.Clock.BankLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture) + " 秒。");
                 else if (!host && options.TurnSeconds.HasValue)
                     Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
-                PrintTeams(battle);
+                PrintTeams(TextInput.ForDisplay(battle));
                 PrintTerminationCommands(network: true);
                 var input = new ConsoleInput();
                 var pump = new NetworkPump(session);
@@ -119,8 +123,9 @@ namespace StreamDuel.Cli
                     waitingPrinted = false;
                     Console.WriteLine();
                     Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
-                    PrintFighter(battle, 1 - session.MySide);
-                    PrintFighter(battle, session.MySide);
+                    var displayBattle = TextInput.ForDisplay(battle);
+                    PrintFighter(displayBattle, 1 - session.MySide);
+                    PrintFighter(displayBattle, session.MySide);
                     var stamp = new ChoiceStamp(battle);
                     NetState choosingState = session.State;
                     Func<bool> expired = () => !stamp.Matches(battle) || session.HasSubmitted || session.State != choosingState;
@@ -183,12 +188,13 @@ namespace StreamDuel.Cli
 
         static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide)
         {
+            var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
-            Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
-            PrintTeams(battle);
+            Console.WriteLine("对局结束：" + (display.Winner < 0 ? "平局" : display.Sides[display.Winner].Name + " 获胜"));
+            PrintTeams(display);
             var summary = BattleSummary.From(battle);
-            Console.WriteLine(summary.ToText());
-            PrintReview(battle, mySide);
+            Console.WriteLine(BattleSummary.From(display).ToText());
+            PrintReview(display, mySide);
             bool shareFailed = false;
             try
             {
