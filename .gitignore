@@ -12,6 +12,8 @@ UnityProject/.vs/
 # dotnet
 **/bin/
 **/obj/
+# 本机玩家档案不进入源码仓库
+/saves/
 # 不提交任何官方素材或他人的图片、模型、音频
 *.psd
 *.moc3
