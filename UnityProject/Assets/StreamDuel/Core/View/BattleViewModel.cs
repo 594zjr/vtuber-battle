@@ -74,7 +74,7 @@ namespace StreamDuel.Core
                     var text = Describe.Effect(b.Db, effect);
                     skillView.Effects.Add(new SkillEffectView
                     {
-                        Timing = effect.At == "pre" ? "命中前" : "命中后",
+                        Timing = Describe.EffectTiming(effect.At),
                         Text = text.Text,
                         Dispel = text.Dispel
                     });
