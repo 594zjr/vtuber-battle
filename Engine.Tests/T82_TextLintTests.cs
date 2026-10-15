@@ -310,4 +310,52 @@ public class T82_TextLintTests
             CultureInfo.CurrentUICulture = oldUiCulture;
         }
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GeneratedEffectTextWarnsAtItsOwnPathWhenAReferencedSkillIsRenamed(bool struggle)
+    {
+        var db = Clean();
+        var skill = struggle ? db.Struggle : db.Skills["pk_b"];
+        db.Fields["pk_field"].Desc = "使用技能[pk_a]「拍点」维持节奏。";
+        var effect = new EffectDef { At = "post", Code = "FIELD", Target = "self", Field = "pk_field", Turns = 2 };
+        skill.Effects.Add(effect);
+
+        Assert.Contains("技能[pk_a]「拍点」", Describe.Effect(db, effect).Text);
+        Assert.Empty(TextLint.Check(db));
+
+        db.Skills["pk_a"].Name = "新拍点";
+        string contentHash = db.ContentHash();
+        string where = struggle ? "$.struggle.effects[0].generatedText" : "$.skills[pk_b].effects[0].generatedText";
+        var issue = Assert.Single(TextLint.Check(db), value => value.Where == where);
+
+        Assert.Equal("warn", issue.Level);
+        Assert.Equal(skill.Id, issue.Id);
+        Assert.Contains("pk_a", issue.Message);
+        Assert.Contains("拍点", issue.Message);
+        Assert.Equal(contentHash, db.ContentHash());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GeneratedEffectTextAllowsNoEffectsHealingAndOrdinaryQuotedFieldNames(bool struggle)
+    {
+        var db = Clean();
+        var skill = struggle ? db.Struggle : db.Skills["pk_b"];
+        Assert.Empty(skill.Effects);
+        Assert.Empty(TextLint.Check(db));
+
+        var heal = new EffectDef { At = "post", Code = "HEAL", Target = "self", Frac = 0.25 };
+        skill.Effects.Add(heal);
+        Assert.True(Describe.Effect(db, heal).Text.Length > TextLint.SkillNameLimit);
+        Assert.Empty(TextLint.Check(db));
+
+        db.Fields["pk_field"].Desc = "获得「护幕」并保持节奏。";
+        var field = new EffectDef { At = "post", Code = "FIELD", Target = "self", Field = "pk_field", Turns = 2 };
+        skill.Effects.Add(field);
+        Assert.Contains("「护幕」", Describe.Effect(db, field).Text);
+        Assert.Empty(TextLint.Check(db));
+    }
 }

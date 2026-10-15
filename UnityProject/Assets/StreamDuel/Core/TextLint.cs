@@ -47,6 +47,30 @@ namespace StreamDuel.Core
             var skillNames = new HashSet<string>(db.Skills.Values.Select(skill => skill.Name), StringComparer.Ordinal);
             if (db.Struggle != null) skillNames.Add(db.Struggle.Name);
 
+            void CheckSkillReferences(string value, string where, string id)
+            {
+                void Add(string level, string message)
+                {
+                    issues.Add(new LintIssue { Level = level, Where = where, Id = id, Message = message });
+                }
+
+                foreach (Match reference in SkillReference.Matches(value))
+                {
+                    string skillId = reference.Groups["id"].Value;
+                    string name = reference.Groups["name"].Value;
+                    if (skillId.Length > 0)
+                    {
+                        SkillDef skill;
+                        if (skillId == "struggle") skill = db.Struggle;
+                        else db.Skills.TryGetValue(skillId, out skill);
+                        if (skill == null || !string.Equals(name, skill.Name, StringComparison.Ordinal))
+                            Add("warn", "技能引用「" + skillId + "」的名字「" + name + "」与当前 name 不一致或技能不存在。");
+                    }
+                    else if (!skillNames.Contains(name))
+                        Add("warn", "说明中的技能名字「" + name + "」与当前技能 name 不一致或技能不存在。");
+                }
+            }
+
             void CheckText(string value, string where, string id, int limit = 0, bool required = true, bool notice = false)
             {
                 void Add(string level, string message)
@@ -80,21 +104,7 @@ namespace StreamDuel.Core
                     Add("warn", "中文文本混用半角标点，请统一使用，。：；！？（小数点和网址除外）。");
                 if (UnitSpace.IsMatch(prose))
                     Add("warn", "数字和单位之间有多余空格。");
-                foreach (Match reference in SkillReference.Matches(value))
-                {
-                    string skillId = reference.Groups["id"].Value;
-                    string name = reference.Groups["name"].Value;
-                    if (skillId.Length > 0)
-                    {
-                        SkillDef skill;
-                        if (skillId == "struggle") skill = db.Struggle;
-                        else db.Skills.TryGetValue(skillId, out skill);
-                        if (skill == null || !string.Equals(name, skill.Name, StringComparison.Ordinal))
-                            Add("warn", "技能引用「" + skillId + "」的名字「" + name + "」与当前 name 不一致或技能不存在。");
-                    }
-                    else if (!skillNames.Contains(name))
-                        Add("warn", "说明中的技能名字「" + name + "」与当前技能 name 不一致或技能不存在。");
-                }
+                CheckSkillReferences(value, where, id);
             }
 
             CheckText(db.PackName, "$.name", db.PackId);
@@ -106,9 +116,19 @@ namespace StreamDuel.Core
             foreach (var pair in db.Types.OrderBy(pair => pair.Key, StringComparer.Ordinal))
                 CheckText(pair.Value.Name, "$.types[" + pair.Key + "].name", pair.Key);
             foreach (var pair in db.Skills.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
                 CheckText(pair.Value.Name, "$.skills[" + pair.Key + "].name", pair.Key, SkillNameLimit);
+                for (int i = 0; i < pair.Value.Effects.Count; i++)
+                    CheckSkillReferences(Describe.Effect(db, pair.Value.Effects[i]).Text,
+                        "$.skills[" + pair.Key + "].effects[" + i.ToString(CultureInfo.InvariantCulture) + "].generatedText", pair.Key);
+            }
             if (db.Struggle != null)
+            {
                 CheckText(db.Struggle.Name, "$.struggle.name", db.Struggle.Id, SkillNameLimit);
+                for (int i = 0; i < db.Struggle.Effects.Count; i++)
+                    CheckSkillReferences(Describe.Effect(db, db.Struggle.Effects[i]).Text,
+                        "$.struggle.effects[" + i.ToString(CultureInfo.InvariantCulture) + "].generatedText", db.Struggle.Id);
+            }
             foreach (var pair in db.Statuses.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             {
                 CheckText(pair.Value.Name, "$.statuses[" + pair.Key + "].name", pair.Key, StatusNameLimit);
