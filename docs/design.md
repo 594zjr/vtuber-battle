@@ -370,6 +370,36 @@ T-59 起由 `GameBoot` 创建一个 `UIDocument` 与 `ScreenRouter`，默认仍�
 
 写入采用独占锁和临时文件替换，累计档案持锁完成读改写。新回放已经写入但索引更新或旧回放清理失败时，报告 `ReplayRetentionException`，保留新文件并继续记录本局战绩。路径检查拒绝越界及重解析点；战报输出不能覆盖设置或回放管理索引及其临时路径。文件命名与保留顺序使用的时间不参与战斗结算。
 
+### 8.3 画面动画时间线
+
+`BattleTimeline.Build(events, from, to, speed)` 把 `Battle.Events` 的半开区间 `[from, to)` 转换为纯 C# 的 `AnimCue` 列表，子区间从 0 秒开始。`EventIndex` 保留事件在原列表中的绝对下标，`LogIndex` 保留原日志下标；`Side`、`Slot`、`Id`、`Amount` 用于定位提示及显示引擎已经结算的变化，不在画面重算规则。返回列表和每个提示都是独立对象，不持有输入事件引用。
+
+以下时长以秒计，均为 1 倍速；同一事件内未注明先后的提示同时开始：
+
+| 战斗事件 | 动画提示与时长 | 跳字或参数 |
+|---|---|---|
+| Act | Cast 0.35，结束后 Projectile 0.25 | 均定位施放者，Id 为技能 id |
+| Damage | Hit 0.2、Flash 0.12、FloatText 0.8、HpBar 0.4 | `-数值`，Style 为 `damage`，定位实际受击者 |
+| Crit | FloatText 0.8 | `暴击`，Style 为 `crit`；保留事件的施放者定位 |
+| Miss | Miss 0.3、FloatText 0.8 | `未命中`，Style 为 `miss` |
+| Heal | FloatText 0.8、HpBar 0.4 | `+数值`，Style 为 `heal` |
+| Faint | Faint 0.5 | 定位下播者 |
+| Switch | SwitchOut 0.3，结束后 SwitchIn 0.35 | 离场者与新登场者的定位见下文 |
+| Enter | Enter 0.4 | 定位登场者 |
+| StatusAdd / StatusRemove | StatusIcon 0.3 | Style 为 `status`；Amount 为剩余次数或回合，移除时为 0 |
+| FieldAdd / FieldRemove | FieldBanner 0.6 | Style 为 `status`；添加保留原 Amount（回合、-1 或印记增量），移除时为 0 |
+| StageChange | FloatText 0.8 | 如 `互动 +1`、`抗压 -1`；Style 为 `stage-up` / `stage-down` |
+| End | End 0 | 保留胜方 Side，平局为 -1 |
+| PpChange / Info | 无 | 不占用动画时间 |
+
+同一事件的提示共用 EventIndex，下一事件在上一事件全部提示结束后开始；同 LogIndex 不代表同时播放。唯一并行例外是输入中紧邻的 Crit 和 Damage：二者同时开始，后一事件在两者全部提示结束后开始；各自保留独立的事件、日志与目标定位。独立 Crit 正常占用 0.8 秒。区间外的 Damage 不与区间内 Crit 配对。
+
+Switch 事件只标识离场者。SwitchIn 在当前区间内跳过不生成提示的 Info/PpChange 后，如果下一条可见事件是同 Side、Turn、Node 的 Enter，采用该 Enter 的 Slot 和 Id；其 EventIndex 和 LogIndex 仍属于 Switch。找不到或范围已截断时，保留 Side，以 Slot=-1、Id=null 表示尚未确定新主播，播放器不可据此显示旧主播重新入场。后续 Enter 仍独立生成 Enter 提示，不吞并事件。
+
+`speed` 是有限数值倍速：所有 Start、Duration 除以正倍速；小于等于 0 时保留全部提示与元数据，把 Start、Duration 全部置 0，以便直接呈现终态。NaN、无穷倍速、换算后开始时间或时长（含结束时间）溢出的极小正倍速、非法范围、范围内空事件及未知事件类型报参数错误。空区间或只有不生成提示的事件返回空列表。`TotalDuration(cues)` 返回全部 `Start + Duration` 的最大值，空列表为 0，不要求调用方列表已排序。
+
+跳字、能力名和错误文字通过 `Loc` 的 `timeline.*` 键取得，中文原表与 Core 内置表同步。能力名为互动、抗压、才艺、定力、反应；未知能力显示“能力”。Build 在开始时读取一次当前文本表；相同事件、范围、倍速和文本表得到相同结果，不读取系统时间、不使用随机数，也不改写 Battle、事件或日志。Unity 播放器由后续画面任务实现。
+
 ## 9. 电脑对手（`Ai.cs`）
 
 估算每个可用技能的价值：伤害技能按“估算伤害 / 对手当前人气”，能击倒加大权重，先手击倒再加；状态、能力、直播间效果、驱散、净化按局面给固定加分；加 0~0.08 随机扰动。威胁大且自己选项都差时，60% 概率换到对位更好的队友。补位选对位分最高的。
