@@ -30,6 +30,7 @@ namespace StreamDuel.Cli
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var db = LoadPack(content, options);
                 if (options.ListPacks) return 0;
+                if (options.RulesetId != null) return PlayRuleset(db, options);
                 var player = options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray();
                 var errors = TeamCheck.Validate(db, null, player);
                 if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
@@ -45,94 +46,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine(db.PackNotice);
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
-                PrintTeams(battle);
-                int logIndex = 0;
-                PrintNewLog(battle, ref logIndex);
-
-                while (battle.Phase != Phase.Over)
-                {
-                    if (battle.Phase == Phase.Ban)
-                    {
-                        Console.WriteLine();
-                        Console.WriteLine("===== 开局禁用 =====");
-                        for (int side = 0; side < 2 && battle.Phase == Phase.Ban; side++)
-                        {
-                            if (battle.HasChosenBan(side)) continue;
-                            int to;
-                            if (side == 0 && !options.Auto)
-                            {
-                                var choice = ReadBan(battle);
-                                if (!choice.HasValue) return Quit();
-                                to = choice.Value;
-                            }
-                            else to = Ai.ChooseBan(battle, side);
-                            battle.ChooseBan(side, to);
-                            PrintNewLog(battle, ref logIndex);
-                        }
-                        PrintTeams(battle);
-                        continue;
-                    }
-
-                    if (battle.Phase == Phase.Lead)
-                    {
-                        Console.WriteLine();
-                        Console.WriteLine("===== 选择首发 =====");
-                        for (int side = 0; side < 2 && battle.Phase == Phase.Lead; side++)
-                        {
-                            if (battle.HasChosenLead(side)) continue;
-                            int to;
-                            if (side == 0 && !options.Auto)
-                            {
-                                var choice = ReadLead(battle);
-                                if (!choice.HasValue) return Quit();
-                                to = choice.Value;
-                            }
-                            else to = Ai.ChooseLead(battle, side);
-                            battle.ChooseLead(side, to);
-                            PrintNewLog(battle, ref logIndex);
-                        }
-                        PrintTeams(battle);
-                        continue;
-                    }
-
-                    Console.WriteLine();
-                    Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
-                    PrintFighter(battle, 1);
-                    PrintFighter(battle, 0);
-                    if (battle.Phase == Phase.Replace)
-                    {
-                        for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
-                        {
-                            if (!battle.Need[side]) continue;
-                            int to;
-                            if (side == 0 && !options.Auto)
-                            {
-                                var choice = ReadReplacement(battle);
-                                if (!choice.HasValue) return Quit();
-                                to = choice.Value;
-                            }
-                            else to = Ai.ChooseReplacement(battle, side, options.Level);
-                            battle.Replace(side, to);
-                            PrintNewLog(battle, ref logIndex);
-                        }
-                        continue;
-                    }
-
-                    BattleAction action;
-                    if (options.Auto) action = Ai.Choose(battle, 0, options.Level);
-                    else
-                    {
-                        var choice = ReadAction(battle);
-                        if (!choice.HasValue) return Quit();
-                        action = choice.Value;
-                    }
-                    var foeAction = Ai.Choose(battle, 1, options.Level);
-                    int resolvedTurn = battle.Turn;
-                    battle.ResolveTurn(action, foeAction);
-                    PrintNewLog(battle, ref logIndex);
-                    if (options.Hash)
-                        Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-                }
+                if (!PlayLocalBattle(battle, options)) return Quit();
 
                 return SaveCompletedBattle(battle, options, 0);
             }
@@ -157,18 +71,20 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --ban             开局各禁用对方一位，变为五对五；手动输入对手号位。");
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
+            Console.WriteLine("  --ruleset 编号    casual（休闲一局）/ ranked（禁用、首发、三局两胜）/ chaos（乱斗一局）；不能与 --ban、--lead、--replay 或联网同用。");
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
             Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局。");
             Console.WriteLine("  --replay 文件     按记录中的内容包回看；回车下一回合，q 或输入结束退出；不累计战绩或保存新回放。");
             Console.WriteLine("  --report 文件     对局结束或回放全部播放后导出 UTF-8 Markdown 战报；提前退出不导出，不能覆盖回放输入或新对局档案。");
+            Console.WriteLine("赛制模式每局分别保存回放并累计战绩；--report 在整场赛制结束后写入比分和各局战报。计时配置会显示，当前 CLI 尚未启用倒计时。");
             Console.WriteLine("  --help / -h       显示本帮助。");
             Console.WriteLine("手动模式：1～5 使用技能；6～11 对应六个号位的换人选项；补位时输入号位 1～6。");
             Console.WriteLine("0 仅在受控时跳过，或技能全部无 PP 时使用硬撑；q 或输入结束退出，未完成对局不判胜负。");
             Console.WriteLine("相同内容、参数和种子的战斗日志一致；完整输出还取决于初始档案。连续对局会正常累计战绩。");
             Console.WriteLine("回放支持 --auto、--pack-dir 和 --report；不能与 --hash 同用，其他对战/存档参数不改变记录，也不写存档。");
-            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
+            Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--ruleset、--replay、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希。");
         }
 
         private static string LevelName(AiLevel level)

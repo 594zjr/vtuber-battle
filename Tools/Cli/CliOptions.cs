@@ -17,6 +17,7 @@ namespace StreamDuel.Cli
         public string SaveDir = "saves";
         public string ReplayFile;
         public string ReportFile;
+        public string RulesetId;
         public int? HostPort;
         public string JoinHost;
         public int JoinPort;
@@ -67,7 +68,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--pack" && option != "--level" && option != "--seed" && option != "--team"
-                    && option != "--report"
+                    && option != "--report" && option != "--ruleset"
                     && option != "--save-dir" && option != "--replay" && option != "--pack-dir"
                     && option != "--host" && option != "--join")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
@@ -77,6 +78,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--ruleset":
+                        if (options.RulesetId != null) throw new ArgumentException("--ruleset 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空的赛制 id。");
+                        options.RulesetId = value;
+                        break;
                     case "--report":
                         if (string.IsNullOrWhiteSpace(value))
                             throw new ArgumentException("--report 需要非空的战报文件路径。");
@@ -141,6 +147,7 @@ namespace StreamDuel.Cli
                     options.ReplayFile != null ? "--replay" : null,
                     options.Ban ? "--ban" : null,
                     options.Lead ? "--lead" : null,
+                    options.RulesetId != null ? "--ruleset" : null,
                     options.ListPacks ? "--list-packs" : null
                 }.Where(option => option != null).ToArray();
                 if (unsupported.Length > 0)
@@ -148,6 +155,13 @@ namespace StreamDuel.Cli
             }
             if (options.ReplayFile != null && options.Hash && !options.Help)
                 throw new ArgumentException("--replay 不支持 --hash；回看按保存的日志播放，不提供历史逐回合状态哈希。");
+            if (options.RulesetId != null && !options.Help)
+            {
+                if (options.ReplayFile != null)
+                    throw new ArgumentException("--ruleset 不能与 --replay 同用；回放使用记录中保存的单局规则。");
+                if (options.Ban || options.Lead)
+                    throw new ArgumentException("--ruleset 不能与 --ban 或 --lead 同用；禁用和首发由所选赛制决定。");
+            }
             return options;
         }
 

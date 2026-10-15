@@ -152,7 +152,7 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, bool exportReport = true)
         {
             Console.WriteLine();
             Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
@@ -161,7 +161,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options);
+                if (exportReport) SaveReport(battle, options);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
