@@ -122,7 +122,7 @@ namespace StreamDuel.PackCheck
                     {
                         var result = entry.Result;
                         if (result.Db == null) report(true, entry.Path, result.Error);
-                        else Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (entry.BuiltIn ? "内置" : "外部") + "〕（" + result.FileName + "）");
+                        else Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (entry.BuiltIn ? "内置" : "外部") + "〕（" + result.FileName + "），内容指纹：" + result.Db.ContentHash());
                     }
                     return errors == 0 ? 0 : 1;
                 }
@@ -141,6 +141,7 @@ namespace StreamDuel.PackCheck
                     }
 
                     int packErrors = errors;
+                    Console.WriteLine("内容包 " + db.PackId + " 内容指纹：" + db.ContentHash());
                     if (writeDocs && !SafeId(db.PackId))
                         report(true, location + " $.id", "生成名单时内容包 id 只能包含英文字母、数字、下划线和连字符，且不能使用 Windows 保留文件名。");
                     else if (writeDocs && !seenIds.Add(db.PackId))
