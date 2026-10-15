@@ -31,17 +31,21 @@
 3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
 
+顶部「主菜单」可进入新的 UI Toolkit 框架，组队、对战、结算、回看、设置、联网目前为独立占位页；「旧版对战」返回原有可玩界面，打开菜单期间原对战暂停。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。当前 Input System 1.20.1 使用 Both 兼容旧 IMGUI，待 T-67 替换旧画面后切为 New。
+
 ## Windows 打包
 
 在仓库根目录运行下面的命令；`Unity.exe` 使用 6000.6.5f1 编辑器的可执行文件，可将它所在目录加入 PATH，或替换为完整路径：
 
 ```powershell
-Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod BuildScript.BuildWindows -logFile build.log
+Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod UiProjectSetup.BuildWindows -logFile build.log
 ```
 
 产物位于 `UnityProject/Build/Windows/StreamDuel.exe`，运行时需保留同目录的全部构建文件。构建目录已加入 Git 忽略；构建日志写入仓库根目录的 `build.log`。
 
 `BuildScript.BuildWindows` 会先调用 `BuildScript.PrepareProject`：缺少主场景时创建合法空场景，并将它设为构建列表第 0 位；已有主场景和其他构建场景会保留。也可以在编辑器菜单「开播对决 → 准备主场景」或「开播对决 → 构建 Windows」执行。构建失败会抛出错误，让批处理命令返回失败状态。
+
+`UiProjectSetup.BuildWindows` 先生成或更新 UI Toolkit 的面板和字体引用，再调用上述构建；已提交的资源可直接打开运行。编辑器菜单「开播对决 → 准备界面资源」可重新接线。
 
 Windows 包的自动冒烟验收（需要正常图形桌面，不加 `-batchmode` / `-nographics`）：
 
@@ -51,6 +55,10 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 
 它通过现有界面入口切换内容包、选择首发并完成一局，截图和回放保存在指定目录新建的 `run-*` 子目录；`result.json` 记录结果，成功退出 0，失败或 180 秒超时退出 1。验收中的内容包切换和自动组队不覆盖玩家已保存的包选择与队伍。运行截图需要检查中文与排版；报告只统计 `BattleScreen.Start` 之后的日志，启动错误还须检查完整 Player 日志。此入口不替代鼠标、滚动和限时操作的人工验收；不传参数时正常进入组队页。
 
+`--ui-smoke-test <绝对输出目录>` 单独验证新界面路由、返回、生命周期与 1280×720 / 1920×1080 布局，保存实际渲染截图和报告；使用程序触发的导航事件，不等同于人工鼠标验收。两种验收模式均只加载内置包，使用内存设置，不读写玩家档案或 PlayerPrefs 阵容。
+
+编辑器验收可用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`，整局对战则将参数改为 `--smoke-test <绝对输出目录>`（不加 `-batchmode` / `-quit`）；它打开主场景并进入 Play，完成后记录 `UnityProject/Logs/T59/editor-console.json` 并退出。Console 红黄计数任一非零都返回失败；截图仍须复核。
+
 ## 结构
 
 | 位置 | 内容 |
@@ -58,7 +66,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 | `UnityProject/Assets/StreamDuel/Core/` | 对战规则引擎，纯 C#，不依赖 Unity（以后也能放到服务器上） |
 | `UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json` | 规则数据：技能、状态、直播间效果、人设、赛道克制 |
 | `UnityProject/Assets/StreamDuel/Resources/Packs/*.json` | 内容包：主播名单，可给技能、状态、人设换显示名，机制不变 |
-| `UnityProject/Assets/StreamDuel/Game/` | 第一版画面（Unity 自带的即时 GUI，零美术资源） |
+| `UnityProject/Assets/StreamDuel/Game/` | UI Toolkit 路由、分目录占位界面、舞台接口，以及迁移期间保留的 IMGUI 对战 |
 | `Engine/`、`Engine.Tests/` | 不开 Unity 也能编译和测试规则：`dotnet test Engine.Tests` |
 
 平衡模拟：`dotnet run --project Tools/Sim -- --pack original --games 5000 --seed 1`，标准输出为主播胜率及技能使用次数两段 CSV；胜率按入选队伍统计，详情见 `--help`。
