@@ -3,7 +3,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    // 打开工程后不用摆场景：按 Play 就会自动创建对战画面。
+    // 打开工程后不用摆场景：按 Play 就会自动创建主菜单。
     public static class GameBoot
     {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -24,7 +24,6 @@ namespace StreamDuel.Game
                 cam.gameObject.AddComponent<AudioListener>();
             }
             var go = new GameObject("StreamDuel");
-            go.AddComponent<BattleScreen>();
             go.AddComponent<UIDocument>();
             go.AddComponent<ScreenRouter>();
             go.AddComponent<GameBootRecovery>();
@@ -34,19 +33,17 @@ namespace StreamDuel.Game
         internal static void ConnectScreens(ScreenRouter router)
         {
             if (router.IsInitialized) return;
-            var legacy = router.GetComponent<BattleScreen>();
             var document = router.GetComponent<UIDocument>();
-            router.Initialize(document, Resources.Load<ScreenResources>("StreamDuelUI"), visible => legacy.enabled = visible);
+            router.Initialize(document, Resources.Load<ScreenResources>("StreamDuelUI"));
             router.Register(ScreenIds.Menu, () => new MenuScreen());
             router.Register(ScreenIds.Team, () => new TeamScreen());
-            router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
+            router.Register(ScreenIds.Battle, () => new BattleScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
             router.Register(ScreenIds.Replay, () => new ReplayScreen());
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
-            legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
-            // 纯 C# 对战数据无法跨脚本重载恢复，由旧画面的 OnEnable 安全回到组队。
-            router.Show(ScreenIds.Legacy);
+            // 脚本重载不能恢复纯 C# 对战数据，回到菜单重新开局。
+            router.Show(ScreenIds.Menu);
         }
     }
 }

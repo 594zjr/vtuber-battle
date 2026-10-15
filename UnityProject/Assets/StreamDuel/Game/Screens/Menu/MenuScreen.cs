@@ -6,13 +6,15 @@ namespace StreamDuel.Game
 {
     public sealed class MenuScreen : PlaceholderScreen
     {
+        bool returningToBattle;
         public override string Id => ScreenIds.Menu;
         protected override string Title => "开播对决";
-        protected override string DefaultReturnId => ScreenIds.Legacy;
-        protected override string ReturnLabel => "旧版对战";
+        protected override string DefaultReturnId => ScreenIds.Battle;
+        protected override string ReturnLabel => returningToBattle ? "返回对战" : "开始组队";
 
         protected override void BuildContent(ScreenRouter router, VisualElement content, object args)
         {
+            returningToBattle = args is ScreenArgs navigation && navigation.ReturnScreenId == ScreenIds.Battle && navigation.ReturnArgs != null;
             var buttons = new VisualElement();
             buttons.AddToClassList("menu-grid");
             content.Add(buttons);
@@ -42,6 +44,12 @@ namespace StreamDuel.Game
 
         void AddPage(ScreenRouter router, VisualElement content, string id, string label, object returnArgs)
         {
+            if (id == ScreenIds.Team || id == ScreenIds.Battle)
+            {
+                AddButton(content, "open-" + id, label,
+                    () => router.Show(ScreenIds.Battle, new ScreenArgs { ReturnScreenId = ScreenIds.Menu, ReturnArgs = returnArgs }));
+                return;
+            }
             AddButton(content, "open-" + id, label,
                 () => router.Show(id, new ScreenArgs { ReturnScreenId = ScreenIds.Menu, ReturnArgs = returnArgs }));
         }
