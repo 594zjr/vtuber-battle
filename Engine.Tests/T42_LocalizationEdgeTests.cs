@@ -121,7 +121,7 @@ public class T42_LocalizationEdgeTests
     public void CurrentInjectionReachesTeamCheckDescribeAndPackLoader()
     {
         var previous = Loc.Current;
-        string fixture = Path.Combine(Root, "Engine.Tests", "obj", "T42InjectedLocale");
+        string fixture = Path.Combine(Root, "Engine.Tests", "obj", "T42InjectedLocale-" + Guid.NewGuid().ToString("N"));
         string file = Path.Combine(fixture, "broken.json");
         try
         {
@@ -161,7 +161,8 @@ public class T42_LocalizationEdgeTests
         {
             Loc.Current = null;
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            var rows = T42_ChineseSnapshot.Collect(Resources, Path.Combine(Root, "Engine.Tests", "obj", "T42ChineseFixtures"));
+            var rows = T42_ChineseSnapshot.Collect(Resources,
+                Path.Combine(Root, "Engine.Tests", "obj", "T42ChineseFixtures-" + Guid.NewGuid().ToString("N")));
             Assert.Equal(467, rows.Count);
             using var sha = SHA256.Create();
             string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
