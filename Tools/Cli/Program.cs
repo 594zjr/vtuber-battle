@@ -248,6 +248,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("回放均支持 --auto、--pack-dir、--report 和 --share；不能与 --hash、--timer、--team-code、--export-team 同用。--save-dir 决定录像库位置，其他对战参数不改变记录；回看不新增战绩或录像。");
             Console.WriteLine("--replays 与回看、联网、--list-packs、--report、--share、--timer、队伍码导入导出及分析/图鉴入口互斥；其他对战参数对列表无影响。战报不能写入 replay-library 目录。现有文件路径优先于同名录像编号。");
             Console.WriteLine("联网仅用于可信局域网，无加密、无账号；不能与 --ban、--lead、--replay、--replay-code、--replays、--list-packs 同用。--auto 仅替本方选招，--hash 显示已同步阶段及最终哈希；仅在终局校验完成后分享和保存。");
+            Console.WriteLine("联网终局校验通过后更新默认赛制的本机排位分和段位；双方分数为自报，无防作弊。离线对局、回看和中途退出不计排位。");
         }
 
         private static string LevelName(AiLevel level)

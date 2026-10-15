@@ -812,3 +812,25 @@ CLI 的 `--tournament-report <赛事文件> [--json]` 是独立只读查询，�
 | `coverage` | `completedGames` 为已报非轮空局数，`archivedGames` 为可严格复算局数，`missingGames` 为未保存局数，`invalidGames` 为其余不能用于统计的已报局数；后三项之和等于第一项。 |
 | `maxDamage` | null 或含 `amount`、`pairingId`、`round`、`turn`、`logIndex`、`side`、`slot`、`streamerId`、`streamerName`、`replayId` 的对象；日志、方、号位从 0 开始。 |
 | `mostKos`, `mostAppearances` | null 或含 `streamerId`、`streamerName`、`count` 的对象；count 为累计击倒次数或出场局次。 |
+
+## 13. 排位分
+
+`PlayerRating` 保存整数分数 `Rating`（初始 1500）与已完成排位场数 `Games`（初始 0）。`RatingSystem.Apply(a, b, scoreA)` 接受 A 胜 1、平局 0.5、A 负 0；B 的得分为 `1-scoreA`。双方均使用结算前的分数和场数：A 的期望得分为 `1 / (1 + 10^((b.Rating-a.Rating)/400))`，个人前 10 局（赛前 Games < 10）K=40，之后 K=24。
+
+分差增量按 `K * (实际得分-期望得分)` 四舍五入（中点远离零）后加到整数分数，双方场数各加 1；K 相同时使用互为相反数的增量，保证双方都完成定级后总分不变。K 不同的定级对局允许总分变化。分数不在 0 处截断，以免破坏守恒；负分显示第一档段位。非法得分、负场数、同一实例互相对战或整数溢出均拒绝，失败不部分改写双方。
+
+`RatingSystem.Tiers` 为不可变的升序段位表，`TierOf` 取不高于分数的最高一档：
+
+| 最低分数 | 段位 |
+|---|---|
+| 0 | 初声开播 |
+| 1200 | 暖场新星 |
+| 1500 | 人气聚光 |
+| 1800 | 全场焦点 |
+| 2100 | 巅峰主场 |
+
+`PlayerRating` 的稳定 JSON 为 `{"games":0,"rating":1500}`，缺字段使用默认值，非法 JSON 或字段值抛中文 `FormatException`。`Profile.Ratings` 按赛制键保存排位记录；T-54 尚未合并时只使用 `Profile.DefaultRatingFormat` 的“默认”键。档案新增可选 `ratings` 对象，键按 ordinal 排序；旧档案缺此对象时为空，尚无排位记录时沿用旧 JSON 输出。坏排位字段与现有档案解析策略一致，整份坏档案返回默认值。
+
+联网握手的 `hello` 可附加 `"rating":{"games":12,"rating":1600}`，由 `NetSession` 末尾可选参数 `rating` 提供；原有计时和终止参数顺序不变，默认协议 3 与可选终止协议 4 均可携带。评级是可忽略的显示元数据，不新增消息或改变协议版本。缺少这份可选信息的旧端按 1500 分、0 场处理；提供时必须是合法整数分数和非负整数场数。`OpponentRating` 在握手前为 null，之后每次返回对端开场评级的独立副本。这些自报信息只用于本机显示，不防作弊，不进入战斗状态、随机流、回放或状态哈希。
+
+命令行联网开局只读加载本方“默认”评级并交换快照；只有双方完成终局校验后才更新本机档案。保存时持有原档案锁，读取本方最新已存评级，与对方开场评级的副本计算，只保存本方结果，同时原胜负统计仅累计一次。单机对电脑、回看、提前退出、断线及不同步均不累计排位分。以后接入服务器或 T-54 赛制时可复用相同计分接口；当前不增加账号、匹配或排行榜。
