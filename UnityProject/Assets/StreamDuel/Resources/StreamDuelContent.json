@@ -1,0 +1,155 @@
+{
+  "_readme": "开播对决 内容数据（全部原创）。引擎只认 code，不认名字。技能效果的 at：pre = 命中前判定（伤害之前），post = 命中后判定（伤害之后）。cond 在 at 指定的时机读取当时的数值。turns = -1 表示直到下场。",
+
+  "stats": { "hp": "人气", "atk": "互动", "def": "抗压", "spa": "才艺", "sdef": "定力", "spd": "反应" },
+  "categories": { "interact": "互动", "talent": "才艺", "status": "状态" },
+
+  "types": {
+    "song":   { "name": "歌回", "color": "#ff7fb6" },
+    "game":   { "name": "游戏", "color": "#ff8a3d" },
+    "talk":   { "name": "杂谈", "color": "#5fd08a" },
+    "art":    { "name": "绘画", "color": "#ffd166" },
+    "meme":   { "name": "整活", "color": "#c7a6ff" },
+    "asmr":   { "name": "助眠", "color": "#5cc6ff" },
+    "horror": { "name": "恐怖", "color": "#9b7dff" },
+    "tech":   { "name": "硬核", "color": "#9db4c9" }
+  },
+
+  "chart": {
+    "song":   { "talk": 2, "horror": 2, "meme": 0.5, "song": 0.5 },
+    "game":   { "tech": 2, "meme": 2, "horror": 0.5, "game": 0.5 },
+    "talk":   { "game": 2, "asmr": 2, "song": 0.5, "talk": 0.5 },
+    "art":    { "song": 2, "asmr": 2, "game": 0.5, "art": 0.5 },
+    "meme":   { "song": 2, "art": 2, "tech": 0.5, "meme": 0.5 },
+    "asmr":   { "horror": 2, "meme": 2, "talk": 0.5, "asmr": 0.5 },
+    "horror": { "talk": 2, "art": 2, "song": 0.5, "horror": 0.5 },
+    "tech":   { "art": 2, "horror": 2, "game": 0.5, "tech": 0.5 }
+  },
+
+  "statuses": {
+    "stall":      { "name": "卡麦", "cat": "control", "skip": 1, "cleanse": false, "desc": "跳过下 1 次行动。" },
+    "disconnect": { "name": "掉线", "cat": "control", "skip": 2, "cleanse": false, "desc": "跳过接下来 2 次行动。" },
+    "afk":        { "name": "挂机", "cat": "control", "skip": 3, "cleanse": false, "wakeOnHit": true, "desc": "最多跳过 3 次行动，受到伤害时回过神来。" },
+    "flame":      { "name": "炎上", "cat": "weak", "turns": 4, "dot": 0.0833333, "interactMul": 0.7, "cleanse": true, "desc": "回合结束时失去 1/12 人气；互动类伤害 ×0.7。持续 4 回合。" },
+    "hater":      { "name": "黑粉缠身", "cat": "weak", "turns": 4, "dot": 0.125, "cleanse": true, "desc": "回合结束时失去 1/8 人气。持续 4 回合。" },
+    "siphon":     { "name": "被引流", "cat": "weak", "turns": 5, "dot": 0.1, "leech": true, "cleanse": true, "desc": "回合结束时失去 1/10 人气，对手场上主播得到同等人气。持续 5 回合。" }
+  },
+
+  "fields": {
+    "shield":    { "name": "房管护盘", "kind": "turn", "when": "受到伤害时", "dispel": true, "dmgTakenMul": 0.6, "desc": "受到的伤害 ×0.6。" },
+    "filter":    { "name": "美颜滤镜", "kind": "turn", "when": "受到伤害时", "dispel": true, "dmgTakenMul": 0.7, "desc": "受到的伤害 ×0.7。" },
+    "early":     { "name": "抢先开播", "kind": "turn", "when": "排行动顺序时", "dispel": true, "prio": 1, "desc": "所有技能先制 +1。" },
+    "lag":       { "name": "网络延迟", "kind": "turn", "when": "排行动顺序时", "dispel": true, "prio": -1, "desc": "所有技能先制 -1。" },
+    "sub":       { "name": "舰长续费", "kind": "turn", "when": "回合结束", "dispel": true, "heal": 0.125, "desc": "回合结束时回复 1/8 人气。" },
+    "charge":    { "name": "憋大招", "kind": "turn", "when": "造成伤害时", "dispel": true, "talentMul": 2, "consume": true, "desc": "下一次才艺类技能伤害 ×2，用后消失。" },
+    "blackhist": { "name": "黑历史", "kind": "mark", "when": "回合结束", "dispel": false, "dot": 0.1, "desc": "回合结束时失去 1/10 人气，直到下场。属于印记，消回合清不掉。" },
+    "reconnect": { "name": "重连保护", "kind": "protect", "when": "被施加控制时", "dispel": false, "immuneControl": true, "desc": "刚从控制中恢复，免疫控制类状态。不能被消除。" },
+    "hype":      { "name": "热度", "kind": "mark", "when": "叠层 / 被消耗时", "dispel": false, "maxStacks": 5, "desc": "可叠加的印记，最多 5 层，被特定技能消耗。消回合清不掉，下场时清空。" }
+  },
+
+  "personas": {
+    "comeback":   { "name": "残血翻盘", "code": "T_LOWHP_POWER", "node": "本方造成伤害时", "params": { "below": 0.3333, "mul": 1.5 }, "desc": "自身人气低于 1/3 时，造成的伤害 ×1.5（命中前读取人气）。" },
+    "healing":    { "name": "深海疗愈", "code": "T_REGEN", "node": "回合结束", "params": { "frac": 0.1 }, "desc": "回合结束时回复 1/10 最大人气。" },
+    "family":     { "name": "家族群", "code": "T_BENCH_GUARD", "node": "受到伤害时", "params": { "per": 0.05 }, "desc": "己方后排每有 1 位还在播的队友，受到的伤害 -5%。" },
+    "punctual":   { "name": "准点开播", "code": "T_FIRST_TURN_PRIO", "node": "排行动顺序时", "params": { "prio": 1 }, "desc": "上场后的第一个回合，所有技能先制 +1。" },
+    "pure":       { "name": "纯净人设", "code": "T_TURNSTART_CLEANSE", "node": "回合开始", "params": {}, "desc": "回合开始时，移除自身 1 个弱化类状态。" },
+    "midnight":   { "name": "深夜突袭", "code": "T_EXECUTE", "node": "本方造成伤害时", "params": { "below": 0.5, "mul": 1.3 }, "desc": "对手人气低于 1/2 时，造成的伤害 ×1.3（命中前读取对手人气）。" },
+    "veteran":    { "name": "老司机", "code": "T_INTERACT_REDUCE", "node": "受到伤害时", "params": { "mul": 0.8 }, "desc": "受到的互动类伤害 ×0.8。" },
+    "teamspirit": { "name": "团魂", "code": "T_FREE_PP_SLOT6", "node": "使用技能时", "params": {}, "desc": "只要己方 6 号位的队友还在播（不是自己），使用技能不消耗 PP。" },
+    "trollback":  { "name": "反向带节奏", "code": "T_CONTACT_STATUS", "node": "被击中后", "params": { "chance": 30 }, "status": "flame", "desc": "被互动类技能击中后，30% 使攻击方炎上。" },
+    "beauty":     { "name": "美颜开局", "code": "T_ENTER_FIELD", "node": "登场时", "params": { "turns": 2 }, "field": "filter", "desc": "登场时获得「美颜滤镜」2 回合。人设本身不能被消除，但它给的滤镜是回合类效果，可以被消回合。" },
+    "curse":      { "name": "下播诅咒", "code": "T_FAINT_CURSE", "node": "下播时", "params": { "n": -1 }, "desc": "下播时，对手场上主播互动、抗压、才艺、定力、反应各 -1。" },
+    "combo":      { "name": "连击节奏", "code": "T_SPEED_IF_FIRST", "node": "回合结束", "params": { "n": 1 }, "desc": "回合结束时，如果本回合是先手行动，反应 +1。" }
+  },
+
+  "skills": {
+    "aim_burst":    { "name": "压枪连射", "type": "game", "cat": "interact", "power": 80, "pp": 20, "effects": [ { "at": "post", "code": "STATUS", "chance": 20, "target": "foe", "status": "flame" } ] },
+    "quick_mic":    { "name": "抢先开麦", "type": "game", "cat": "interact", "power": 50, "pp": 15, "prio": 1 },
+    "yolo_rush":    { "name": "无脑冲锋", "type": "game", "cat": "interact", "power": 120, "pp": 5, "acc": 90, "effects": [ { "at": "post", "code": "RECOIL", "frac": 0.25 } ] },
+    "pregame":      { "name": "赛前宣言", "type": "talk", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "atk": 2 } } ] },
+    "endgame":      { "name": "残局收割", "type": "game", "cat": "interact", "power": 70, "pp": 10, "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 2, "cond": { "kind": "foeWeak" } } ] },
+
+    "whisper_tide": { "name": "耳语潮声", "type": "asmr", "cat": "talent", "power": 80, "pp": 20 },
+    "wave_mic":     { "name": "海浪拍麦", "type": "asmr", "cat": "interact", "power": 90, "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "chance": 30, "target": "foe", "changes": { "spd": -1 } } ] },
+    "deep_breath":  { "name": "深呼吸", "type": "asmr", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "HEAL", "frac": 0.5 } ] },
+    "mod_guard":    { "name": "房管护盘", "type": "talk", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "shield", "turns": 2 } ] },
+    "late_reply":   { "name": "后发制人", "type": "asmr", "cat": "talent", "power": 70, "pp": 10, "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.5, "cond": { "kind": "actedSecond" } } ] },
+
+    "roast_chain":  { "name": "连环吐槽", "type": "talk", "cat": "talent", "power": 80, "pp": 15 },
+    "siphon_fans":  { "name": "引流", "type": "talk", "cat": "status", "pp": 10, "acc": 90, "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "siphon" } ] },
+    "lullaby_talk": { "name": "催眠电台", "type": "asmr", "cat": "status", "pp": 5, "acc": 75, "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "afk" } ] },
+    "ride_trend":   { "name": "蹭热度", "type": "talk", "cat": "talent", "power": 60, "pp": 15, "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.5 } ] },
+    "captain_renew":{ "name": "舰长续费", "type": "talk", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "sub", "turns": 4 } ] },
+
+    "high_note":    { "name": "高音破麦", "type": "song", "cat": "talent", "power": 80, "pp": 15, "effects": [ { "at": "pre", "code": "STATUS", "chance": 40, "target": "foe", "status": "stall", "cond": { "kind": "foeHpAbove", "value": 0.5 } } ] },
+    "warm_up":      { "name": "开嗓", "type": "song", "cat": "talent", "power": 40, "pp": 20, "prio": 2 },
+    "full_volume":  { "name": "全开麦爆音", "type": "song", "cat": "talent", "power": 130, "pp": 5, "acc": 85, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": -1 } } ] },
+    "go_live_early":{ "name": "抢先开播", "type": "talk", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "early", "turns": 3 } ] },
+    "noise_cancel": { "name": "降噪", "type": "song", "cat": "talent", "power": 70, "pp": 10, "effects": [ { "at": "post", "code": "DISPEL_TURNS", "target": "foe" } ] },
+
+    "sketch":       { "name": "速写", "type": "art", "cat": "talent", "power": 80, "pp": 15 },
+    "redraw":       { "name": "重绘", "type": "art", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "HEAL", "frac": 0.25 } ] },
+    "final_draft":  { "name": "终稿审判", "type": "art", "cat": "talent", "power": 100, "pp": 5, "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.5, "cond": { "kind": "foeBuffed" } }, { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ] },
+    "thick_paint":  { "name": "厚涂护甲", "type": "art", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 1, "sdef": 1 } } ] },
+    "one_stroke":   { "name": "一笔入魂", "type": "art", "cat": "talent", "power": 60, "pp": 10, "prio": 1 },
+
+    "jumpscare":    { "name": "突脸", "type": "horror", "cat": "interact", "power": 40, "pp": 20, "prio": 1 },
+    "cold_shock":   { "name": "冷不丁", "type": "horror", "cat": "interact", "power": 85, "pp": 10, "effects": [ { "at": "post", "code": "STATUS", "chance": 30, "target": "foe", "status": "hater" } ] },
+    "scare_combo":  { "name": "惊吓连拍", "type": "horror", "cat": "interact", "power": 70, "pp": 10, "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.5, "cond": { "kind": "actedFirst" } } ] },
+    "night_walk":   { "name": "夜行", "type": "horror", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "atk": 1, "spd": 1 } } ] },
+    "lag_curse":    { "name": "网络延迟", "type": "tech", "cat": "status", "pp": 5, "acc": 90, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "lag", "turns": 3 } ] },
+
+    "teardown":     { "name": "硬核拆解", "type": "tech", "cat": "interact", "power": 85, "pp": 15 },
+    "hammer_review":{ "name": "重锤测评", "type": "tech", "cat": "interact", "power": 110, "pp": 5, "acc": 90, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spd": -1 } } ] },
+    "iron_wall":    { "name": "铁壁", "type": "tech", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 2 } } ] },
+    "pull_cable":   { "name": "拔网线", "type": "meme", "cat": "interact", "power": 70, "pp": 10, "effects": [ { "at": "post", "code": "STATUS", "chance": 20, "target": "foe", "status": "disconnect" } ] },
+    "hotfix":       { "name": "热修复", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "HEAL", "frac": 0.5 } ] },
+
+    "meme_punch":   { "name": "整活拳", "type": "meme", "cat": "interact", "power": 75, "pp": 20, "effects": [ { "at": "post", "code": "ADD_MARK", "target": "self", "field": "hype", "n": 1 } ] },
+    "cat_walk":     { "name": "猫步", "type": "meme", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spd": 2 } } ] },
+    "lucky_draw":   { "name": "抽奖", "type": "meme", "cat": "talent", "power": 60, "pp": 15, "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.25 } ] },
+    "sudden_cute":  { "name": "突然卖萌", "type": "meme", "cat": "status", "pp": 5, "acc": 80, "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "stall" } ] },
+    "iconic_scene": { "name": "名场面", "type": "meme", "cat": "interact", "power": 90, "pp": 5, "effects": [ { "at": "pre", "code": "POWER_PER_MARK", "field": "hype", "per": 0.25, "consume": true } ] },
+
+    "rage_collab":  { "name": "暴躁连麦", "type": "game", "cat": "talent", "power": 90, "pp": 10, "effects": [ { "at": "post", "code": "STATUS", "chance": 30, "target": "foe", "status": "flame" } ] },
+    "stir_drama":   { "name": "带节奏", "type": "game", "cat": "status", "pp": 10, "acc": 85, "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "flame" } ] },
+    "thick_skin":   { "name": "厚脸皮", "type": "talk", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 1, "sdef": 1 } } ] },
+    "map_cannon":   { "name": "地图炮", "type": "game", "cat": "interact", "power": 75, "pp": 15 },
+    "delete_save":  { "name": "怒删存档", "type": "game", "cat": "talent", "power": 140, "pp": 3, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": -2 } } ] },
+
+    "ear_clean":    { "name": "掏耳朵", "type": "asmr", "cat": "talent", "power": 75, "pp": 15 },
+    "cold_whisper": { "name": "冰冷耳语", "type": "asmr", "cat": "talent", "power": 65, "pp": 10, "effects": [ { "at": "post", "code": "STATUS", "chance": 25, "target": "foe", "status": "disconnect" } ] },
+    "beauty_cam":   { "name": "美颜滤镜", "type": "asmr", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "filter", "turns": 3 } ] },
+    "hold_ult":     { "name": "憋大招", "type": "asmr", "cat": "status", "pp": 10, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "charge", "turns": 5 } ] },
+    "surround":     { "name": "绕耳旋音", "type": "asmr", "cat": "talent", "power": 50, "pp": 15, "prio": 1 },
+
+    "grudge_hit":   { "name": "怨念重击", "type": "horror", "cat": "interact", "power": 90, "pp": 10 },
+    "dig_history":  { "name": "翻黑历史", "type": "horror", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "blackhist", "turns": -1 } ] },
+    "eat_danmaku":  { "name": "吞噬弹幕", "type": "horror", "cat": "interact", "power": 70, "pp": 10, "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.5 } ] },
+    "endless_night":{ "name": "永夜直播", "type": "horror", "cat": "talent", "power": 100, "pp": 5, "effects": [ { "at": "post", "code": "STATUS", "chance": 20, "target": "foe", "status": "afk" } ] },
+    "hex":          { "name": "诅咒", "type": "horror", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "changes": { "atk": -1, "spa": -1 } } ] },
+
+    "shock_mic":    { "name": "电流麦", "type": "tech", "cat": "talent", "power": 80, "pp": 15, "effects": [ { "at": "post", "code": "STATUS", "chance": 40, "target": "foe", "status": "stall", "cond": { "kind": "foeHpAbove", "value": 0.5 } } ] },
+    "gear_blade":   { "name": "齿刃", "type": "tech", "cat": "interact", "power": 70, "pp": 15, "prio": 1 },
+    "overclock":    { "name": "超频", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1, "spd": 1 } } ] },
+    "ban_danmaku":  { "name": "封禁弹幕", "type": "tech", "cat": "talent", "power": 60, "pp": 10, "effects": [ { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ] },
+    "lag_field":    { "name": "延迟力场", "type": "tech", "cat": "status", "pp": 5, "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "lag", "turns": 3 } ] }
+  },
+
+  "struggle": { "name": "硬撑", "type": "talk", "cat": "interact", "power": 40, "pp": 0, "effects": [ { "at": "post", "code": "RECOIL", "frac": 0.25 } ] },
+
+  "streamers": [
+    { "id": "enka",   "name": "绯月炎华", "type": "game",   "stats": { "hp": 380, "atk": 330, "def": 250, "spa": 220, "sdef": 240, "spd": 320 }, "persona": "comeback",   "skills": ["aim_burst", "quick_mic", "yolo_rush", "pregame"], "fifth": "endgame", "blurb": "FPS 主播，反应快，残血越打越狠。" },
+    { "id": "shiori", "name": "深海汐汐", "type": "asmr",   "stats": { "hp": 460, "atk": 260, "def": 300, "spa": 250, "sdef": 300, "spd": 180 }, "persona": "healing",    "skills": ["whisper_tide", "wave_mic", "deep_breath", "mod_guard"], "fifth": "late_reply", "blurb": "助眠主播，慢热耐打，后手反而更痛。" },
+    { "id": "lumi",   "name": "森野鹿鸣", "type": "talk",   "stats": { "hp": 420, "atk": 230, "def": 270, "spa": 290, "sdef": 290, "spd": 240 }, "persona": "family",     "skills": ["roast_chain", "siphon_fans", "lullaby_talk", "ride_trend"], "fifth": "captain_renew", "blurb": "杂谈主播，消耗型辅助，队友越多越稳。" },
+    { "id": "bell",   "name": "雷音铃铛", "type": "song",   "stats": { "hp": 340, "atk": 220, "def": 220, "spa": 340, "sdef": 230, "spd": 360 }, "persona": "punctual",   "skills": ["warm_up", "full_volume", "go_live_early", "noise_cancel"], "fifth": "high_note", "blurb": "歌回主播，全场最快，带消回合。" },
+    { "id": "hane",   "name": "白羽绘绘", "type": "art",    "stats": { "hp": 400, "atk": 200, "def": 250, "spa": 320, "sdef": 320, "spd": 270 }, "persona": "pure",       "skills": ["sketch", "redraw", "thick_paint", "one_stroke"], "fifth": "final_draft", "blurb": "绘画主播，自我净化，专打强化过的对手。" },
+    { "id": "momo",   "name": "夜猫墨墨", "type": "horror", "stats": { "hp": 350, "atk": 340, "def": 230, "spa": 200, "sdef": 220, "spd": 340 }, "persona": "midnight",   "skills": ["jumpscare", "cold_shock", "night_walk", "lag_curse"], "fifth": "scare_combo", "blurb": "恐怖游戏主播，对手残血时伤害提高。" },
+    { "id": "kei",    "name": "铁壁老K",   "type": "tech",   "stats": { "hp": 450, "atk": 310, "def": 360, "spa": 180, "sdef": 260, "spd": 160 }, "persona": "veteran",    "skills": ["teardown", "iron_wall", "pull_cable", "hotfix"], "fifth": "hammer_review", "blurb": "硬核测评主播，互动类伤害打不动他。" },
+    { "id": "nyako",  "name": "星砂喵喵", "type": "meme",   "stats": { "hp": 390, "atk": 280, "def": 260, "spa": 260, "sdef": 260, "spd": 300 }, "persona": "teamspirit", "skills": ["meme_punch", "cat_walk", "lucky_draw", "sudden_cute"], "fifth": "iconic_scene", "blurb": "整活主播，攒热度放名场面；6 号位队友在就不耗 PP。" },
+    { "id": "buck",   "name": "熔岩巴克", "type": "game",   "stats": { "hp": 470, "atk": 270, "def": 340, "spa": 240, "sdef": 280, "spd": 150 }, "persona": "trollback",  "skills": ["rage_collab", "stir_drama", "thick_skin", "map_cannon"], "fifth": "delete_save", "blurb": "暴躁老哥，谁跟他互动谁容易炎上。" },
+    { "id": "kasumi", "name": "雾隐霞",   "type": "asmr",   "stats": { "hp": 370, "atk": 240, "def": 240, "spa": 330, "sdef": 270, "spd": 310 }, "persona": "beauty",     "skills": ["ear_clean", "beauty_cam", "hold_ult", "surround"], "fifth": "cold_whisper", "blurb": "开播自带滤镜，憋大招一击。" },
+    { "id": "yuan",   "name": "怨灵阿渊", "type": "horror", "stats": { "hp": 480, "atk": 320, "def": 320, "spa": 280, "sdef": 300, "spd": 130 }, "persona": "curse",      "skills": ["grudge_hit", "eat_danmaku", "endless_night", "hex"], "fifth": "dig_history", "blurb": "最慢最肉，下播也要拉人下水。" },
+    { "id": "bee",    "name": "齿轮小蜂", "type": "tech",   "stats": { "hp": 330, "atk": 260, "def": 260, "spa": 300, "sdef": 240, "spd": 350 }, "persona": "combo",      "skills": ["gear_blade", "overclock", "ban_danmaku", "lag_field"], "fifth": "shock_mic", "blurb": "越先手越快，带消强化和减先制。" }
+  ]
+}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 规则引擎的唯一源码在 Unity 工程里，这里只是把同一批文件编成独立类库，方便不开 Unity 也能测试。 -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>StreamDuel.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../UnityProject/Assets/StreamDuel/Core/**/*.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,208 @@
+// 内容定义：主播、技能、状态、直播间效果、人设。全部从 JSON 读入。
+using System;
+using System.Collections.Generic;
+
+namespace StreamDuel.Core
+{
+    public sealed class TypeDef { public string Id, Name, Color; }
+
+    public sealed class StatusDef
+    {
+        public string Id, Name, Cat, Desc; // Cat: "control" 控制类 / "weak" 弱化类
+        public int Skip, Turns;
+        public double Dot, InteractMul = 1;
+        public bool Leech, Cleanse, WakeOnHit;
+        public bool IsControl { get { return Cat == "control"; } }
+    }
+
+    public sealed class FieldDef
+    {
+        public string Id, Name, Kind, When, Desc; // Kind: "turn" 回合类 / "mark" 印记 / "protect" 保护
+        public bool Dispel, Consume, ImmuneControl;
+        public double DmgTakenMul = 1, Heal, Dot, TalentMul = 1;
+        public int Prio, MaxStacks;
+    }
+
+    public sealed class CondDef { public string Kind; public double Value; }
+
+    public sealed class EffectDef
+    {
+        public string At, Code, Target, Status, Field;
+        public int Chance = 100, Turns, N;
+        public double Frac, Mul, Per;
+        public bool Consume;
+        public Dictionary<string, int> Changes = new Dictionary<string, int>();
+        public CondDef Cond;
+    }
+
+    public sealed class SkillDef
+    {
+        public string Id, Name, Type, Cat; // Cat: "interact" 互动 / "talent" 才艺 / "status" 状态
+        public int Power, Pp, Acc = 100, Prio;
+        public List<EffectDef> Effects = new List<EffectDef>();
+    }
+
+    public sealed class PersonaDef
+    {
+        public string Id, Name, Code, Node, Desc, Status, Field;
+        public Dictionary<string, double> Params = new Dictionary<string, double>();
+        public double P(string k) { double v; return Params.TryGetValue(k, out v) ? v : 0; }
+    }
+
+    public sealed class StreamerDef
+    {
+        public string Id, Name, Type, Persona, Fifth, Blurb;
+        public Dictionary<string, int> Stats = new Dictionary<string, int>();
+        public List<string> Skills = new List<string>();
+    }
+
+    public sealed class ContentDb
+    {
+        public static readonly string[] StatKeys = { "atk", "def", "spa", "sdef", "spd" };
+        public Dictionary<string, string> StatNames = new Dictionary<string, string>();
+        public Dictionary<string, string> CatNames = new Dictionary<string, string>();
+        public Dictionary<string, TypeDef> Types = new Dictionary<string, TypeDef>();
+        public Dictionary<string, Dictionary<string, double>> Chart = new Dictionary<string, Dictionary<string, double>>();
+        public Dictionary<string, StatusDef> Statuses = new Dictionary<string, StatusDef>();
+        public Dictionary<string, FieldDef> Fields = new Dictionary<string, FieldDef>();
+        public Dictionary<string, PersonaDef> Personas = new Dictionary<string, PersonaDef>();
+        public Dictionary<string, SkillDef> Skills = new Dictionary<string, SkillDef>();
+        public List<StreamerDef> Streamers = new List<StreamerDef>();
+        public SkillDef Struggle;
+
+        public StreamerDef Streamer(string id)
+        {
+            foreach (var s in Streamers) if (s.Id == id) return s;
+            throw new KeyError("没有这个主播：" + id);
+        }
+
+        public double TypeMul(string atk, string def)
+        {
+            Dictionary<string, double> row; double v;
+            return Chart.TryGetValue(atk, out row) && row.TryGetValue(def, out v) ? v : 1;
+        }
+
+        public string StatName(string k) { string v; return StatNames.TryGetValue(k, out v) ? v : k; }
+
+        // ---------- 读取 ----------
+        public static ContentDb FromJson(string json)
+        {
+            var root = (Dictionary<string, object>)MiniJson.Parse(json);
+            var db = new ContentDb();
+            foreach (var kv in Obj(root, "stats")) db.StatNames[kv.Key] = (string)kv.Value;
+            foreach (var kv in Obj(root, "categories")) db.CatNames[kv.Key] = (string)kv.Value;
+            foreach (var kv in Obj(root, "types"))
+            {
+                var o = (Dictionary<string, object>)kv.Value;
+                db.Types[kv.Key] = new TypeDef { Id = kv.Key, Name = Str(o, "name"), Color = Str(o, "color") };
+            }
+            foreach (var kv in Obj(root, "chart"))
+            {
+                var row = new Dictionary<string, double>();
+                foreach (var c in (Dictionary<string, object>)kv.Value) row[c.Key] = (double)c.Value;
+                db.Chart[kv.Key] = row;
+            }
+            foreach (var kv in Obj(root, "statuses"))
+            {
+                var o = (Dictionary<string, object>)kv.Value;
+                db.Statuses[kv.Key] = new StatusDef
+                {
+                    Id = kv.Key, Name = Str(o, "name"), Cat = Str(o, "cat"), Desc = Str(o, "desc"),
+                    Skip = Int(o, "skip"), Turns = Int(o, "turns"), Dot = Num(o, "dot", 0), InteractMul = Num(o, "interactMul", 1),
+                    Leech = Bool(o, "leech"), Cleanse = Bool(o, "cleanse"), WakeOnHit = Bool(o, "wakeOnHit"),
+                };
+            }
+            foreach (var kv in Obj(root, "fields"))
+            {
+                var o = (Dictionary<string, object>)kv.Value;
+                db.Fields[kv.Key] = new FieldDef
+                {
+                    Id = kv.Key, Name = Str(o, "name"), Kind = Str(o, "kind"), When = Str(o, "when"), Desc = Str(o, "desc"),
+                    Dispel = Bool(o, "dispel"), Consume = Bool(o, "consume"), ImmuneControl = Bool(o, "immuneControl"),
+                    DmgTakenMul = Num(o, "dmgTakenMul", 1), Heal = Num(o, "heal", 0), Dot = Num(o, "dot", 0), TalentMul = Num(o, "talentMul", 1),
+                    Prio = Int(o, "prio"), MaxStacks = Int(o, "maxStacks"),
+                };
+            }
+            foreach (var kv in Obj(root, "personas"))
+            {
+                var o = (Dictionary<string, object>)kv.Value;
+                var p = new PersonaDef { Id = kv.Key, Name = Str(o, "name"), Code = Str(o, "code"), Node = Str(o, "node"), Desc = Str(o, "desc"), Status = Str(o, "status"), Field = Str(o, "field") };
+                foreach (var pk in Obj(o, "params")) p.Params[pk.Key] = (double)pk.Value;
+                db.Personas[kv.Key] = p;
+            }
+            foreach (var kv in Obj(root, "skills")) db.Skills[kv.Key] = ReadSkill(kv.Key, (Dictionary<string, object>)kv.Value);
+            db.Struggle = ReadSkill("struggle", (Dictionary<string, object>)root["struggle"]);
+            foreach (var item in (List<object>)root["streamers"])
+            {
+                var o = (Dictionary<string, object>)item;
+                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb") };
+                foreach (var st in Obj(o, "stats")) s.Stats[st.Key] = (int)(double)st.Value;
+                foreach (var sk in (List<object>)o["skills"]) s.Skills.Add((string)sk);
+                db.Streamers.Add(s);
+            }
+            db.Validate();
+            return db;
+        }
+
+        static SkillDef ReadSkill(string id, Dictionary<string, object> o)
+        {
+            var s = new SkillDef { Id = id, Name = Str(o, "name"), Type = Str(o, "type"), Cat = Str(o, "cat"), Power = Int(o, "power"), Pp = Int(o, "pp"), Acc = o.ContainsKey("acc") ? Int(o, "acc") : 100, Prio = Int(o, "prio") };
+            object effs;
+            if (o.TryGetValue("effects", out effs))
+                foreach (var e in (List<object>)effs)
+                {
+                    var eo = (Dictionary<string, object>)e;
+                    var ef = new EffectDef
+                    {
+                        At = Str(eo, "at"), Code = Str(eo, "code"), Target = Str(eo, "target") ?? "foe", Status = Str(eo, "status"), Field = Str(eo, "field"),
+                        Chance = eo.ContainsKey("chance") ? Int(eo, "chance") : 100, Turns = eo.ContainsKey("turns") ? Int(eo, "turns") : -1, N = Int(eo, "n"),
+                        Frac = Num(eo, "frac", 0), Mul = Num(eo, "mul", 1), Per = Num(eo, "per", 0), Consume = Bool(eo, "consume"),
+                    };
+                    foreach (var c in Obj(eo, "changes")) ef.Changes[c.Key] = (int)(double)c.Value;
+                    object cond;
+                    if (eo.TryGetValue("cond", out cond))
+                    {
+                        var co = (Dictionary<string, object>)cond;
+                        ef.Cond = new CondDef { Kind = Str(co, "kind"), Value = Num(co, "value", 0) };
+                    }
+                    s.Effects.Add(ef);
+                }
+            return s;
+        }
+
+        // 内容写错时尽早报出来，而不是打到一半才崩
+        void Validate()
+        {
+            foreach (var sk in Skills.Values)
+            {
+                if (!Types.ContainsKey(sk.Type)) throw new KeyError("技能 " + sk.Id + " 的赛道不存在：" + sk.Type);
+                foreach (var e in sk.Effects)
+                {
+                    if (e.At != "pre" && e.At != "post") throw new KeyError("技能 " + sk.Id + " 的效果缺少判定时机 at");
+                    if (e.Status != null && !Statuses.ContainsKey(e.Status)) throw new KeyError("技能 " + sk.Id + " 用到不存在的状态：" + e.Status);
+                    if (e.Field != null && !Fields.ContainsKey(e.Field)) throw new KeyError("技能 " + sk.Id + " 用到不存在的效果：" + e.Field);
+                }
+            }
+            foreach (var s in Streamers)
+            {
+                if (!Types.ContainsKey(s.Type)) throw new KeyError("主播 " + s.Id + " 的赛道不存在");
+                if (!Personas.ContainsKey(s.Persona)) throw new KeyError("主播 " + s.Id + " 的人设不存在：" + s.Persona);
+                if (s.Skills.Count != 4) throw new KeyError("主播 " + s.Id + " 需要正好 4 个普通技能");
+                foreach (var k in s.Skills) if (!Skills.ContainsKey(k)) throw new KeyError("主播 " + s.Id + " 的技能不存在：" + k);
+                if (!Skills.ContainsKey(s.Fifth)) throw new KeyError("主播 " + s.Id + " 的第五技能不存在：" + s.Fifth);
+            }
+        }
+
+        static IEnumerable<KeyValuePair<string, object>> Obj(Dictionary<string, object> o, string k)
+        {
+            object v;
+            return o.TryGetValue(k, out v) && v is Dictionary<string, object> ? (Dictionary<string, object>)v : new Dictionary<string, object>();
+        }
+        static string Str(Dictionary<string, object> o, string k) { object v; return o.TryGetValue(k, out v) ? v as string : null; }
+        static int Int(Dictionary<string, object> o, string k) { object v; return o.TryGetValue(k, out v) && v is double ? (int)Math.Round((double)v) : 0; }
+        static double Num(Dictionary<string, object> o, string k, double d) { object v; return o.TryGetValue(k, out v) && v is double ? (double)v : d; }
+        static bool Bool(Dictionary<string, object> o, string k) { object v; return o.TryGetValue(k, out v) && v is bool && (bool)v; }
+    }
+
+    public sealed class KeyError : Exception { public KeyError(string m) : base(m) { } }
+}

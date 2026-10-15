@@ -1,0 +1,14 @@
+{
+    "name": "StreamDuel.Game",
+    "rootNamespace": "StreamDuel.Game",
+    "references": [ "StreamDuel.Core" ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
