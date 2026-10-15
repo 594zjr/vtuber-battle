@@ -112,24 +112,7 @@ namespace StreamDuel.Core
             for (int i = start; i < end; i++)
             {
                 var entry = entries[i];
-                if (entry.RngState.HasValue) battle.RestoreReplayRng(entry.RngState.Value);
-                switch (entry.Type)
-                {
-                    case BattleRecordEventType.Turn:
-                        battle.ResolveTurn(entry.A0, entry.A1);
-                        break;
-                    case BattleRecordEventType.Replace:
-                        battle.Replace(entry.Side, entry.To);
-                        break;
-                    case BattleRecordEventType.Lead:
-                        battle.ChooseLead(entry.Side, entry.To);
-                        break;
-                    case BattleRecordEventType.Ban:
-                        battle.ChooseBan(entry.Side, entry.To);
-                        break;
-                    default:
-                        throw new FormatException("未知回放事件类型：" + entry.Type);
-                }
+                Replay.ApplyEvent(battle, entry);
             }
         }
 
@@ -159,6 +142,7 @@ namespace StreamDuel.Core
                 A1 = source.A1,
                 Side = source.Side,
                 To = source.To,
+                Accepted = source.Accepted,
                 RngState = source.RngState
             };
         }

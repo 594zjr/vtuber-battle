@@ -92,6 +92,8 @@ namespace StreamDuel.Core
         private void StoreRevealedSelection(int side, string wire)
         {
             var action = BattleAction.FromWire(wire);
+            if (action.Type == ActionType.Surrender)
+                throw new FormatException("投降必须通过已协商的终止协议提交，不能伪装成普通行动公开。");
             if (phase == Phase.Choose) actions[side] = action;
             else
             {

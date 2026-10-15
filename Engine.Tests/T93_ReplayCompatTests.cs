@@ -48,15 +48,17 @@ public class T93_ReplayCompatTests
     }
 
     [Fact]
-    public void CurrentVersionRemainsTwoAndNewBattlesUseIt()
+    public void CurrentVersionSupportsThreeWhileOrdinaryNewBattlesStillUseTwo()
     {
         var db = BattleTests.LoadPack("original");
-        Assert.Equal(2, BattleRecord.CurrentVersion);
-        Assert.Equal(BattleRecord.CurrentVersion, new BattleRecord().Version);
+        // T-98 新增终局事件使用 v3；没有新事件的普通录像继续保留 v2。
+        Assert.Equal(3, BattleRecord.CurrentVersion);
+        Assert.Equal(2, BattleRecord.DefaultVersion);
+        Assert.Equal(2, new BattleRecord().Version);
         var battle = Make(db);
-        Assert.Equal(BattleRecord.CurrentVersion, battle.Record.Version);
+        Assert.Equal(2, battle.Record.Version);
         Assert.Equal(db.ContentHash(), battle.Record.ContentHash);
-        Assert.Equal(BattleRecord.CurrentVersion, BattleRecord.FromJson(battle.Record.ToJson()).Version);
+        Assert.Equal(2, BattleRecord.FromJson(battle.Record.ToJson()).Version);
         var compatibility = Replay.Check(db, battle.Record);
         Assert.True(compatibility.CanReplay);
         Assert.Equal(string.Empty, compatibility.Reason);
@@ -138,7 +140,7 @@ public class T93_ReplayCompatTests
     }
 
     [Theory]
-    [InlineData(3)]
+    [InlineData(4)]
     [InlineData(int.MaxValue)]
     public void FutureVersionParsingPreservesTheVersionAndStillValidatesPayloadStructure(int version)
     {
@@ -166,7 +168,7 @@ public class T93_ReplayCompatTests
     }
 
     [Theory]
-    [InlineData(3)]
+    [InlineData(4)]
     [InlineData(int.MaxValue)]
     public void FutureRecordsRequireCompatibilityRejectionWhileStrictRunKeepsLegacyBehavior(int version)
     {

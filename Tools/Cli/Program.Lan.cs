@@ -20,7 +20,7 @@ namespace StreamDuel.Cli
                 {
                     Name = options.LanHostName,
                     Port = actualPort,
-                    Protocol = NetSession.ProtocolVersion,
+                    Protocol = NetSession.TerminationProtocolVersion,
                     ContentHash = db.ContentHash(),
                     Ruleset = "casual"
                 };
@@ -97,8 +97,8 @@ namespace StreamDuel.Cli
                             + "；规则：" + LanText(room.Ruleset) + "；内容指纹：" + LanText(room.ContentHash));
                         if (finished - room.LastSeen > 3)
                             Console.WriteLine("  状态：已失联（超过 3 秒未收到广播）");
-                        else if (room.Protocol != NetSession.ProtocolVersion)
-                            Console.WriteLine("  状态：协议版本不兼容，当前版本为 " + NetSession.ProtocolVersion + "。");
+                        else if (room.Protocol != NetSession.TerminationProtocolVersion)
+                            Console.WriteLine("  状态：协议版本不兼容，当前版本为 " + NetSession.TerminationProtocolVersion + "。");
                         else
                         {
                             Console.WriteLine("  状态：可见（加入时仍会校验内容一致性）");

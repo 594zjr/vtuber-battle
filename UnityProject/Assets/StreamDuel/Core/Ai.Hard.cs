@@ -414,6 +414,7 @@ namespace StreamDuel.Core
             Turn = source.Turn;
             Phase = source.Phase;
             Winner = source.Winner;
+            CopyTerminationFrom(source);
             leadPickAfterBan = source.leadPickAfterBan;
             modifiers = new List<string>(source.modifiers).AsReadOnly();
             Record = new BattleRecord

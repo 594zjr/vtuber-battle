@@ -26,43 +26,48 @@ namespace StreamDuel.Cli
             Console.WriteLine("种子：" + options.Seed + "；A 方：" + options.NameA + "；B 方：" + options.NameB);
             Console.WriteLine("轮流私密选招，输入不回显；交接后按回车确认，q 或输入结束退出。");
             Console.WriteLine("本机档案按 A 方累计一次。");
+            Console.WriteLine("对战指令：/surrender 投降并结算；同屏模式暂不支持 /draw 求和。");
             int logIndex = 0;
-            while (session.Phase != Phase.Over)
+            try
             {
-                if (session.NeedsHandover && !ConfirmHotseatHandover(session, options)) return Quit();
-                int side = session.WhoseTurn;
-                var view = session.ViewFor(side);
-                PrintHotseatLog(session.Log, ref logIndex);
-                Console.WriteLine();
-                Console.WriteLine("===== 第 " + view.Turn + " 回合 · " + view.Sides[side].Name + " 操作 =====");
-                PrintHotseatTeams(view);
-                if (view.Phase == Phase.Ban)
+                while (session.Phase != Phase.Over)
                 {
-                    int? choice = ReadHotseatMember(view.Sides[1 - side], "禁用对手", null);
-                    if (!choice.HasValue) return Quit();
-                    session.SubmitBan(choice.Value);
-                }
-                else if (view.Phase == Phase.Lead)
-                {
-                    int? choice = ReadHotseatMember(view.Sides[side], "选择首发", null);
-                    if (!choice.HasValue) return Quit();
-                    session.SubmitLead(choice.Value);
-                }
-                else if (view.Phase == Phase.Replace)
-                {
-                    int? choice = ReadHotseatMember(view.Sides[side], "选择补位", view.SwitchTargets);
-                    if (!choice.HasValue) return Quit();
-                    session.SubmitReplace(choice.Value);
-                }
-                else
-                {
-                    PrintHotseatFighter(view, 1 - side, db);
-                    PrintHotseatFighter(view, side, db);
-                    BattleAction? choice = ReadHotseatAction(view, side);
-                    if (!choice.HasValue) return Quit();
-                    session.Submit(choice.Value);
+                    if (session.NeedsHandover && !ConfirmHotseatHandover(session, options)) return Quit();
+                    int side = session.WhoseTurn;
+                    var view = session.ViewFor(side);
+                    PrintHotseatLog(session.Log, ref logIndex);
+                    Console.WriteLine();
+                    Console.WriteLine("===== 第 " + view.Turn + " 回合 · " + view.Sides[side].Name + " 操作 =====");
+                    PrintHotseatTeams(view);
+                    if (view.Phase == Phase.Ban)
+                    {
+                        int? choice = ReadHotseatMember(view.Sides[1 - side], "禁用对手", null, session);
+                        if (!choice.HasValue) return Quit();
+                        session.SubmitBan(choice.Value);
+                    }
+                    else if (view.Phase == Phase.Lead)
+                    {
+                        int? choice = ReadHotseatMember(view.Sides[side], "选择首发", null, session);
+                        if (!choice.HasValue) return Quit();
+                        session.SubmitLead(choice.Value);
+                    }
+                    else if (view.Phase == Phase.Replace)
+                    {
+                        int? choice = ReadHotseatMember(view.Sides[side], "选择补位", view.SwitchTargets, session);
+                        if (!choice.HasValue) return Quit();
+                        session.SubmitReplace(choice.Value);
+                    }
+                    else
+                    {
+                        PrintHotseatFighter(view, 1 - side, db);
+                        PrintHotseatFighter(view, side, db);
+                        BattleAction? choice = ReadHotseatAction(view, side, session);
+                        if (!choice.HasValue) return Quit();
+                        session.Submit(choice.Value);
+                    }
                 }
             }
+            catch (BattleFinishedException) { }
             PrintHotseatLog(session.Log, ref logIndex);
             return SaveCompletedBattle(session.CloneCompletedBattle(), options, 0);
         }
@@ -122,20 +127,21 @@ namespace StreamDuel.Cli
             return result;
         }
 
-        private static int? ReadHotseatNumber(string prompt)
+        private static int? ReadHotseatNumber(string prompt, HotseatSession session)
         {
             while (true)
             {
                 Console.Write(prompt);
                 string line = ReadHotseatLine();
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
+                if (HandleHotseatCommand(session, line)) continue;
                 int number;
                 if (int.TryParse(line.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out number)) return number;
                 Console.WriteLine("请输入列表中的数字，或输入 q 退出。");
             }
         }
 
-        private static int? ReadHotseatMember(SideView team, string purpose, IList<int> targets)
+        private static int? ReadHotseatMember(SideView team, string purpose, IList<int> targets, HotseatSession session)
         {
             Console.WriteLine(purpose + "（当前队伍号位）：");
             var choices = targets ?? Enumerable.Range(0, team.Team.Count).ToList();
@@ -147,14 +153,14 @@ namespace StreamDuel.Cli
             }
             while (true)
             {
-                var number = ReadHotseatNumber(purpose + "（私密输入，q 退出）> ");
+                var number = ReadHotseatNumber(purpose + "（私密输入，q 退出）> ", session);
                 if (!number.HasValue) return null;
                 if (choices.Contains(number.Value - 1)) return number.Value - 1;
                 Console.WriteLine("该号位当前不可选，请选择列表中的主播。");
             }
         }
 
-        private static BattleAction? ReadHotseatAction(BattleViewModel view, int side)
+        private static BattleAction? ReadHotseatAction(BattleViewModel view, int side, HotseatSession session)
         {
             Console.WriteLine("技能：");
             foreach (var skill in view.Skills)
@@ -178,7 +184,7 @@ namespace StreamDuel.Cli
             else if (view.Struggle) Console.WriteLine("  [0] 所有技能无 PP，使用「" + view.StruggleName + "」");
             while (true)
             {
-                var number = ReadHotseatNumber("选择行动（私密输入，q 退出）> ");
+                var number = ReadHotseatNumber("选择行动（私密输入，q 退出）> ", session);
                 if (!number.HasValue) return null;
                 var skill = view.Skills.FirstOrDefault(option => option.Index + 1 == number.Value && option.Usable);
                 if (skill != null) return BattleAction.Skill(skill.Index);
