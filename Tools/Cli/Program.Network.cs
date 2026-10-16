@@ -100,7 +100,7 @@ namespace StreamDuel.Cli
                         if (input.EndRequested && (!input.EndOfInput
                             || !terminalCommand && awaitingDrawResponse < 0 && !session.DrawOfferPending && battle.Phase != Phase.Over)) return Quit();
                     }
-                    PrintNewLog(battle, ref logIndex);
+                    PrintNewLog(battle, ref logIndex, options.ExplainDamage);
                     if (options.Hash && session.State != NetState.Waiting && battle.Record.Events.Count != hashEventCount)
                     {
                         Console.WriteLine("同步状态哈希（第 " + battle.Turn + " 回合）：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));

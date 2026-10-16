@@ -101,7 +101,8 @@ namespace StreamDuel.Core
         {
             if (!HasModifier("sudden_death") || Turn < 10 || fighter.Fainted || Phase == Phase.Over) return;
             Damage(fighter, Math.Max(1, fighter.MaxHp / 16), Node.TurnEnd,
-                fighter.Name + " 因规则修饰器「人气骤降」人气 -{n}", false);
+                fighter.Name + " 因规则修饰器「人气骤降」人气 -{n}", false,
+                breakdown: SuddenDeathBreakdown(fighter));
         }
     }
 }

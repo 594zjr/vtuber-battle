@@ -415,6 +415,7 @@ namespace StreamDuel.Core
         // 评估副本没有开场和随机结算，定义只读共享，所有可变战斗数据单独持有。
         Battle(Battle source)
         {
+            CaptureDamageBreakdowns = false;
             Db = source.Db;
             Seed = source.Seed;
             rng = new Rng(0);

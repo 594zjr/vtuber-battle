@@ -44,6 +44,12 @@ namespace StreamDuel.Core
             get { return TextInput.ForDisplay(battle).Log.AsReadOnly(); }
         }
 
+        /// <summary>只显示已结算伤害的拆解，不暴露双方待确认的私密选择。</summary>
+        public IReadOnlyList<string> DamageExplanationForLog(int logIndex)
+        {
+            return BattleViewModel.DamageExplanationForLog(battle, logIndex);
+        }
+
         public HotseatSession(ContentDb db, IList<string> teamA, IList<string> teamB,
             string nameA, string nameB, BattleOptions opt)
         {
