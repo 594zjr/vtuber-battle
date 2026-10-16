@@ -324,7 +324,8 @@ public sealed class T98_CliTerminationTests
         {
             char[] buffer = new char[1024];
             int count;
-            while ((count = await reader.ReadAsync(buffer, 0, buffer.Length)) != 0)
+            // 输出读取不依赖 xUnit 上下文，避免与 Finish 的同步等待互锁。
+            while ((count = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) != 0)
                 lock (destination) destination.Append(buffer, 0, count);
         }
 
