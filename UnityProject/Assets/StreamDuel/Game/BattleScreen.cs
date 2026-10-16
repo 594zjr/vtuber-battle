@@ -76,7 +76,7 @@ namespace StreamDuel.Game
             fast = settings.FastPlay;
             timerOn = settings.TurnTimer;
             PackPolicy policy;
-            try { policy = UnityPackPolicy.Load(); }
+            try { policy = UnityPackPolicy.Load(); teamPolicySnapshot = policy; }
             catch (System.Exception ex)
             {
                 packErrors.Add("下架策略无法读取，已停止加载内容包：" + ex.Message);
@@ -245,6 +245,7 @@ namespace StreamDuel.Game
 
         void StartBattle(List<string>[] teams)
         {
+            if (RestartTeamBattle(teams)) return;
             lastTeams = teams;
             b = new Battle(db, new IList<string>[] { teams[0], teams[1] }, new[] { "你", "对手" }, (uint)System.Environment.TickCount, leadPick: true);
             view = View.Battle;
@@ -267,7 +268,7 @@ namespace StreamDuel.Game
         {
             if (b.Phase == Phase.Replace && b.Need[1])
             {
-                b.Replace(1, Ai.ChooseReplacement(b, 1));
+                b.Replace(1, Ai.ChooseReplacement(b, 1, settings.AiLevel));
                 if (!b.Need[0]) { Play(); return; }
             }
             timerLeft = 10f;
@@ -276,7 +277,7 @@ namespace StreamDuel.Game
         void Submit(BattleAction a)
         {
             if (b == null || playing || b.Phase != Phase.Choose) return;
-            b.ResolveTurn(a, Ai.Choose(b, 1));
+            b.ResolveTurn(a, Ai.Choose(b, 1, settings.AiLevel));
             detailKind = null;
             Play();
         }
@@ -285,7 +286,7 @@ namespace StreamDuel.Game
         {
             if (playing || b.Phase != Phase.Replace || !b.Need[0]) return;
             b.Replace(0, i);
-            if (b.Phase == Phase.Replace && b.Need[1]) b.Replace(1, Ai.ChooseReplacement(b, 1));
+            if (b.Phase == Phase.Replace && b.Need[1]) b.Replace(1, Ai.ChooseReplacement(b, 1, settings.AiLevel));
             Play();
         }
 
@@ -536,7 +537,7 @@ namespace StreamDuel.Game
         {
             GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
             if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
-            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(RequestTeamScreen);
             GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
 
             DrawLeadTeam(1, 104, "对手阵容 · 点卡片查看技能和人设");
@@ -589,7 +590,7 @@ namespace StreamDuel.Game
             if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
             bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
             if (nt != timerOn) { timerOn = nt; timerLeft = 10f; settings.TurnTimer = timerOn; SaveSettingsSafely(); }
-            if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(RequestTeamScreen);
             if (timerOn && !playing && b.Phase != Phase.Over) GUI.Label(new Rect(1340, 18, 200, 40), C(Mathf.CeilToInt(Mathf.Max(0, timerLeft)) + " 秒", Accent), sBig);
 
             var act = SnapActive();
@@ -878,7 +879,7 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(r.x, r.y + 30, r.width, 90), res, sHuge);
             GUI.Label(new Rect(r.x, r.y + 130, r.width, 30), "共 " + b.Log[b.Log.Count - 1].Turn + " 回合", sCenter);
             if (GUI.Button(new Rect(r.x + 40, r.y + 200, 230, 50), "同样阵容再来一局", sBtn)) Do(() => StartBattle(lastTeams));
-            if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+            if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(RequestTeamScreen);
         }
     }
 
