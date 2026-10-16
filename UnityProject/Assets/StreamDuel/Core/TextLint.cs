@@ -54,7 +54,7 @@ namespace StreamDuel.Core
                     issues.Add(new LintIssue { Level = level, Where = where, Id = id, Message = message });
                 }
 
-                foreach (Match reference in SkillReference.Matches(value))
+                foreach (System.Text.RegularExpressions.Match reference in SkillReference.Matches(value))
                 {
                     string skillId = reference.Groups["id"].Value;
                     string name = reference.Groups["name"].Value;

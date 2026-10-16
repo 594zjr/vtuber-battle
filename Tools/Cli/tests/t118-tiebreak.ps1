@@ -299,6 +299,54 @@ try {
     Check ($t118ModeChecks -eq 16) '必须执行 T119 两模式及 T122 两完整配置 × 两赛事参数组 × 双顺序，共 16 次拒绝。'
     Check ($invalid.Count -eq $t118OriginalInvalidCount) '交叉互斥片段不能替换或删减原无效参数用例。'
     $checks.Add('PASS T119_T122_tournament_modes_both_orders_16_rejections_no_files')
+    $t118RulesetInvalidCount = $invalid.Count
+    Check ($t118RulesetInvalidCount -eq 26) 'T54 交叉片段不得删改原有 26 项无效参数。'
+    $t118RulesetSourceDirectory = Split-Path $missing -Parent
+    Check (-not (Test-Path -LiteralPath $t118RulesetSourceDirectory)) 'T54 交叉验收的赛事来源目录必须尚不存在。'
+    $t118RulesetCases = @(
+        [pscustomobject]@{
+            Name = 'seed'; Option = '--tournament-seed'
+            Args = [string[]]@('--tournament', $missing, '--format', 'single', '--tournament-seed', '118')
+        },
+        [pscustomobject]@{
+            Name = 'disabled'; Option = '--no-auto-tiebreak'
+            Args = [string[]]@('--tournament', $missing, '--format', 'single', '--no-auto-tiebreak')
+        }
+    )
+    $t118RulesetChecks = 0
+    foreach ($t118RulesetCase in $t118RulesetCases) {
+        foreach ($t118RulesetFirst in @($true, $false)) {
+            $t118RulesetOrder = if ($t118RulesetFirst) { 'ruleset-first' } else { 'tournament-first' }
+            $t118RulesetName = 'ruleset-matrix-' + $t118RulesetCase.Name + '-' + $t118RulesetOrder
+            [string[]]$t118RulesetParameters = if ($t118RulesetFirst) {
+                [string[]]@('--ruleset', 'ranked') + $t118RulesetCase.Args
+            } else {
+                $t118RulesetCase.Args + [string[]]@('--ruleset', 'ranked')
+            }
+            [IO.File]::WriteAllText((Join-Path $run ($t118RulesetName + '.argv.json')),
+                ($t118RulesetParameters | ConvertTo-Json -Compress), $utf8)
+            $t118RulesetResult = Invoke-Cli $t118RulesetName $t118RulesetParameters @() 1
+            Check ($t118RulesetResult.Out.Length -eq 0) "$t118RulesetName 在拒绝前进入赛事或 BO3 对战流程。"
+            Check ($t118RulesetResult.Err.Contains('错误：') -and
+                $t118RulesetResult.Err.Contains('--ruleset 用于本地赛制对战，不能与') -and
+                $t118RulesetResult.Err.Contains('--tournament') -and
+                $t118RulesetResult.Err.Contains($t118RulesetCase.Option)) "$t118RulesetName 未命中已识别参数的中文模式互斥。"
+            Check (-not $t118RulesetResult.Err.Contains('未知参数') -and
+                -not $t118RulesetResult.Err.Contains('未知赛制')) "$t118RulesetName 不能依靠未识别 T54 入口通过验收。"
+            Check (-not (Test-Path -LiteralPath $t118RulesetSourceDirectory) -and
+                -not (Test-Path -LiteralPath $missing)) "$t118RulesetName 创建了赛事来源目录或文件。"
+            $t118RulesetWork = Join-Path $run $t118RulesetName
+            Check (-not (Test-Path -LiteralPath (Join-Path $t118RulesetWork 'saves'))) "$t118RulesetName 创建了普通战绩或录像存档。"
+            $t118RulesetUnexpected = @([IO.Directory]::GetFileSystemEntries($t118RulesetWork) | Where-Object {
+                [IO.Path]::GetFileName($_) -cnotin @('stdout.log', 'stderr.log')
+            })
+            Check ($t118RulesetUnexpected.Count -eq 0) "$t118RulesetName 在子进程工作目录留下额外文件或空目录。"
+            $t118RulesetChecks++
+        }
+    }
+    Check ($t118RulesetChecks -eq 4) '必须完成 ranked × T118 两参数组 × 双顺序，共 4 次拒绝。'
+    Check ($invalid.Count -eq $t118RulesetInvalidCount) 'T54 交叉片段不得替换或删减原有无效参数。'
+    $checks.Add('PASS T54_ruleset_T118_both_orders_4_rejections_no_files')
     for ($i = 0; $i -lt $invalid.Count; $i++) {
         $result = Invoke-Cli "invalid-$i" $invalid[$i] @() 1
         Check ($result.Out.Length -eq 0) '无效参数进入了交互或对战流程。'
