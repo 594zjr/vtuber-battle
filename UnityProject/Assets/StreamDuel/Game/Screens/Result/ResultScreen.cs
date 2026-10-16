@@ -44,7 +44,7 @@ namespace StreamDuel.Game
             title.style.flexShrink = 0;
             panel.Add(title);
 
-            // 长名字、完整队伍统计及窄窗口都留在同一滚动区域，操作按钮也不会被挤出面板。
+            // 长名字和完整队伍统计放在滚动区域；操作按钮固定在下方，不滚动也能看到。
             var scroll = new ScrollView(ScrollViewMode.Vertical) { name = "result-scroll" };
             scroll.style.flexGrow = 1;
             scroll.style.flexShrink = 1;
@@ -58,9 +58,9 @@ namespace StreamDuel.Game
             {
                 scroll.Add(Text("还没有结算记录", "result-empty"));
                 scroll.Add(Text("完成一场对战后，可以在这里查看统计、保存录像和复制战报。", "result-empty-note", "screen-note"));
-                var emptyActions = Actions(scroll);
+                var emptyActions = Actions(panel);
                 AddButton(emptyActions, "result-return-team", "返回组队", ReturnToTeam);
-                feedback = Feedback(scroll);
+                feedback = Feedback(panel);
                 return page;
             }
 
@@ -94,7 +94,7 @@ namespace StreamDuel.Game
             if (!completed)
                 scroll.Add(Text("以下为当前统计；完成对战后可保存本局录像、复制战报和再来一局。", "result-unfinished", "screen-note"));
 
-            var actions = Actions(scroll);
+            var actions = Actions(panel);
             var rematch = AddButton(actions, "result-rematch", args.RematchLabel ?? "再来一局", () => args.Rematch?.Invoke());
             rematch.SetEnabled(completed && args.Rematch != null);
             rematch.tooltip = completed ? "使用当前阵容继续下一局或重新开始比赛。不可用时可返回组队。" : "对战结束后可使用。";
@@ -105,7 +105,7 @@ namespace StreamDuel.Game
             var replay = AddButton(actions, "result-watch", "回看本局", OpenReplay);
             replay.SetEnabled(completed);
             AddButton(actions, "result-return-team", "返回组队", ReturnToTeam);
-            feedback = Feedback(scroll);
+            feedback = Feedback(panel);
 
             BuildSummary(scroll, battle, summary);
             return page;
@@ -276,7 +276,11 @@ namespace StreamDuel.Game
         static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
         static string PlayerName(Battle battle, int side) => TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text;
 
-        public void Tick(float dt) { }
+        public void Tick(float dt)
+        {
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (!disposed && router != null && keyboard != null && keyboard.escapeKey.wasPressedThisFrame) ReturnToTeam();
+        }
 
         public void Dispose()
         {
