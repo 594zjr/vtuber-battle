@@ -87,12 +87,12 @@ namespace StreamDuel.Core
             return preset;
         }
 
-        static string Base64Url(byte[] data)
+        internal static string Base64Url(byte[] data)
         {
             return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         }
 
-        static ulong Checksum(byte[] data, int length)
+        internal static ulong Checksum(byte[] data, int length)
         {
             // 此校验只用于识别复制损坏；公开队伍码不承担身份认证。
             ulong hash = 14695981039346656037UL;

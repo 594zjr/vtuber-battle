@@ -13,7 +13,7 @@ namespace StreamDuel.Core
         public Dictionary<string, int> PickWins = new Dictionary<string, int>(StringComparer.Ordinal);
     }
 
-    public sealed class Profile
+    public sealed partial class Profile
     {
         public const string DefaultRatingFormat = "默认";
         public Dictionary<string, PackStats> Packs = new Dictionary<string, PackStats>(StringComparer.Ordinal);
@@ -92,6 +92,7 @@ namespace StreamDuel.Core
                 }
                 sb.Append('}');
             }
+            WriteRulesets(sb);
             return sb.Append('}').ToString();
         }
 
@@ -115,6 +116,7 @@ namespace StreamDuel.Core
             if (string.IsNullOrWhiteSpace(json)) throw new FormatException("档案文件内容不能为空。");
             ValidateTokens(json);
             var root = ReadObject(MiniJson.Parse(json));
+            RulesetJson.RejectDuplicateKeys(json);
             var packs = ReadObject(Required(root, "packs"));
             var profile = new Profile();
             foreach (var pair in packs)
@@ -131,6 +133,7 @@ namespace StreamDuel.Core
             }
             if (root.TryGetValue("ratings", out var ratings))
                 foreach (var pair in ReadObject(ratings)) profile.Ratings.Add(pair.Key, PlayerRating.ReadValue(pair.Value));
+            profile.ReadRulesets(root);
             return profile;
         }
 

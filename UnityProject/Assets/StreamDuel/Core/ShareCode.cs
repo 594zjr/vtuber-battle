@@ -110,7 +110,7 @@ namespace StreamDuel.Core
             return -1;
         }
 
-        private sealed class DeflateInput : MemoryStream
+        internal sealed class DeflateInput : MemoryStream
         {
             public DeflateInput(byte[] data, int length) : base(data, 0, length, false) { }
 

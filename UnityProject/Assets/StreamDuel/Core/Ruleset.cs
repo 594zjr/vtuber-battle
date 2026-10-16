@@ -59,7 +59,12 @@ namespace StreamDuel.Core
 
         public static Ruleset FromJson(string json)
         {
-            var source = MiniJson.Parse(json) as Dictionary<string, object>
+            return ReadValue(MiniJson.Parse(json));
+        }
+
+        internal static Ruleset ReadValue(object value)
+        {
+            var source = value as Dictionary<string, object>
                 ?? throw new FormatException("赛制必须是 JSON 对象。");
             var ruleset = new Ruleset
             {
@@ -72,9 +77,9 @@ namespace StreamDuel.Core
                 TurnSeconds = ReadInt(source, "turnSeconds", 0),
                 BankSeconds = ReadInt(source, "bankSeconds", 0)
             };
-            if (source.TryGetValue("modifiers", out var value) && value != null)
+            if (source.TryGetValue("modifiers", out var modifiers) && modifiers != null)
             {
-                if (!(value is List<object> list)) throw new FormatException("赛制 modifiers 必须是字符串数组或 null。");
+                if (!(modifiers is List<object> list)) throw new FormatException("赛制 modifiers 必须是字符串数组或 null。");
                 ruleset.Modifiers = new List<string>();
                 foreach (var item in list)
                 {
