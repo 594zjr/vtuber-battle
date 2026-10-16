@@ -224,6 +224,7 @@ namespace StreamDuel.Game
                     Require(router.CurrentScreenId == page && !legacy.enabled, "菜单按钮未进入界面：" + page);
                     Capture(page);
                     ValidatePage(page);
+                    if (page == ScreenIds.Team) yield return CheckTeamScrollEnds();
                     if (page == ScreenIds.Battle) ValidateStage();
                     Submit("back-button");
                     yield return null;
@@ -358,6 +359,57 @@ namespace StreamDuel.Game
             new NullFx().Play("smoke-fx", stage.Fighter0, stage.Fighter1, 0);
         }
 
+        IEnumerator CheckTeamScrollEnds()
+        {
+            var page = document.rootVisualElement.Q<VisualElement>(ScreenIds.Team + "-screen");
+            var roster = page?.Q<ScrollView>("team-roster");
+            var detail = page?.Q<ScrollView>("team-detail");
+            var grid = page?.Q<VisualElement>("team-grid");
+            Require(page != null && roster != null && detail != null && grid != null && grid.childCount > 0,
+                "正式组队页缺少主播网格或详情滚动区，不能回退成占位页。");
+            var scrolls = new List<ScrollView>();
+            page.Query<ScrollView>().ForEach(scroll => scrolls.Add(scroll));
+            var offsets = new List<Vector2>();
+            foreach (var scroll in scrolls) offsets.Add(scroll.scrollOffset);
+            float rosterBefore = roster.scrollOffset.y;
+            Require(Finite(roster.verticalScroller.highValue) && roster.verticalScroller.highValue > rosterBefore + 1,
+                "正式组队名单必须有尚未验收的后排滚动内容。");
+            try
+            {
+                foreach (var scroll in scrolls)
+                {
+                    float end = scroll.verticalScroller.highValue;
+                    Require(Finite(end), "滚动范围无效：" + scroll.name);
+                    // 内容短于视口时 Unity 的 highValue 可以为负，此时应保持在起点。
+                    scroll.scrollOffset = new Vector2(0, Mathf.Max(0, end));
+                }
+                yield return null;
+                yield return null;
+                yield return new WaitForEndOfFrame();
+                Require(roster.scrollOffset.y > rosterBefore + 1
+                    && Mathf.Abs(roster.scrollOffset.y - roster.verticalScroller.highValue) <= 2,
+                    "主播网格没有真正滚到名单末尾。");
+                var lastPick = grid[grid.childCount - 1].Q<Button>(className: "sd-team__pick");
+                Require(lastPick != null && lastPick.visible && lastPick.resolvedStyle.display != DisplayStyle.None,
+                    "最后一位主播没有可见的选入按钮。");
+                bool scrolled;
+                Rect clip = VisibleClip(lastPick, document.rootVisualElement.worldBound, out scrolled);
+                Require(scrolled && lastPick.worldBound.width > 0 && lastPick.worldBound.height > 0
+                    && Contains(clip, lastPick.worldBound), "名单末位的选入按钮没有完整进入滚动视口。");
+                ValidatePage(ScreenIds.Team);
+                Capture(ScreenIds.Team + "-scrolled");
+                report.steps.Add(RequestedWidth + "×" + RequestedHeight
+                    + "：正式组队页所有滚动区滚到末尾；末位主播按钮实际可见，末尾文字、头像、边界与交叠重新验收。");
+            }
+            finally
+            {
+                for (int i = 0; i < scrolls.Count; i++) scrolls[i].scrollOffset = offsets[i];
+            }
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            ValidatePage(ScreenIds.Team);
+        }
+
         void ValidatePage(string screenId)
         {
             Require(document.rootVisualElement.resolvedStyle.display != DisplayStyle.None, "UI Toolkit 根节点不可见。");
@@ -367,15 +419,22 @@ namespace StreamDuel.Game
             CollectVisible(page, elements);
             Rect rootBounds = document.rootVisualElement.worldBound;
             Require(elements.Count > 0, "界面没有可见文字或控件：" + screenId);
+            var visible = new List<VisualElement>();
+            var clipped = new List<Rect>();
             foreach (var element in elements)
             {
                 Rect rect = element.worldBound;
                 Require(Finite(rect.x) && Finite(rect.y) && Finite(rect.width) && Finite(rect.height)
                     && rect.width > 0 && rect.height > 0, "控件布局无效：" + DescribeHierarchy(element));
-                Require(Contains(rootBounds, rect), "控件超出屏幕：" + Describe(element));
-                for (var ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
-                    if (ancestor is ScrollView scroll)
-                        Require(Contains(scroll.contentViewport.worldBound, rect), "控件被滚动视口裁切：" + Describe(element));
+                bool scrolled;
+                Rect clip = VisibleClip(element, rootBounds, out scrolled);
+                Rect seen = Intersection(rect, clip);
+                // 纵向滚动区的屏外前后排不是当前画面；非滚动元素仍必须完整位于屏幕。
+                if (scrolled && seen.height <= 0) continue;
+                if (scrolled)
+                    Require(clip.width > 0 && rect.xMin >= clip.xMin - 2 && rect.xMax <= clip.xMax + 2,
+                        "控件被滚动视口横向裁切：" + Describe(element));
+                else Require(Contains(rootBounds, rect), "控件超出屏幕：" + Describe(element));
                 var text = element as TextElement;
                 if (text != null && !string.IsNullOrEmpty(text.text))
                 {
@@ -393,16 +452,38 @@ namespace StreamDuel.Game
                     width = RequestedWidth, height = RequestedHeight,
                     x = rect.x, y = rect.y, w = rect.width, h = rect.height
                 });
+                visible.Add(element);
+                clipped.Add(seen);
             }
-            for (int i = 0; i < elements.Count; i++)
-                for (int j = i + 1; j < elements.Count; j++)
+            Require(visible.Count > 0, "界面没有进入可见视口的文字或控件：" + screenId);
+            for (int i = 0; i < visible.Count; i++)
+                for (int j = i + 1; j < visible.Count; j++)
                 {
-                    if (elements[i].Contains(elements[j]) || elements[j].Contains(elements[i])) continue;
-                    Rect a = elements[i].worldBound, b = elements[j].worldBound;
+                    if (visible[i].Contains(visible[j]) || visible[j].Contains(visible[i])) continue;
+                    Rect a = clipped[i], b = clipped[j];
                     float width = Mathf.Min(a.xMax, b.xMax) - Mathf.Max(a.xMin, b.xMin);
                     float height = Mathf.Min(a.yMax, b.yMax) - Mathf.Max(a.yMin, b.yMin);
-                    Require(width <= 1 || height <= 1, "控件交叠：" + Describe(elements[i]) + " / " + Describe(elements[j]));
+                    Require(width <= 1 || height <= 1, "控件交叠：" + Describe(visible[i]) + " / " + Describe(visible[j]));
                 }
+        }
+
+        static Rect VisibleClip(VisualElement element, Rect rootBounds, out bool scrolled)
+        {
+            Rect clip = rootBounds;
+            scrolled = false;
+            for (var ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
+                if (ancestor is ScrollView scroll)
+                {
+                    clip = Intersection(clip, scroll.contentViewport.worldBound);
+                    scrolled = true;
+                }
+            return clip;
+        }
+
+        static Rect Intersection(Rect first, Rect second)
+        {
+            return Rect.MinMaxRect(Mathf.Max(first.xMin, second.xMin), Mathf.Max(first.yMin, second.yMin),
+                Mathf.Min(first.xMax, second.xMax), Mathf.Min(first.yMax, second.yMax));
         }
 
         static void CollectVisible(VisualElement element, List<VisualElement> output)
