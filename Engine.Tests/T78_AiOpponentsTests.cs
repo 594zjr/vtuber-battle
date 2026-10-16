@@ -33,7 +33,9 @@ public class T78_AiOpponentsTests
             Assert.False(string.IsNullOrWhiteSpace(opponent.Id));
             Assert.False(string.IsNullOrWhiteSpace(opponent.Name));
             Assert.False(string.IsNullOrWhiteSpace(opponent.Blurb));
-            Assert.Null(opponent.Style);
+            // T-53 已合并，T-78 要求内置陪练声明真实出招风格。
+            Assert.Contains(opponent.Style, new[] { "aggressive", "defensive", "tricky" });
+            Assert.NotNull(AiStyles.Get(opponent.Style));
             Assert.Equal(6, opponent.Team.Count);
             Assert.Empty(TeamCheck.Validate(db, null, opponent.Team));
         }
@@ -73,6 +75,7 @@ public class T78_AiOpponentsTests
     [InlineData("original_wave2", AiLevel.Normal)]
     [InlineData("fan_holo_niji", AiLevel.Hard)]
     [InlineData("fan_asoul_vr", AiLevel.Expert)]
+    [InlineData("original_wave3", AiLevel.Hard)]
     public void FixedSeedReproducesSelectionsAndBattleAfterBanAndLead(string pack, AiLevel level)
     {
         var db = BattleTests.LoadPack(pack);
@@ -341,6 +344,7 @@ public class T78_AiOpponentsTests
         var battle = new Battle(db, new IList<string>[] { myTeam, opponent.Team },
             new[] { "练习方", opponent.Name },
             new BattleOptions { Seed = seed, BanOne = openingChoices, LeadPick = openingChoices });
+        AiOpponents.ApplyStyle(battle, 1, opponent);
         for (int step = 0; battle.Phase != Phase.Over && step < 500; step++)
         {
             if (battle.Phase == Phase.Ban)

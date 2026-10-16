@@ -35,18 +35,26 @@ namespace StreamDuel.Game
         {
             if (router.IsInitialized) return;
             var legacy = router.GetComponent<BattleScreen>();
+            legacy.EnsureMenuContentLoaded();
             var document = router.GetComponent<UIDocument>();
             router.Initialize(document, Resources.Load<ScreenResources>("StreamDuelUI"), visible => legacy.enabled = visible);
-            router.Register(ScreenIds.Menu, () => new MenuScreen());
-            router.Register(ScreenIds.Team, () => new TeamScreen());
+            router.Register(ScreenIds.Menu, () => new MenuScreen(legacy));
+            router.Register(ScreenIds.About, () => new AboutScreen());
+            router.Register(ScreenIds.AnimationPreview, () => new AnimPreviewScreen());
+            router.Register(ScreenIds.EffectPreview, () => new MenuPreviewScreen(ScreenIds.EffectPreview, "特效预览"));
+            router.Register(ScreenIds.Team, () => new TeamScreen(legacy));
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
             router.Register(ScreenIds.Replay, () => new ReplayScreen());
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
-            // 纯 C# 对战数据无法跨脚本重载恢复，由旧画面的 OnEnable 安全回到组队。
-            router.Show(ScreenIds.Legacy);
+            legacy.TeamScreenRequested = () => router.Show(ScreenIds.Team);
+            // 旧版验收入口继续直接开局；玩家和主菜单验收从正式菜单进入。
+            var arguments = System.Environment.GetCommandLineArgs();
+            bool legacySmoke = System.Array.IndexOf(arguments, "--smoke-test") >= 0
+                || System.Array.IndexOf(arguments, "--ui-smoke-test") >= 0;
+            router.Show(legacySmoke ? ScreenIds.Legacy : ScreenIds.Menu);
         }
     }
 }

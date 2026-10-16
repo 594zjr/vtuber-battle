@@ -5,7 +5,29 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public sealed class TypeDef { public string Id, Name, Color; }
+    public sealed class TypeDef
+    {
+        public string Id, Name, Color;
+        string symbol, colorAlt;
+
+        public string Symbol
+        {
+            get { return string.IsNullOrWhiteSpace(symbol) ? "●" : symbol; }
+            set { symbol = value; }
+        }
+
+        public string ColorAlt
+        {
+            get { return string.IsNullOrWhiteSpace(colorAlt) ? Color : colorAlt; }
+            set { colorAlt = value; }
+        }
+
+        internal TypeDef Copy()
+        {
+            // 保留缺省值本身，让复制后的备用颜色仍能跟随原颜色回退。
+            return (TypeDef)MemberwiseClone();
+        }
+    }
 
     public sealed class StatusDef
     {
@@ -54,7 +76,7 @@ namespace StreamDuel.Core
 
     public sealed class StreamerDef
     {
-        public string Id, Name, Type, Type2, Persona, Fifth, Blurb, Org;
+        public string Id, Name, Type, Type2, Persona, Fifth, Blurb, Org, AiStyle;
         public Dictionary<string, int> Stats = new Dictionary<string, int>();
         public List<string> Skills = new List<string>();
     }
@@ -87,9 +109,13 @@ namespace StreamDuel.Core
         public Dictionary<string, SeasonDef> Seasons = new Dictionary<string, SeasonDef>();
         public SkillDef Struggle;
         public string PackId, PackName, PackNotice;
+        ArtManifest art;
+        public ArtManifest Art { get { return art ?? (art = new ArtManifest(this)); } }
 
         public StreamerDef Streamer(string id)
         {
+            string disabled = Policy.PackReason(PackId) ?? Policy.StreamerReason(id);
+            if (disabled != null) throw new KeyError(disabled);
             foreach (var s in Streamers) if (s.Id == id) return s;
             throw new KeyError("没有这个主播：" + id);
         }
@@ -119,7 +145,11 @@ namespace StreamDuel.Core
             foreach (var kv in Obj(root, "types"))
             {
                 var o = (Dictionary<string, object>)kv.Value;
-                db.Types[kv.Key] = new TypeDef { Id = kv.Key, Name = Str(o, "name"), Color = Str(o, "color") };
+                db.Types[kv.Key] = new TypeDef
+                {
+                    Id = kv.Key, Name = Str(o, "name"), Color = Str(o, "color"),
+                    Symbol = Str(o, "symbol"), ColorAlt = Str(o, "colorAlt")
+                };
             }
             foreach (var kv in Obj(root, "chart"))
             {
@@ -129,20 +159,26 @@ namespace StreamDuel.Core
             }
             db.ReadDefinitions(root, false);
             db.Struggle = ReadSkill("struggle", (Dictionary<string, object>)root["struggle"]);
+            db.RememberMergeRules();
 
             var pack = (Dictionary<string, object>)MiniJson.Parse(packJson);
             db.PackId = Str(pack, "id"); db.PackName = Str(pack, "name"); db.PackNotice = Str(pack, "notice");
             db.ReadDefinitions(pack, true);
+            db.EnsureDelayedDamageField();
             foreach (var kv in Obj(pack, "skillNames")) { if (!db.Skills.ContainsKey(kv.Key)) throw new KeyError("内容包改名的技能不存在：" + kv.Key); db.Skills[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "fieldNames")) { if (!db.Fields.ContainsKey(kv.Key)) throw new KeyError("内容包改名的效果不存在：" + kv.Key); db.Fields[kv.Key].Name = (string)kv.Value; }
             foreach (var kv in Obj(pack, "statusNames")) { if (!db.Statuses.ContainsKey(kv.Key)) throw new KeyError("内容包改名的状态不存在：" + kv.Key); db.Statuses[kv.Key].Name = (string)kv.Value; }
+            db.RememberMergeAliases(pack);
             foreach (var item in (List<object>)pack["streamers"])
             {
                 var o = (Dictionary<string, object>)item;
-                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Type2 = Str(o, "type2"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org") };
+                var s = new StreamerDef { Id = Str(o, "id"), Name = Str(o, "name"), Type = Str(o, "type"), Type2 = Str(o, "type2"), Persona = Str(o, "persona"), Fifth = Str(o, "fifth"), Blurb = Str(o, "blurb"), Org = Str(o, "org"), AiStyle = Str(o, "aiStyle") };
                 object secondType;
                 if (o.TryGetValue("type2", out secondType) && secondType != null && !(secondType is string))
                     throw new KeyError("主播 " + s.Id + " 的第二赛道 type2 必须是赛道 id 或 null");
+                object aiStyle;
+                if (o.TryGetValue("aiStyle", out aiStyle) && aiStyle != null && !(aiStyle is string))
+                    throw new KeyError("主播 " + s.Id + " 的电脑风格 aiStyle 必须是字符串或 null");
                 foreach (var st in Obj(o, "stats"))
                 {
                     if (!(st.Value is double value) || double.IsNaN(value) || double.IsInfinity(value)
@@ -185,6 +221,7 @@ namespace StreamDuel.Core
                 }
                 db.Seasons[kv.Key] = season;
             }
+            db.art = ArtManifest.Read(db, pack);
             db.Validate();
             return db;
         }
@@ -261,6 +298,11 @@ namespace StreamDuel.Core
                         Chance = eo.ContainsKey("chance") ? Int(eo, "chance") : 100, Turns = eo.ContainsKey("turns") ? Int(eo, "turns") : -1, N = Int(eo, "n"),
                         Frac = Num(eo, "frac", 0), Mul = Num(eo, "mul", 1), Per = Num(eo, "per", 0), Consume = Bool(eo, "consume"),
                     };
+                    if (ef.Code == "DELAYED_DAMAGE")
+                    {
+                        ef.Turns = ReadDelayedDamageNumber(eo, "turns", -1);
+                        ef.N = ReadDelayedDamageNumber(eo, "n", 0);
+                    }
                     foreach (var c in Obj(eo, "changes")) ef.Changes[c.Key] = (int)(double)c.Value;
                     object cond;
                     if (eo.TryGetValue("cond", out cond))
@@ -276,12 +318,16 @@ namespace StreamDuel.Core
         // 内容写错时尽早报出来，而不是打到一半才崩
         public void Validate()
         {
+            EnsureDelayedDamageField();
+            if (Struggle != null)
+                foreach (var effect in Struggle.Effects) ValidateNewEffect(Struggle, effect);
             foreach (var sk in Skills.Values)
             {
                 if (sk.Type == null || !Types.ContainsKey(sk.Type)) throw new KeyError("技能 " + sk.Id + " 的赛道不存在：" + sk.Type);
                 foreach (var e in sk.Effects)
                 {
                     if (e.At != "pre" && e.At != "post") throw new KeyError("技能 " + sk.Id + " 的效果缺少判定时机 at");
+                    ValidateNewEffect(sk, e);
                     if (e.Code == "STATUS" && e.Status == null) throw new KeyError("技能 " + sk.Id + " 的 STATUS 缺少状态 status");
                     if ((e.Code == "FIELD" || e.Code == "ADD_MARK" || e.Code == "POWER_PER_MARK") && e.Field == null)
                         throw new KeyError("技能 " + sk.Id + " 的 " + e.Code + " 缺少效果 field");
@@ -291,6 +337,7 @@ namespace StreamDuel.Core
             }
             foreach (var persona in Personas.Values)
             {
+                if (persona.Field == DelayedDamageFieldId) throw new KeyError("人设 " + persona.Id + " 不能通过 field 引用延迟伤害的保留 id");
                 if (persona.Code == "T_CONTACT_STATUS" && persona.Status == null) throw new KeyError("人设 " + persona.Id + " 缺少状态 status");
                 if (persona.Code == "T_ENTER_FIELD" && persona.Field == null) throw new KeyError("人设 " + persona.Id + " 缺少效果 field");
                 if (persona.Status != null && !Statuses.ContainsKey(persona.Status)) throw new KeyError("人设 " + persona.Id + " 用到不存在的状态：" + persona.Status);
@@ -307,6 +354,8 @@ namespace StreamDuel.Core
                     if (!Types.ContainsKey(s.Type2)) throw new KeyError("主播 " + s.Id + " 的第二赛道不存在：" + s.Type2);
                     if (s.Type2 == s.Type) throw new KeyError("主播 " + s.Id + " 的第二赛道不能与主赛道相同：" + s.Type2);
                 }
+                if (s.AiStyle != null && AiStyles.Get(s.AiStyle) == null)
+                    throw new KeyError("主播 " + s.Id + " 的电脑风格 aiStyle 不存在：" + s.AiStyle);
                 if (!Personas.ContainsKey(s.Persona)) throw new KeyError("主播 " + s.Id + " 的人设不存在：" + s.Persona);
                 if (s.Skills.Count != 4) throw new KeyError("主播 " + s.Id + " 需要正好 4 个普通技能");
                 foreach (var k in s.Skills) if (!Skills.ContainsKey(k)) throw new KeyError("主播 " + s.Id + " 的技能不存在：" + k);
@@ -330,6 +379,7 @@ namespace StreamDuel.Core
                     }
                 }
             }
+            Art.Validate();
         }
 
         static IEnumerable<KeyValuePair<string, object>> Obj(Dictionary<string, object> o, string k)

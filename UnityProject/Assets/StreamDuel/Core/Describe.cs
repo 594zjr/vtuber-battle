@@ -68,6 +68,14 @@ namespace StreamDuel.Core
                     what = Loc.T("describe.effect.steal.boost", ch, tgt, battle?.StageLimit ?? 6);
                     dispel = Loc.T("describe.dispel.steal.boost");
                     break;
+                case "STAGE_SWAP":
+                    what = Loc.T("describe.effect.stage.swap", ch, tgt, battle?.StageLimit ?? 6);
+                    dispel = Loc.T("describe.dispel.stage.transfer");
+                    break;
+                case "STAGE_COPY":
+                    what = Loc.T("describe.effect.stage.copy", ch, tgt, battle?.StageLimit ?? 6);
+                    dispel = Loc.T("describe.dispel.stage.transfer");
+                    break;
                 case "HEAL": what = Loc.T("describe.effect.heal", Frac(e.Frac)); break;
                 case "RECOIL": what = Loc.T("describe.effect.recoil", Frac(e.Frac)); break;
                 case "DRAIN": what = Loc.T("describe.effect.drain", Frac(e.Frac)); break;
@@ -75,9 +83,17 @@ namespace StreamDuel.Core
                     what = Loc.T("describe.effect.pp.reduce", ch, tgt, e.N);
                     dispel = Loc.T("describe.dispel.instant");
                     break;
+                case "PP_RESTORE":
+                    what = Loc.T("describe.effect.pp.restore", ch, System.Math.Max(0, e.N));
+                    dispel = Loc.T("describe.dispel.instant");
+                    break;
                 case "FIXED_DAMAGE":
                     what = Loc.T("describe.effect.fixed.damage", ch, tgt, e.N);
                     dispel = Loc.T("describe.dispel.instant");
+                    break;
+                case "DELAYED_DAMAGE":
+                    what = Loc.T("describe.effect.delayed.damage", ch, tgt, e.Turns, e.N);
+                    dispel = Loc.T("describe.dispel.delayed.damage");
                     break;
                 case "FIELD":
                 {
@@ -197,6 +213,14 @@ namespace StreamDuel.Core
             string layers = field.MaxStacks > 0 ? Loc.T("describe.field.layers", Loc.T("describe.duration.stacks", stacks)) : "";
             return Loc.T("describe.field.tooltip", field.Name, FieldKind(field), layers, remaining, field.When,
                 field.Dispel ? Loc.T("describe.dispel.turns") : Loc.T("describe.dispel.no.turns"), field.Desc);
+        }
+
+        public static string FieldTooltip(FieldDef field, FieldInst instance)
+        {
+            string tooltip = FieldTooltip(field, instance.Turns, instance.Stacks);
+            return field.Id == ContentDb.DelayedDamageFieldId
+                ? Loc.T("describe.field.delayed.damage.tooltip", tooltip, instance.Turns, instance.PendingDamage)
+                : tooltip;
         }
 
         public static string EffectTiming(string at)
