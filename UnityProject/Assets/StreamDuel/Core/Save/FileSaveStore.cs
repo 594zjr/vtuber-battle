@@ -93,12 +93,25 @@ namespace StreamDuel.Core
         // 读改写必须持有同一把锁，多个本机客户端才不会互相覆盖累计战绩。
         public Profile RecordProfile(Battle battle, int playerSide = 0, PlayerRating opponentRating = null)
         {
+            return RecordProfileCore(battle, playerSide, opponentRating, false, out _);
+        }
+
+        public Profile RecordProfile(Battle battle, int playerSide, PlayerRating opponentRating, out RankedReplayTag rankedReplay)
+        {
+            return RecordProfileCore(battle, playerSide, opponentRating, true, out rankedReplay);
+        }
+
+        Profile RecordProfileCore(Battle battle, int playerSide, PlayerRating opponentRating, bool createRankedReplay,
+            out RankedReplayTag rankedReplay)
+        {
+            rankedReplay = null;
             using (OpenLock(".profile.lock"))
             {
                 var profile = LoadProfile();
                 profile.Record(battle, playerSide);
                 // 接手局经过同样的终局校验，但不能触发排位结算或重写正式档案。
                 if (battle.IsBranch) return profile;
+                RankedReplayTag receipt = null;
                 if (opponentRating != null)
                 {
                     PlayerRating current;
@@ -107,10 +120,20 @@ namespace StreamDuel.Core
                     // 双方自报分只用于本机显示，不防作弊；对方快照不能作为本方档案保存。
                     var opponent = new PlayerRating { Rating = opponentRating.Rating, Games = opponentRating.Games };
                     double score = battle.Winner < 0 ? 0.5 : battle.Winner == playerSide ? 1.0 : 0.0;
+                    int before = own.Rating;
                     RatingSystem.Apply(own, opponent, score);
                     profile.Ratings[Profile.DefaultRatingFormat] = own;
+                    if (createRankedReplay)
+                    {
+                        string recordJson = battle.Record.ToJson();
+                        if (!RankedReplayTag.IsOffline(recordJson))
+                            receipt = new RankedReplayTag(Profile.DefaultRatingFormat, own.Season, own.Games, playerSide,
+                                before, own.Rating, RankedReplayTag.Hash(recordJson, battle.Winner));
+                    }
                 }
                 WriteAtomic("profile.json", ".profile.json.tmp", profile.ToJson());
+                // 只有档案原子写入成功后才发出凭条；录像失败时缺失局数仍以档案为准。
+                rankedReplay = receipt;
                 return profile;
             }
         }

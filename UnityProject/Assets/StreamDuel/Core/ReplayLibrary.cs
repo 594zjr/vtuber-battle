@@ -22,6 +22,7 @@ namespace StreamDuel.Core
         public bool IsUnavailable;
         public string UnavailableReason;
         internal TournamentArchiveTag TournamentArchive;
+        public RankedReplayTag RankedReplay { get; internal set; }
 
         // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
         public TextInputResult[] NameInputs
@@ -94,7 +95,8 @@ namespace StreamDuel.Core
             return SaveCore(r, s, note, null, null);
         }
 
-        string SaveCore(BattleRecord r, BattleSummary s, string note, TournamentArchiveTag archive, Tournament tournament)
+        string SaveCore(BattleRecord r, BattleSummary s, string note, TournamentArchiveTag archive, Tournament tournament,
+            RankedReplayTag ranked = null)
         {
             RequireWritable();
             if (r == null) throw new ArgumentNullException(nameof(r));
@@ -122,6 +124,7 @@ namespace StreamDuel.Core
                 string id = NextId(stem);
                 var entry = Entry(record, id, date, s.Winner, s.Turns, NormalizeNote(note));
                 entry.TournamentArchive = archive;
+                entry.RankedReplay = ranked;
                 WriteAtomic(id + ".json", WithMetadata(recordJson, entry));
                 try { RefreshAndPrune(); }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -285,6 +288,12 @@ namespace StreamDuel.Core
                 throw new FormatException("录像回合数与记录不一致：" + id);
             var entry = Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
             entry.TournamentArchive = ReadTournamentTag(metadata);
+            entry.RankedReplay = ReadRankedTag(metadata);
+            if (entry.RankedReplay != null)
+            {
+                ValidateRankedJson(json);
+                ValidateRankedEntry(entry, record, json);
+            }
             return entry;
         }
 
@@ -320,7 +329,7 @@ namespace StreamDuel.Core
                 + Quote(entry.Date.ToString("O", CultureInfo.InvariantCulture)) + ",\"winner\":"
                 + entry.Winner.ToString(CultureInfo.InvariantCulture) + ",\"turns\":"
                 + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note)
-                + TournamentMetadata(entry.TournamentArchive) + "}";
+                + TournamentMetadata(entry.TournamentArchive) + RankedMetadata(entry.RankedReplay) + "}";
         }
 
         static string WithMetadata(string recordJson, ReplayEntry entry)

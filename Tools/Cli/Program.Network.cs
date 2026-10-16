@@ -241,10 +241,29 @@ namespace StreamDuel.Cli
                 replayWarning = "回放保存失败：" + ex.Message;
             }
             if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
+            Profile profile = null;
+            RankedReplayTag rankedReplay = null;
+            bool profileFailed = false;
+            Exception profileError = null;
+            try
+            {
+                // 排位关联必须取自持锁结算后的赛季与局序，不能使用开局快照或写盘时间推断。
+                profile = new FileSaveStore(options.SaveDir).RecordProfile(battle, mySide, opponentRating, out rankedReplay);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                || ex is ArgumentException || ex is FormatException || ex is InvalidOperationException || ex is OverflowException)
+            {
+                // 多局调用层带有局号，先保留独立录像，再交回它输出原有的逐局错误。
+                if (options.RulesetId == null) Console.Error.WriteLine("警告：档案保存失败：" + ex.Message);
+                profileError = ex;
+                profileFailed = true;
+            }
             bool libraryFailed = false;
             try
             {
-                new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy).Save(battle.Record, summary);
+                var library = new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy);
+                if (rankedReplay == null) library.Save(battle.Record, summary);
+                else library.SaveRanked(battle, rankedReplay);
                 Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
             }
             catch (ReplayLibraryMaintenanceException ex)
@@ -259,17 +278,21 @@ namespace StreamDuel.Cli
                 Console.Error.WriteLine("警告：录像库保存失败：" + ex.Message);
                 libraryFailed = true;
             }
-            var profile = ProfileStore.Record(battle, options.SaveDir, mySide, opponentRating);
-            var stats = profile.Packs[battle.Db.PackId];
-            Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
-            if (opponentRating != null)
+            if (profile != null)
             {
-                var rating = profile.Ratings[Profile.DefaultRatingFormat];
-                Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
-                    + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+                var stats = profile.Packs[battle.Db.PackId];
+                Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
+                if (rankedReplay != null)
+                {
+                    var rating = profile.Ratings[Profile.DefaultRatingFormat];
+                    Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
+                        + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+                }
+                Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
             }
-            Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
+            if (profileError != null && options.RulesetId != null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(profileError).Throw();
+            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed && !profileFailed ? 0 : 1;
         }
     }
 }
