@@ -28,10 +28,15 @@ namespace StreamDuel.Cli
             var policy = PackPolicy.LoadDefault();
             var db = LoadPack(Path.Combine(AppContext.BaseDirectory, "Content"), options, policy);
             Tournament tournament;
-            if (saved != null) tournament = Tournament.FromJson(db, saved);
+            if (saved != null)
+            {
+                tournament = Tournament.FromJson(db, saved);
+                if (options.TournamentFormat != null && options.TournamentFormat != tournament.Format)
+                    throw new ArgumentException("--format 与已保存的赛事赛制不一致，不能更改续赛事制；原文件未修改。");
+            }
             else
             {
-                string format = ReadTournamentFormat();
+                string format = options.TournamentFormat ?? ReadTournamentFormat();
                 if (format == null) return 0;
                 int? rounds = format == "swiss" ? ReadTournamentRounds() : 0;
                 if (!rounds.HasValue) return 0;
@@ -42,8 +47,11 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 本地赛事");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            Console.WriteLine("赛制：" + (tournament.Format == "swiss" ? "瑞士轮" : "循环赛")
+            Console.WriteLine("赛制：" + tournament.FormatName
                 + "；模式：" + (options.Auto ? "普通 AI 自动代打" : "交互式记录结果"));
+            if (tournament.IsElimination)
+                Console.WriteLine("每场一局定胜负，平局须重赛分出胜负；" + (tournament.Format == "double"
+                    ? "总决赛重置：" + (tournament.ResetFinal ? "开启。" : "关闭。") : "一场失利即淘汰。"));
             Console.WriteLine("赛事存档：" + file.Path);
             foreach (var player in tournament.Players) PrintTournamentNameHint(player.Id, player.Name);
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
@@ -56,18 +64,22 @@ namespace StreamDuel.Cli
                 file.Save(tournament);
                 if (pairings.Count == 0) break;
                 Console.WriteLine();
-                Console.WriteLine("===== 第 " + tournament.Round + " / " + tournament.Rounds + " 轮 =====");
+                Console.WriteLine(tournament.IsElimination ? "===== 淘汰赛第 " + tournament.Round + " 轮 ====="
+                    : "===== 第 " + tournament.Round + " / " + tournament.Rounds + " 轮 =====");
                 foreach (var pairing in pairings)
                 {
                     var first = tournament.Players[pairing.Player0];
                     if (pairing.IsBye)
                     {
-                        Console.WriteLine(TournamentPlayerName(first) + " 本轮轮空，记一胜。");
+                        Console.WriteLine(TournamentPlayerName(first) + (tournament.IsElimination
+                            ? " 本轮轮空，直接晋级。" : " 本轮轮空，记一胜。"));
                         continue;
                     }
                     var second = tournament.Players[pairing.Player1];
                     string firstName = TournamentPlayerName(first), secondName = TournamentPlayerName(second);
-                    Console.WriteLine("对局 " + (pairing.Id + 1) + "：" + firstName + " 对 " + secondName);
+                    Console.WriteLine("对局 " + (pairing.Id + 1) + "：" + firstName + " 对 " + secondName
+                        + (pairing.Bracket == null ? "" : "〔" + TournamentBracketName(pairing.Bracket)
+                            + "第 " + pairing.BracketRound + " 轮〕"));
                     if (pairing.WinnerSide.HasValue)
                     {
                         PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已记录：");
@@ -78,9 +90,15 @@ namespace StreamDuel.Cli
                     {
                         var battle = AutoTournamentBattle(db, first, second, pairing.Id);
                         winner = battle.Winner;
+                        if (tournament.IsElimination && winner == -1)
+                        {
+                            Console.Error.WriteLine("警告：自动对局为平局，淘汰赛不能据此晋级。本场保持待赛，未归档为决胜录像；此前比分已保存。"
+                                + "请完成有胜负的重赛后，不带 --auto 继续赛事并手动录入结果。");
+                            return 1;
+                        }
                         if (!ArchiveTournamentBattle(tournament, pairing, battle, file.Path)) archiveFailed = true;
                     }
-                    else winner = ReadTournamentResult(firstName, secondName);
+                    else winner = ReadTournamentResult(firstName, secondName, !tournament.IsElimination);
                     if (!winner.HasValue) return QuitTournament(file);
                     tournament.ReportResult(pairing, winner.Value);
                     file.Save(tournament);
@@ -104,11 +122,13 @@ namespace StreamDuel.Cli
         {
             while (true)
             {
-                string value = ReadTournamentLine("新建赛事：1 循环赛，2 瑞士轮（q 退出）> ");
+                string value = ReadTournamentLine("新建赛事：1 循环赛，2 瑞士轮，3 单败淘汰，4 双败淘汰（q 退出）> ");
                 if (value == null) return null;
                 if (value == "1" || value == "roundrobin") return "roundrobin";
                 if (value == "2" || value == "swiss") return "swiss";
-                Console.WriteLine("请输入 1（循环赛）或 2（瑞士轮）。");
+                if (value == "3" || value == "single") return "single";
+                if (value == "4" || value == "double") return "double";
+                Console.WriteLine("请输入 1（循环赛）、2（瑞士轮）、3（单败淘汰）或 4（双败淘汰）。");
             }
         }
 
@@ -158,17 +178,23 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadTournamentResult(string first, string second)
+        private static int? ReadTournamentResult(string first, string second, bool allowDraw = true)
         {
             while (true)
             {
                 string value = ReadTournamentLine("输入结果：0 = " + first + " 获胜；1 = " + second
-                    + " 获胜；-1 = 平局（q 保存退出）> ");
+                    + " 获胜" + (allowDraw ? "；-1 = 平局" : "；淘汰赛须分出胜负") + "（q 保存退出）> ");
                 if (value == null) return null;
                 if (value == "0") return 0;
                 if (value == "1") return 1;
-                if (value == "-1" || value == "平" || value == "平局") return -1;
-                Console.WriteLine("请输入 0、1 或 -1；0 与 1 对应上方两位选手，-1 表示平局。");
+                if (value == "-1" || value == "平" || value == "平局")
+                {
+                    if (allowDraw) return -1;
+                    Console.WriteLine("淘汰赛不能登记平局，本场仍待赛。请重赛分出胜负后输入 0 或 1，或 q 保存退出。");
+                    continue;
+                }
+                Console.WriteLine(allowDraw ? "请输入 0、1 或 -1；0 与 1 对应上方两位选手，-1 表示平局。"
+                    : "请输入 0 或 1；对应上方两位选手获胜。输入 q 保存退出。");
             }
         }
 
@@ -215,6 +241,17 @@ namespace StreamDuel.Cli
 
         private static void PrintTournamentStandings(Tournament tournament)
         {
+            if (tournament.IsElimination)
+            {
+                Console.WriteLine("淘汰赛排名（按晋级与淘汰进度）：");
+                foreach (var standing in tournament.Standings())
+                    Console.WriteLine(standing.Rank + " · 报名 #" + (standing.Player + 1) + " "
+                        + TextInput.Clean(standing.Name, TextInputKind.PlayerName).Text + "：胜 " + standing.Wins
+                        + " / 负 " + standing.Losses + "；轮空 " + standing.Byes);
+                if (tournament.Champion.HasValue)
+                    Console.WriteLine("冠军：" + TournamentPlayerName(tournament.Players[tournament.Champion.Value]));
+                return;
+            }
             Console.WriteLine("排名（积分 → 对手分 → 直接对话分 → 报名顺序）：");
             foreach (var standing in tournament.Standings())
                 Console.WriteLine(standing.Rank + " · 报名 #" + (standing.Player + 1) + " "
@@ -222,6 +259,19 @@ namespace StreamDuel.Cli
                     + " 分；对手分 " + standing.OpponentPoints + "；直接对话分 " + standing.HeadToHeadPoints
                     + "；胜 " + standing.Wins + " / 平 " + standing.Draws + " / 负 " + standing.Losses
                     + "；轮空 " + standing.Byes);
+        }
+
+        private static string TournamentBracketName(string bracket)
+        {
+            switch (bracket)
+            {
+                case "single": return "单败淘汰组";
+                case "winners": return "胜者组";
+                case "losers": return "败者组";
+                case "final": return "总决赛";
+                case "reset": return "重置总决赛";
+                default: return "淘汰组";
+            }
         }
 
         private static int QuitTournament(TournamentFileStore file)

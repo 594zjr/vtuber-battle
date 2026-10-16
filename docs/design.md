@@ -827,7 +827,7 @@ id 按 ordinal 比较，区分大小写；未知 id 在构造对战时抛出 `Ke
 
 ## 12. 本地小型赛事
 
-`Tournament(db, format, rounds)` 管理朋友间的报名、对阵和结果，`format` 只接受 `roundrobin`（循环赛）与 `swiss`（瑞士轮）。报名通过 `AddPlayer(name, teamCode)` 读取 T-56 的队伍码，按当前内容包检查六人队伍是否合法；报名编号从 0 开始，同名玩家仍由编号区分。至少两人才能排第一轮，开始后不再接受报名。
+`Tournament(db, format, rounds, options)` 管理朋友间的报名、对阵和结果，原有 `roundrobin`（循环赛）与 `swiss`（瑞士轮）保持既有行为；`single`（单败）与 `double`（双败）见 12.2。报名通过 `AddPlayer(name, teamCode)` 读取 T-56 的队伍码，按当前内容包检查六人队伍是否合法；报名编号从 0 开始，同名玩家仍由编号区分。至少两人才能排第一轮，开始后不再接受报名。
 
 循环赛每两人交手一次，使用固定报名顺序的轮转排表；偶数人数进行人数减一轮，奇数人数进行人数轮，每人恰好轮空一次。循环赛的 `rounds` 必须为 0，不能用它截短赛程。瑞士轮的 `rounds=0` 表示默认 `ceil(log2(人数))` 轮，也可指定正整数轮数；奇数人数的轮数不得超过人数，以保证每人最多轮空一次。
 
@@ -859,8 +859,8 @@ CLI 的 `--tournament-report <赛事文件> [--json]` 是独立只读查询，�
 
 | 字段 | 含义 |
 |---|---|
-| `version`, `packId`, `format` | 战报版本 1、内容包 id、`roundrobin` 或 `swiss`。 |
-| `roundCount`, `playedRounds`, `isFinished` | 配置对应的总轮数、已排轮数（可能仍有待赛）、是否结束。 |
+| `version`, `packId`, `format` | 战报版本 1、内容包 id、`roundrobin`、`swiss`、`single` 或 `double`。 |
+| `roundCount`, `playedRounds`, `isFinished` | 配置对应的总轮数、已排轮数（可能仍有待赛）、是否结束。淘汰赛未结束时前者为上限，结束后为实际轮数。 |
 | `standings[]` | 每项含 `rank`（从 1 开始）、`player`（报名编号）、过滤后的 `name`、`points`、`opponentPoints`、`headToHeadPoints`、`wins`、`draws`、`losses`、`byes`。 |
 | `rounds[]` | 每项含 `number`（从 1 开始）和 `matches[]`。 |
 | `matches[]` | 每项含 `pairingId`、`player0`、`player1`、`name0`、`name1`、`winnerSide`、中文 `result`、`replay`；轮空的 `player1/name1` 为 null，待赛的 `winnerSide` 为 null，平局为 -1。其余玩家、对阵编号从 0 开始。 |
@@ -868,6 +868,28 @@ CLI 的 `--tournament-report <赛事文件> [--json]` 是独立只读查询，�
 | `coverage` | `completedGames` 为已报非轮空局数，`archivedGames` 为可严格复算局数，`missingGames` 为未保存局数，`invalidGames` 为其余不能用于统计的已报局数；后三项之和等于第一项。 |
 | `maxDamage` | null 或含 `amount`、`pairingId`、`round`、`turn`、`logIndex`、`side`、`slot`、`streamerId`、`streamerName`、`replayId` 的对象；日志、方、号位从 0 开始。 |
 | `mostKos`, `mostAppearances` | null 或含 `streamerId`、`streamerName`、`count` 的对象；count 为累计击倒次数或出场局次。 |
+
+### 12.2 单败与双败淘汰赛
+
+赛制字符串为 `single`、`double`，也可使用常量 `Tournament.SingleElimination` / `DoubleElimination`。两者的构造参数 `rounds` 必须为 0；赛程由人数和比赛结果决定。`TournamentOptions` 仅用于淘汰赛，字段为可空 `Seed`（uint）、可空 `SeedOrder`（报名编号列表）、`ResetFinal`（默认 true）。`Seed` 和显式顺序互斥；构造时复制选项与列表，调用方之后修改原对象不改变赛事。第一轮排程前，显式顺序必须恰好包含全部报名编号一次；不完整或越界时拒绝且不生成赛程。未指定种子或顺序时，以报名顺序作为种子顺序。指定 `Seed` 时，在报名编号自然顺序上用与 Battle 相同的 Core `Rng` 做 Fisher–Yates 确定性洗牌，独立于各场对战的随机流；不读取时钟或使用系统随机数。
+
+设人数为 N，补到最小的二次幂 M。固定种子槽从 `[1,2]` 逐层把每个 s 展开为 `[s, 2m+1-s]`（m 为展开前槽数），8 槽为 `[1,8,4,5,2,7,3,6]`。大于 N 的种子为空位，所以首轮 M−N 个轮空恰好属于排名最高的 M−N 位种子；5 人时前三种子轮空，第四对第五。单败每轮相邻胜者晋级，一次实际失利即淘汰，直到一名冠军；4/5/8 人分别进行 2/3/3 轮，实战场数始终为 N−1。
+
+双败采用固定胜者组、败者组依赖图，避免按当前输场数临时重新配对。胜者组首轮相邻两场的败者进入败者组首轮；以后每个胜者组轮次的败者注入败者组相应轮，与前一败者组轮的胜者交叉配对（多场时相邻交换注入位置，只有一场时直接配对），随后败者组相邻胜者再合并。胜者组首败只进入败者组一次；败者组失利为第二败并出局。依赖图的零人节点直接传播空位，不制造一场无人比赛；单人节点显示轮空，自动晋级，不制造败者或失败次数。2 人双败没有单独败者组比赛，胜者组败者直接成为总决赛的败者组选手。
+
+总决赛固定由 0 方胜者组冠军对 1 方败者组冠军。0 方获胜即夺冠；1 方获胜且 `ResetFinal=true` 时，双方各有一败，按相同方位再打一场重置总决赛，胜者夺冠。`ResetFinal=false` 时总决赛一场结束，败者组选手不需要再赢第二场；此时原胜者组冠军可能仅一败便获得亚军，是关闭重置的明确例外。默认重置开启的 8 人双败共有 14 或 15 场实战，除冠军外每人恰有两败。
+
+全赛事的 `Round` 是排程批次：在一批全部报分后，把固定拓扑顺序中前置结果已确定的对阵一起排入下一批，所以同批可能同时有胜者组和败者组比赛。`Pairing.Bracket` 为 `single`、`winners`、`losers`、`final`、`reset`，`BracketRound` 为组内从 1 开始的轮次；旧两赛制保持 null/0。`NextRound()` 在当前批仍有待赛时返回原对阵，不推进。`Rounds` 在未结束时表示批次数上限（k=ceil(log2 N)，单败 k，双败 2k 加可选重置的一批），结束后等于实际 `Round`；`IsFinished` 根据最终节点结果判断，不靠固定轮数猜测，`Champion` 是冠军报名编号或 null。
+
+当前 T-54 尚未合并，因此 `BestOf` 固定为 1，未提供三局两胜配置。淘汰赛 `ReportResult` 只接受 0/1；-1 平局中文拒绝且保持待赛，不按种子或积分任意判晋级。`SaveTournament` 也在任何写入前拒绝淘汰赛平局，避免错误关联占用该对阵的决胜录像位置；旧两赛制仍可保存平局。CLI 手动录入遇平局时提示完成有胜负的重赛后报分；自动对局平局则保持待赛、返回非零，保留已完成场次，不把平局归档为该对阵的决胜录像，也不使用相同种子无限重赛。本次不规定自动加赛次数或新种子规则。
+
+淘汰赛的 `Standings()` 按最终冠军、仍在赛者、淘汰批次从晚到早排列；同阶段按初始有效种子顺序。原有胜/平/负/轮空/积分字段仍由真实历史计算，但积分不决定淘汰赛排名；轮空仍单列，不算实际失利。战报使用此排名并显示组别、组内轮次、冠军和总决赛重置状态，不把败者组累计胜场更多误当成冠军。
+
+淘汰赛事保存为版本 2，根字段在原版基础上增加 `seed`（uint 或 null）、`seedOrder`（原始显式顺序或 null）、`resetFinal`（bool）；每个对阵增加 `bracket`、`bracketRound`。恢复时根据配置与此前结果重新构造依赖图，逐项核对实际对阵、组别、轮次和结果，不信任外部缓存的晋级者；部分报分、待赛、总决赛与重置阶段均可继续。循环赛/瑞士轮仍输出原版本 1 的相同字段与字节，版本与赛制不匹配时拒绝。
+
+淘汰赛的录像关联键使用域 `StreamDuel.TournamentArchive.v2\n`，规范配置的 version 为 2，并在 format 后加入 seed、seedOrder、resetFinal，其他配置与 12.1 相同；不同种子或重置配置不串档。旧赛制的 v1 关联键保持不变，录像元数据标签仍为版本 1。淘汰战报 JSON 在原战报字段外增加根 `resetFinal`、`bestOf: 1`、`champion`（报名编号或 null）；每个 match 增加 `bracket`、`bracketRound`。旧两赛制不输出这些附加字段。
+
+CLI 使用 `--tournament <文件> --format single|double` 创建相应赛事；也可在交互菜单选择。省略 format 继续已有赛事时使用存档赛制；显式指定不符时拒绝，不能借续赛转换赛制。CLI 新建采用报名顺序和开启重置，Core 创建者可通过 options 指定种子、顺序或关闭重置。`--format` 不用于战报查询，查询直接读取存档。
 
 ## 13. 排位分
 
