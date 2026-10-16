@@ -219,6 +219,86 @@ try {
         $invalid += ,($branch + $extra)
         $invalid += ,($extra + $branch)
     }
+    $t118OriginalInvalidCount = $invalid.Count
+    Check ($t118OriginalInvalidCount -eq 26) '插入点必须保留原有 26 组无效参数用例。'
+    $t118MissingDirectory = Split-Path $missing -Parent
+    $t118UnusedSource = Join-Path $t118MissingDirectory 'source.json'
+    Check (-not (Test-Path -LiteralPath $t118MissingDirectory)) '交叉互斥验收开始前，赛事与来源目录必须不存在。'
+
+    $t118TournamentModes = @(
+        [pscustomobject]@{
+            Name = 'seed'; Option = '--tournament-seed'
+            Args = [string[]]@('--tournament', $missing, '--format', 'single', '--tournament-seed', '118')
+        },
+        [pscustomobject]@{
+            Name = 'disabled'; Option = '--no-auto-tiebreak'
+            Args = [string[]]@('--tournament', $missing, '--format', 'single', '--no-auto-tiebreak')
+        }
+    )
+    $t118OtherModes = @(
+        [pscustomobject]@{
+            Name = 'new-season'; Kind = 'rating'; Command = '--new-season'
+            Args = [string[]]@('--new-season')
+        },
+        [pscustomobject]@{
+            Name = 'rating-history'; Kind = 'rating'; Command = '--rating-history'
+            Args = [string[]]@('--rating-history')
+        },
+        [pscustomobject]@{
+            Name = 'watch-name'; Kind = 'watch'; Command = '--watch'
+            Args = [string[]]@('--watch', '127.0.0.1:1', '--watch-name', '观众甲')
+        },
+        [pscustomobject]@{
+            Name = 'spectator-chat'; Kind = 'host'; Command = '--spectator-chat'
+            Args = [string[]]@('--host', '0', '--spectate-port', '0', '--spectator-chat', 'on')
+        }
+    )
+    $t118ModeChecks = 0
+    foreach ($t118TournamentMode in $t118TournamentModes) {
+        foreach ($t118OtherMode in $t118OtherModes) {
+            foreach ($t118Reverse in @($false, $true)) {
+                $t118Order = if ($t118Reverse) { 'other-first' } else { 'tournament-first' }
+                $t118Name = 'mode-matrix-' + $t118TournamentMode.Name + '-' + $t118OtherMode.Name + '-' + $t118Order
+                [string[]]$t118Parameters = if ($t118Reverse) {
+                    $t118OtherMode.Args + $t118TournamentMode.Args
+                } else {
+                    $t118TournamentMode.Args + $t118OtherMode.Args
+                }
+                [IO.File]::WriteAllText((Join-Path $run ($t118Name + '.argv.json')), ($t118Parameters | ConvertTo-Json -Compress), $utf8)
+                $t118Result = Invoke-Cli $t118Name $t118Parameters @() 1
+                Check ($t118Result.Out.Length -eq 0) "$t118Name 在参数拒绝前输出了交互、赛事或联网内容。"
+                Check ($t118Result.Err.Contains('错误：') -and $t118Result.Err -match '[\u4e00-\u9fff]') "$t118Name 缺少中文参数错误。"
+                Check (-not $t118Result.Err.Contains('未知参数')) "$t118Name 没有识别已合入参数，不能以未知参数错误通过验收。"
+                if ($t118OtherMode.Kind -eq 'rating') {
+                    Check ($t118Result.Err.Contains($t118OtherMode.Command + ' 是独立的排位档案操作') -and
+                        $t118Result.Err.Contains('不能与') -and $t118Result.Err.Contains('--tournament') -and
+                        $t118Result.Err.Contains($t118TournamentMode.Option)) "$t118Name 未命中排位档案独立模式校验。"
+                }
+                elseif ($t118OtherMode.Kind -eq 'watch') {
+                    Check ($t118Result.Err.Contains('--watch 只读观战，不支持') -and
+                        $t118Result.Err.Contains('--tournament') -and $t118Result.Err.Contains($t118TournamentMode.Option)) "$t118Name 未在读取赛事或连接观战前拒绝完整观战配置。"
+                }
+                else {
+                    Check ($t118Result.Err.Contains('赛事模式仅支持搭配') -and $t118Result.Err.Contains('不能与') -and
+                        $t118Result.Err.Contains('--host') -and $t118Result.Err.Contains('--spectate-port') -and
+                        $t118Result.Err.Contains('--spectator-chat')) "$t118Name 未由赛事独立模式拒绝完整主机聊天配置。"
+                }
+                Check (-not (Test-Path -LiteralPath $t118MissingDirectory)) "$t118Name 创建了赛事或输入来源所在目录。"
+                Check (-not (Test-Path -LiteralPath $missing) -and -not (Test-Path -LiteralPath $t118UnusedSource)) "$t118Name 创建了赛事或输入来源文件。"
+                $t118Work = Join-Path $run $t118Name
+                Check (-not (Test-Path -LiteralPath (Join-Path $t118Work 'saves'))) "$t118Name 创建了普通玩家存档。"
+                # Invoke-Cli 只在结束后写两份输出证据；拒绝的子进程不能另建文件或空目录。
+                $t118Unexpected = @([IO.Directory]::GetFileSystemEntries($t118Work) | Where-Object {
+                    [IO.Path]::GetFileName($_) -cnotin @('stdout.log', 'stderr.log')
+                })
+                Check ($t118Unexpected.Count -eq 0) "$t118Name 在子进程工作目录留下了额外文件或目录。"
+                $t118ModeChecks++
+            }
+        }
+    }
+    Check ($t118ModeChecks -eq 16) '必须执行 T119 两模式及 T122 两完整配置 × 两赛事参数组 × 双顺序，共 16 次拒绝。'
+    Check ($invalid.Count -eq $t118OriginalInvalidCount) '交叉互斥片段不能替换或删减原无效参数用例。'
+    $checks.Add('PASS T119_T122_tournament_modes_both_orders_16_rejections_no_files')
     for ($i = 0; $i -lt $invalid.Count; $i++) {
         $result = Invoke-Cli "invalid-$i" $invalid[$i] @() 1
         Check ($result.Out.Length -eq 0) '无效参数进入了交互或对战流程。'

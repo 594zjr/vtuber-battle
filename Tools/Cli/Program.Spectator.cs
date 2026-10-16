@@ -17,11 +17,12 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             using (var connection = TcpTransport.Connect(options.WatchHost, options.WatchPort, 10000))
             {
-                var viewer = new SpectatorClient(db, connection);
+                var viewer = new SpectatorClient(db, connection, enableChat: true, displayName: options.WatchName);
                 Console.WriteLine("已连接观战，等待房主发送延迟数据……（Ctrl+C 退出）");
                 Console.Out.Flush();
-                int logIndex = 0, hashEventCount = -1;
+                int logIndex = 0, hashEventCount = -1, chatIndex = 0;
                 bool started = false;
+                var input = new ConsoleInput();
                 while (true)
                 {
                     viewer.Poll();
@@ -35,6 +36,10 @@ namespace StreamDuel.Cli
                             Console.WriteLine("观战开始；种子：" + battle.Seed);
                             PrintTeams(TextInput.ForDisplay(battle));
                             PrintMixedNotices(db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
+                            Console.WriteLine("观众昵称：" + viewer.DisplayName + "；快捷语只发给其他观众，房主可关闭转发。");
+                            Console.WriteLine("输入 /say 编号；每个可见回合最多 3 条。q 退出；输入结束后仍继续观战。");
+                            for (int index = 0; index < QuickChat.Count; index++)
+                                Console.WriteLine("  /say " + index + "：" + QuickChat.Text(index));
                         }
                         PrintNewLog(battle, ref logIndex);
                         if (options.Hash && !viewer.IsFinished && battle.Record.Events.Count != hashEventCount)
@@ -43,6 +48,11 @@ namespace StreamDuel.Cli
                             Console.WriteLine("观战状态哈希（第 " + battle.Turn + " 回合）："
                                 + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                         }
+                    }
+                    while (chatIndex < viewer.ReceivedChats.Count)
+                    {
+                        var chat = viewer.ReceivedChats[chatIndex++];
+                        Console.WriteLine("观众「" + chat.SenderName + "」：" + QuickChat.Text(chat.Index));
                     }
                     if (viewer.IsFinished)
                     {
@@ -55,19 +65,50 @@ namespace StreamDuel.Cli
                         Console.WriteLine(BattleSummary.From(display).ToText());
                         return 0;
                     }
+                    if (battle != null)
+                    {
+                        input.Start();
+                        if (input.TryTake(out string line) && line != null)
+                        {
+                            if (line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.WriteLine("已退出观战。");
+                                return 0;
+                            }
+                            SendSpectatorChat(viewer, line);
+                        }
+                    }
                     Thread.Sleep(10);
                 }
             }
+        }
+
+        static void SendSpectatorChat(SpectatorClient viewer, string line)
+        {
+            var parts = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2 || !parts[0].Equals("/say", StringComparison.OrdinalIgnoreCase)
+                || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out int index)
+                || index < 0 || index >= QuickChat.Count)
+            {
+                Console.WriteLine("观战只支持 /say 0～7 的固定短句，或 q 退出。");
+                return;
+            }
+            Console.WriteLine(viewer.SendQuickChat(index)
+                ? "观众快捷语已提交：" + QuickChat.Text(index)
+                : "观众快捷语未发送：本回合已达上限、观战已结束或连接不可用。");
+            Console.Out.Flush();
         }
 
         sealed class SpectatorHost : IDisposable
         {
             readonly TcpHost listener;
             readonly List<TcpTransport> viewers = new List<TcpTransport>();
+            readonly bool chatEnabled;
             SpectatorFeed feed;
 
-            internal SpectatorHost(int port)
+            internal SpectatorHost(int port, bool chatEnabled)
             {
+                this.chatEnabled = chatEnabled;
                 listener = TcpTransport.Listen(port, out int actualPort);
                 Console.WriteLine("观战端口：" + actualPort);
                 Console.WriteLine("观战延迟：2 回合");
@@ -76,7 +117,7 @@ namespace StreamDuel.Cli
 
             internal void Start(Battle battle)
             {
-                feed = new SpectatorFeed(battle, 2);
+                feed = new SpectatorFeed(battle, 2, chatEnabled);
                 foreach (var viewer in viewers) feed.AddViewer(viewer);
                 Pump();
             }

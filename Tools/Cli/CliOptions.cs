@@ -80,6 +80,7 @@ namespace StreamDuel.Cli
                     options.NoAutoTiebreak = true;
                     continue;
                 }
+                if (options.ReadRatingOption(option)) continue;
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
                 {
@@ -199,7 +200,8 @@ namespace StreamDuel.Cli
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
                     && option != "--branch" && option != "--turn" && option != "--side" && option != "--ai"
-                    && option != "--spectate-port" && option != "--watch" && option != "--tournament-seed")
+                    && option != "--spectate-port" && option != "--watch" && option != "--spectator-chat" && option != "--watch-name"
+                    && option != "--tournament-seed")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -261,6 +263,16 @@ namespace StreamDuel.Cli
                     case "--watch":
                         if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
                         ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
+                        break;
+                    case "--watch-name":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--watch-name 不能重复指定。");
+                        if (value.Length > 4096) throw new ArgumentException("--watch-name 输入过长，请缩短后重试。");
+                        options.WatchName = value;
+                        break;
+                    case "--spectator-chat":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--spectator-chat 不能重复指定。");
+                        if (value != "on" && value != "off") throw new ArgumentException("--spectator-chat 只能是 on 或 off。");
+                        options.SpectatorChat = value == "on";
                         break;
                     case "--tournament-report":
                         if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
@@ -377,6 +389,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
             if (!options.Help)

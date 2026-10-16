@@ -25,6 +25,8 @@ namespace StreamDuel.Core
                 season.Banned.RemoveAll(policy.IsStreamerDisabled);
                 foreach (var pool in season.Limited) pool.Ids.RemoveAll(policy.IsStreamerDisabled);
             }
+            // 初次加载已经验证过全部引用，下架只清理被移除主播的显示覆盖。
+            db.Art.RemoveStreamers(policy.IsStreamerDisabled);
             db.Validate();
             return db;
         }

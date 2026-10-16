@@ -1,19 +1,17 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace StreamDuel.Core
 {
-    public sealed class PlayerRating
+    public sealed partial class PlayerRating
     {
         public int Rating = 1500;
         public int Games;
 
         public string ToJson()
         {
-            if (Games < 0) throw new FormatException("排位对局数必须是非负整数。");
-            return "{\"games\":" + Games.ToString(CultureInfo.InvariantCulture)
-                + ",\"rating\":" + Rating.ToString(CultureInfo.InvariantCulture) + "}";
+            ValidateSeasonState();
+            return WriteSeasonJson();
         }
 
         public static PlayerRating FromJson(string json)
@@ -24,11 +22,14 @@ namespace StreamDuel.Core
         internal static PlayerRating ReadValue(object value)
         {
             if (!(value is Dictionary<string, object> source)) throw new FormatException("排位分记录必须是对象。");
-            return new PlayerRating
+            var result = new PlayerRating
             {
                 Rating = source.TryGetValue("rating", out var rating) ? ReadInteger(rating, "rating", int.MinValue) : 1500,
                 Games = source.TryGetValue("games", out var games) ? ReadInteger(games, "games", 0) : 0
             };
+            result.ReadSeasonMetadata(source);
+            result.ValidateSeasonState();
+            return result;
         }
 
         private static int ReadInteger(object value, string name, int minimum)
@@ -52,7 +53,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public static class RatingSystem
+    public static partial class RatingSystem
     {
         public static IReadOnlyList<RatingTier> Tiers { get; } = Array.AsReadOnly(new[]
         {
@@ -79,11 +80,13 @@ namespace StreamDuel.Core
                 throw new ArgumentOutOfRangeException(nameof(scoreA), "比赛结果只能是 0、0.5 或 1。");
             if (a.Games < 0) throw new ArgumentOutOfRangeException(nameof(a), "本方排位对局数不能为负。");
             if (b.Games < 0) throw new ArgumentOutOfRangeException(nameof(b), "对方排位对局数不能为负。");
+            a.ValidateSeasonState();
+            b.ValidateSeasonState();
 
             double expectedA = 1 / (1 + Math.Pow(10, ((double)b.Rating - a.Rating) / 400));
             double difference = scoreA - expectedA;
-            int kA = a.Games < 10 ? 40 : 24;
-            int kB = b.Games < 10 ? 40 : 24;
+            int kA = a.IsPlaced ? 24 : 40;
+            int kB = b.IsPlaced ? 24 : 40;
             int deltaA = (int)Math.Round(kA * difference, MidpointRounding.AwayFromZero);
             // 共用赛前期望值；同 K 直接取反，避免两个浮点表达式在舍入边界破坏总分守恒。
             int deltaB = kA == kB ? -deltaA : (int)Math.Round(-kB * difference, MidpointRounding.AwayFromZero);
@@ -91,11 +94,13 @@ namespace StreamDuel.Core
             int ratingB = checked(b.Rating + deltaB);
             int gamesA = checked(a.Games + 1);
             int gamesB = checked(b.Games + 1);
+            int peakA = Math.Max(a.PeakRating, ratingA);
+            int peakB = Math.Max(b.PeakRating, ratingB);
+            bool placedA = a.IsPlaced || gamesA >= 10;
+            bool placedB = b.IsPlaced || gamesB >= 10;
             // 不截断负分，且所有溢出检查先于写入，失败不会只更新其中一方。
-            a.Rating = ratingA;
-            b.Rating = ratingB;
-            a.Games = gamesA;
-            b.Games = gamesB;
+            a.CommitRating(ratingA, gamesA, peakA, placedA);
+            b.CommitRating(ratingB, gamesB, peakB, placedB);
         }
     }
 }

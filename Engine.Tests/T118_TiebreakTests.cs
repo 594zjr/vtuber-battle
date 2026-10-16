@@ -404,7 +404,7 @@ public class T118_TiebreakTests
         var tournament = Make(db, count: 5);
         var opening = tournament.NextRound();
         Assert.Equal(3, opening.Count(pair => pair.IsBye));
-        var real = Assert.Single(opening.Where(pair => !pair.IsBye));
+        var real = Assert.Single(opening, pair => !pair.IsBye);
         var game = Finish(tournament.CreateGame(real), 0);
         var foreign = Assert.Single(Make(db).NextRound());
         string before = tournament.ToJson();
