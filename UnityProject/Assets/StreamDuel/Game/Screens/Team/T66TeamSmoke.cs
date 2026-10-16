@@ -55,7 +55,7 @@ namespace StreamDuel.Game
             }
         }
 
-        static readonly string[] RequiredPacks = { "original", "original_wave2", "fan_holo_niji", "fan_asoul_vr" };
+        static readonly string[] RequiredPacks = { "original", "original_wave2", "original_wave3", "fan_holo_niji", "fan_asoul_vr" };
         public static bool Completed { get; private set; }
         public static int ExitCode { get; private set; }
         public static int RequestedWidth { get; private set; }
@@ -204,7 +204,7 @@ namespace StreamDuel.Game
             portraits = new PortraitProvider(router.Resources.RegularFont);
             CheckPortraits();
             store = new ProbeStore();
-            report.checks.Add("启动即使用内存设置；四个规定内容包通过实际加载器载入。系统剪贴板未读写。");
+            report.checks.Add("启动即使用内存设置；五个规定内容包通过实际加载器载入。系统剪贴板未读写。");
 
             foreach (int width in new[] { 1280, 1920 })
             {
@@ -630,7 +630,7 @@ namespace StreamDuel.Game
                     Require(ReferenceEquals(texture, portraits.Get(db, member.Id)), "相同头像请求没有使用缓存：" + member.Id);
                 }
             }
-            report.checks.Add("四包全部主播头像非空且相同请求返回同一缓存纹理；同一 provider 用于实际组队网格。");
+            report.checks.Add("五包全部主播头像非空且相同请求返回同一缓存纹理；同一 provider 用于实际组队网格。");
         }
 
         IEnumerator Resize(int width, int height)
