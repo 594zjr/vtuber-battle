@@ -126,7 +126,7 @@ public class T29_NetSessionEdgeTests
             Assert.Equal(new[] { "hello", "seed_reveal" }, item.Item1.Sent.Select(TypeOf));
             using var hello = JsonDocument.Parse(Assert.Single(item.Item1.Messages("hello")));
             Assert.Equal(item.Item2, hello.RootElement.GetProperty("side").GetInt32());
-            Assert.Equal(NetSeedTestData.Commit(item.Item3), hello.RootElement.GetProperty("seedCommit").GetString());
+            Assert.Equal(NetSeedTestData.Commit(item.Item3, item.Item2), hello.RootElement.GetProperty("seedCommit").GetString());
             using var reveal = JsonDocument.Parse(Assert.Single(item.Item1.Messages("seed_reveal")));
             Assert.Equal(NetSeedTestData.Hex(item.Item3), reveal.RootElement.GetProperty("value").GetString());
         }

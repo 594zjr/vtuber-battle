@@ -1,0 +1,1 @@
+{"type":"packet","sessionId":"f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff","side":1,"sequence":1,"payload":"{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\",\"digest\":\"1b3c4be7b39a3849e41c8eef6525d6ece914c5ab6ad335a528d7ac66526c2a31\"}"}

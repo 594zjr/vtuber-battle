@@ -2,6 +2,12 @@
   "id": "example_pack",
   "name": "教程示例包（全员虚构）",
   "notice": "本包角色全部为教程原创虚构示例，与现实人物及机构无关；不含官方素材。",
+  "art": {
+    "portraitDir": "Portraits/example_pack",
+    "streamers": { "ex_a": { "accent": "#ffcc33", "portrait": "ex_a_v2" } },
+    "skillFx": { "ex_opening_note": "wave" },
+    "statusIcons": { "ex_short_pause": "clock" }
+  },
   "skills": {
     "ex_opening_note": {
       "name": "示例·开场音符",

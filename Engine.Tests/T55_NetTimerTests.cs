@@ -52,9 +52,9 @@ public class T55_NetTimerTests
             A.Rewrite = hostRewrite;
             B.Rewrite = guestRewrite;
             Host = new NetSession(BattleTests.LoadPack("original"), A, true, HostTeam, "主机", 19, turn, bank,
-                NetSeedTestData.Host);
+                seedContribution: NetSeedTestData.Host);
             Guest = new NetSession(BattleTests.LoadPack("original"), B, false, GuestTeam, "客机", 99, guestTurn, guestBank,
-                NetSeedTestData.Guest);
+                seedContribution: NetSeedTestData.Guest);
             if (handshake)
             {
                 Pump();
@@ -109,7 +109,7 @@ public class T55_NetTimerTests
         }
         using var hostHello = JsonDocument.Parse(Assert.Single(pair.A.Messages("hello")));
         using var guestHello = JsonDocument.Parse(Assert.Single(pair.B.Messages("hello")));
-        Assert.Equal(4, hostHello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(6, hostHello.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(1, hostHello.RootElement.GetProperty("timerVersion").GetInt32());
         Assert.Equal(2.5, hostHello.RootElement.GetProperty("timer").GetProperty("turnSeconds").GetDouble());
         Assert.Equal(7.25, hostHello.RootElement.GetProperty("timer").GetProperty("bankSeconds").GetDouble());

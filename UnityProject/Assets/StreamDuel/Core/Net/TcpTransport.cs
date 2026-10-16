@@ -14,6 +14,11 @@ namespace StreamDuel.Core
         public TcpDisconnectedException(Exception inner = null) : base("对方已断开。", inner) { }
     }
 
+    internal sealed class TcpIncompleteMessageException : IOException
+    {
+        public TcpIncompleteMessageException() : base("对方已断开，收到的最后一条消息缺少换行结束符。") { }
+    }
+
     public sealed class TcpTransport : INetTransport, IDisposable
     {
         readonly TcpClient client;
@@ -238,9 +243,10 @@ namespace StreamDuel.Core
                         }
                     }
                     cleanEof = pending.Length == 0;
+                    // 新会话可从 journal 重发截断帧；旧会话仍按传输错误结束。
                     RecordFailure(cleanEof
                         ? (Exception)new TcpDisconnectedException()
-                        : new InvalidDataException("对方已断开，收到的最后一条消息缺少换行结束符。"));
+                        : new TcpIncompleteMessageException());
                 }
             }
             catch (DecoderFallbackException ex)

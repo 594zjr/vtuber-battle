@@ -139,7 +139,7 @@ function Room-Packet([string]$Name, [int]$Port, [int]$Protocol = $protocolVersio
 try {
     $assembly = [Reflection.Assembly]::LoadFrom($coreDll)
     Assert-Check ([IO.Path]::GetFullPath($assembly.Location) -eq [IO.Path]::GetFullPath($coreDll)) '请在未加载其他 Core 的新 PowerShell 进程运行。'
-    $protocolVersion = [StreamDuel.Core.NetSession]::ProtocolVersion
+    $protocolVersion = [StreamDuel.Core.NetSession]::TerminationProtocolVersion
     $invalid = @(
         @{ Name = 'missing-name'; Args = @('--lan-host') },
         @{ Name = 'empty-name'; Args = @('--lan-host', '') },
@@ -260,7 +260,7 @@ try {
             if ($packet['magic'] -ne 'SD-LAN-1' -or $packet['port'] -ne $tcpPort) { continue }
             Assert-Check ($bytes.Length -le 512) '房主广播超过 512 字节。'
             Assert-Check ($packet['name'] -ceq ('房' * 24)) '广播房名未正确截断到 24 字符。'
-            Assert-Check ($packet['protocol'] -eq [StreamDuel.Core.NetSession]::ProtocolVersion) '广播协议版本与会话不一致。'
+            Assert-Check ($packet['protocol'] -eq [StreamDuel.Core.NetSession]::TerminationProtocolVersion) '广播协议版本与会话不一致。'
             Assert-Check ($packet['contentHash'] -ceq $expectedHash -and $packet['ruleset'] -ceq 'casual') '广播内容指纹或规则集不正确。'
             $broadcastPackets.Add([pscustomobject]@{
                 elapsed_ms = $capture.ElapsedMilliseconds; sender = $remote.Address.ToString(); sender_port = $remote.Port

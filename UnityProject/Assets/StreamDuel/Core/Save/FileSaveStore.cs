@@ -21,23 +21,30 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class FileSaveStore : ISaveStore
+    public sealed partial class FileSaveStore : ISaveStore
     {
         readonly string root;
         readonly string rootPrefix;
         readonly StringComparison pathComparison;
+        readonly bool createRootOnAccess;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
+        static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(true, true);
         static readonly string ReplayOwnershipPath = Path.Combine("replays", ".replay-ownership.json");
         static readonly string ReplayOwnershipTemporaryPath = Path.Combine("replays", ".replay-ownership.json.tmp");
         static readonly Regex AutomaticReplayName = new Regex(
             @"^[0-9]{8}_[0-9]{6}_[0-9]{7}_[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
 
-        public FileSaveStore(string rootDirectory)
+        public FileSaveStore(string rootDirectory) : this(rootDirectory, true)
+        {
+        }
+
+        FileSaveStore(string rootDirectory, bool createRootOnAccess)
         {
             if (string.IsNullOrWhiteSpace(rootDirectory)) throw new ArgumentException("存档根目录不能为空。", nameof(rootDirectory));
             root = Path.GetFullPath(rootDirectory);
             rootPrefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             pathComparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            this.createRootOnAccess = createRootOnAccess;
             EnsureRoot();
         }
 
@@ -70,6 +77,12 @@ namespace StreamDuel.Core
             return Profile.FromJson(ReadOptional("profile.json"));
         }
 
+        // 联网开场只读完整快照，未完成的握手不能创建存档目录。
+        public static Profile LoadProfileSnapshot(string rootDirectory)
+        {
+            return new FileSaveStore(rootDirectory, false).LoadProfile();
+        }
+
         public void SaveProfile(Profile profile)
         {
             if (profile == null) throw new ArgumentNullException(nameof(profile));
@@ -78,12 +91,25 @@ namespace StreamDuel.Core
         }
 
         // 读改写必须持有同一把锁，多个本机客户端才不会互相覆盖累计战绩。
-        public Profile RecordProfile(Battle battle, int playerSide = 0)
+        public Profile RecordProfile(Battle battle, int playerSide = 0, PlayerRating opponentRating = null)
         {
             using (OpenLock(".profile.lock"))
             {
                 var profile = LoadProfile();
                 profile.Record(battle, playerSide);
+                // 接手局经过同样的终局校验，但不能触发排位结算或重写正式档案。
+                if (battle.IsBranch) return profile;
+                if (opponentRating != null)
+                {
+                    PlayerRating current;
+                    var own = profile.Ratings.TryGetValue(Profile.DefaultRatingFormat, out current)
+                        ? current.Clone() : new PlayerRating();
+                    // 双方自报分只用于本机显示，不防作弊；对方快照不能作为本方档案保存。
+                    var opponent = new PlayerRating { Rating = opponentRating.Rating, Games = opponentRating.Games };
+                    double score = battle.Winner < 0 ? 0.5 : battle.Winner == playerSide ? 1.0 : 0.0;
+                    RatingSystem.Apply(own, opponent, score);
+                    profile.Ratings[Profile.DefaultRatingFormat] = own;
+                }
                 WriteAtomic("profile.json", ".profile.json.tmp", profile.ToJson());
                 return profile;
             }
@@ -285,10 +311,16 @@ namespace StreamDuel.Core
                     .Select(value => value.ToString("x2", CultureInfo.InvariantCulture)));
         }
 
-        string ReadOptional(string relative)
+        string ReadOptional(string relative, bool rejectInvalidUtf8 = false)
         {
             string path = CheckedPath(relative);
-            try { return File.ReadAllText(path, Utf8); }
+            try
+            {
+                // 读者只看旧或新完整文件，不阻止另一局持锁后原子替换。
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+                using (var reader = new StreamReader(stream, rejectInvalidUtf8 ? StrictUtf8 : Utf8,
+                    detectEncodingFromByteOrderMarks: !rejectInvalidUtf8)) return reader.ReadToEnd();
+            }
             catch (FileNotFoundException) { return null; }
             catch (DirectoryNotFoundException) { return null; }
         }
@@ -331,7 +363,7 @@ namespace StreamDuel.Core
         void EnsureRoot()
         {
             CheckRootAncestors();
-            Directory.CreateDirectory(root);
+            if (createRootOnAccess) Directory.CreateDirectory(root);
             CheckRootAncestors();
         }
 

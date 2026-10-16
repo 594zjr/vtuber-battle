@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using StreamDuel.Core;
 using Xunit;
@@ -21,10 +22,10 @@ internal static class NetSeedTestData
 
     public static string Hex(byte[] value) { return Convert.ToHexString(value).ToLowerInvariant(); }
 
-    public static string Commit(byte[] value)
+    public static string Commit(byte[] value, int side)
     {
         using var sha = SHA256.Create();
-        return Hex(sha.ComputeHash(value));
+        return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(side == 0 ? "host:" : "guest:").Concat(value).ToArray()));
     }
 }
 
@@ -40,6 +41,7 @@ public class T87_FairSeedTests
         public Transport Peer;
         public Func<string, string> Rewrite;
         public string FailOnType;
+        public bool Disconnected;
         public readonly HashSet<string> HoldTypes = new HashSet<string>();
         public readonly HashSet<string> DuplicateTypes = new HashSet<string>();
         public readonly List<string> Sent = new List<string>();
@@ -57,6 +59,7 @@ public class T87_FairSeedTests
 
         public bool TryReceive(out string message)
         {
+            if (Disconnected) throw new System.IO.IOException("模拟握手前断线。");
             if (incoming.Count == 0) { message = null; return false; }
             message = incoming.Dequeue();
             return true;
@@ -75,7 +78,10 @@ public class T87_FairSeedTests
 
         public Pair(byte[] hostBytes = null, byte[] guestBytes = null, bool randomDefaults = false,
             Func<string, string> hostRewrite = null, Func<string, string> guestRewrite = null,
-            uint? oldHostSeed = 19, uint? oldGuestSeed = 99, bool timer = false, string hostSendFailure = null)
+            uint? oldHostSeed = 19, uint? oldGuestSeed = 99, bool timer = false, string hostSendFailure = null,
+            bool hostTermination = false, bool guestTermination = false,
+            bool hostReconnect = false, bool guestReconnect = false,
+            PlayerRating hostRating = null, PlayerRating guestRating = null)
         {
             A.Peer = B;
             B.Peer = A;
@@ -84,8 +90,10 @@ public class T87_FairSeedTests
             A.FailOnType = hostSendFailure;
             Host = new NetSession(HostDb, A, true, HostTeam, "主机", oldHostSeed,
                 timer ? 2 : (double?)null, timer ? 3 : (double?)null,
-                randomDefaults ? null : hostBytes ?? NetSeedTestData.Host);
+                enableTermination: hostTermination, rating: hostRating, enableReconnect: hostReconnect,
+                seedContribution: randomDefaults ? null : hostBytes ?? NetSeedTestData.Host);
             Guest = new NetSession(GuestDb, B, false, GuestTeam, "客机", oldGuestSeed,
+                enableTermination: guestTermination, rating: guestRating, enableReconnect: guestReconnect,
                 seedContribution: randomDefaults ? null : guestBytes ?? NetSeedTestData.Guest);
         }
 
@@ -131,19 +139,21 @@ public class T87_FairSeedTests
     {
         // SHA-256(00..3f) = fdeab9acf3710362bd2658cdc9a29e8f9c757fcf9811603a8c447cd1d9151108。
         Assert.Equal(0xacb9eafdu, NetSeedTestData.Seed);
+        Assert.Equal("29e2b9e1d07c622d5adea64add1072a077d769b9b872f267b3d7479a7b91bdc3", NetSeedTestData.Commit(NetSeedTestData.Host, 0));
+        Assert.Equal("d45208b2e976df8d670d2dd1e9a73facb3039b8a414b2fd28caf4916f4636fcb", NetSeedTestData.Commit(NetSeedTestData.Guest, 1));
         Assert.NotEqual(NetSeedTestData.Seed, NetSeedTestData.Combine(NetSeedTestData.Guest, NetSeedTestData.Host));
         var pair = new Pair();
         Assert.Null(pair.Host.Battle);
         Assert.Null(pair.Guest.Battle);
         Assert.Empty(pair.A.Messages("seed_reveal"));
         Assert.Empty(pair.B.Messages("seed_reveal"));
-        Assert.Equal(4, NetSession.ProtocolVersion);
+        Assert.Equal(6, NetSession.ProtocolVersion);
         foreach (var item in new[] { (pair.A, 0, NetSeedTestData.Host), (pair.B, 1, NetSeedTestData.Guest) })
         {
             using var hello = JsonDocument.Parse(Assert.Single(item.Item1.Messages("hello")));
-            Assert.Equal(4, hello.RootElement.GetProperty("version").GetInt32());
+            Assert.Equal(6, hello.RootElement.GetProperty("version").GetInt32());
             Assert.Equal(item.Item2, hello.RootElement.GetProperty("side").GetInt32());
-            Assert.Equal(NetSeedTestData.Commit(item.Item3), hello.RootElement.GetProperty("seedCommit").GetString());
+            Assert.Equal(NetSeedTestData.Commit(item.Item3, item.Item2), hello.RootElement.GetProperty("seedCommit").GetString());
             Assert.False(hello.RootElement.TryGetProperty("seed", out _));
             Assert.False(hello.RootElement.TryGetProperty("value", out _));
         }
@@ -169,6 +179,147 @@ public class T87_FairSeedTests
         uint expected = NetSeedTestData.Combine(host, guest);
         Assert.NotEqual(NetSeedTestData.Seed, expected);
         new Pair(host, guest).AssertReady(expected);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void CopyingTheOtherRoleCommitmentAndRevealCannotAuthenticate(int copyingSide)
+    {
+        Func<string, string> Copy(int side) => message =>
+        {
+            byte[] stolen = side == 0 ? NetSeedTestData.Guest : NetSeedTestData.Host;
+            message = Edit(message, "hello", fields => fields["seedCommit"] = NetSeedTestData.Commit(stolen, 1 - side));
+            return Edit(message, "seed_reveal", fields => fields["value"] = NetSeedTestData.Hex(stolen));
+        };
+        var pair = new Pair(hostRewrite: copyingSide != 1 ? Copy(0) : null,
+            guestRewrite: copyingSide != 0 ? Copy(1) : null);
+        pair.Pump();
+        Assert.Equal(NetState.Error, pair.Host.State);
+        Assert.Equal(NetState.Error, pair.Guest.State);
+        foreach (var receiver in copyingSide == 2 ? new[] { pair.Host, pair.Guest }
+            : new[] { copyingSide == 0 ? pair.Guest : pair.Host })
+        {
+            Assert.Null(receiver.Battle);
+            Assert.Null(receiver.OpponentRating);
+            Assert.Contains("承诺", receiver.Error);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EqualRawContributionsFailEvenWithValidDifferentRoleCommitments(bool reconnect)
+    {
+        byte[] same = NetSeedTestData.Host;
+        var hostRating = new PlayerRating { Rating = 1623, Games = 9 };
+        var guestRating = new PlayerRating { Rating = 1734, Games = 12 };
+        string hostBefore = hostRating.ToJson(), guestBefore = guestRating.ToJson();
+        var pair = new Pair(same, same, hostTermination: true, guestTermination: true,
+            hostReconnect: reconnect, guestReconnect: reconnect, hostRating: hostRating, guestRating: guestRating);
+        Assert.NotEqual(Field(Assert.Single(pair.A.Messages("hello")), "seedCommit"),
+            Field(Assert.Single(pair.B.Messages("hello")), "seedCommit"));
+        pair.Pump();
+        AssertUnstarted(pair);
+        Assert.Contains("相同", pair.Host.Error);
+        Assert.Contains("相同", pair.Guest.Error);
+        Assert.Equal(hostBefore, hostRating.ToJson());
+        Assert.Equal(guestBefore, guestRating.ToJson());
+    }
+
+    [Theory]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(false, false, false, true)]
+    [InlineData(false, false, true, false)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    public void TerminationAndReconnectModesMustMatchBeforeRevealingAnySeed(
+        bool hostTermination, bool guestTermination, bool hostReconnect, bool guestReconnect)
+    {
+        var pair = new Pair(hostTermination: hostTermination, guestTermination: guestTermination,
+            hostReconnect: hostReconnect, guestReconnect: guestReconnect);
+        pair.Pump();
+        AssertUnstarted(pair);
+        Assert.Empty(pair.A.Messages("seed_reveal"));
+        Assert.Empty(pair.B.Messages("seed_reveal"));
+        Assert.Contains(hostTermination != guestTermination ? "终止" : "重连", pair.Host.Error);
+        Assert.Contains(hostTermination != guestTermination ? "终止" : "重连", pair.Guest.Error);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void FairSeedCompletesWithEachMatchingCapabilityCombination(bool termination, bool reconnect)
+    {
+        var pair = new Pair(timer: true, hostTermination: termination, guestTermination: termination,
+            hostReconnect: reconnect, guestReconnect: reconnect);
+        pair.AssertReady(NetSeedTestData.Seed);
+        foreach (var transport in new[] { pair.A, pair.B })
+        {
+            using var hello = JsonDocument.Parse(Assert.Single(transport.Messages("hello")));
+            Assert.Equal(6, hello.RootElement.GetProperty("version").GetInt32());
+            Assert.Equal(termination, hello.RootElement.TryGetProperty("terminationVersion", out var terminationVersion));
+            if (termination) Assert.Equal(1, terminationVersion.GetInt32());
+            Assert.Equal(reconnect, hello.RootElement.TryGetProperty("reconnectVersion", out var reconnectVersion));
+            if (reconnect) Assert.Equal(1, reconnectVersion.GetInt32());
+            Assert.Equal(reconnect, hello.RootElement.TryGetProperty("sessionId", out _));
+        }
+        foreach (var session in new[] { pair.Host, pair.Guest })
+        {
+            Assert.Equal(2, session.Clock.TurnLeft(session.MySide));
+            Assert.Equal(3, session.Clock.BankLeft(session.MySide));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PreBattleTimeoutOrDisconnectCannotCreateAResultOrChangeRatings(bool disconnect)
+    {
+        var hostRating = new PlayerRating { Rating = 1623, Games = 9 };
+        var guestRating = new PlayerRating { Rating = 1734, Games = 12 };
+        string hostBefore = hostRating.ToJson(), guestBefore = guestRating.ToJson();
+        var pair = new Pair(hostTermination: true, guestTermination: true,
+            hostReconnect: true, guestReconnect: true, hostRating: hostRating, guestRating: guestRating);
+        if (disconnect)
+        {
+            pair.A.Disconnected = true;
+            pair.B.Disconnected = true;
+            pair.Pump();
+        }
+        else
+        {
+            pair.Host.Tick(10);
+            pair.Guest.Tick(10);
+        }
+        AssertUnstarted(pair);
+        Assert.False(pair.Host.IsDisconnected);
+        Assert.False(pair.Guest.IsDisconnected);
+        Assert.False(pair.Host.IsReconnecting);
+        Assert.False(pair.Guest.IsReconnecting);
+        Assert.Empty(pair.A.Messages("seed_reveal"));
+        Assert.Empty(pair.B.Messages("seed_reveal"));
+        Assert.Equal(hostBefore, hostRating.ToJson());
+        Assert.Equal(guestBefore, guestRating.ToJson());
+    }
+
+    static void AssertUnstarted(Pair pair)
+    {
+        foreach (var session in new[] { pair.Host, pair.Guest })
+        {
+            Assert.Equal(NetState.Error, session.State);
+            Assert.Null(session.Battle);
+            Assert.Null(session.OpponentRating);
+            Assert.Empty(session.NameInputs);
+            Assert.Empty(session.DisplayNames);
+            Assert.False(string.IsNullOrWhiteSpace(session.Error));
+        }
     }
 
     [Fact]
@@ -240,7 +391,7 @@ public class T87_FairSeedTests
             {
                 string value = Field(Assert.Single(transport.Messages("seed_reveal")), "value");
                 Assert.Matches("^[0-9a-f]{64}$", value);
-                Assert.Equal(NetSeedTestData.Commit(Convert.FromHexString(value)), Field(Assert.Single(transport.Messages("hello")), "seedCommit"));
+                Assert.Equal(NetSeedTestData.Commit(Convert.FromHexString(value), ReferenceEquals(transport, pair.A) ? 0 : 1), Field(Assert.Single(transport.Messages("hello")), "seedCommit"));
                 values.Add(value);
             }
             uint expected = NetSeedTestData.Combine(Convert.FromHexString(values[values.Count - 2]), Convert.FromHexString(values[values.Count - 1]));
@@ -280,7 +431,7 @@ public class T87_FairSeedTests
         var pair = new Pair(guestRewrite: message => Edit(message, "hello", fields =>
         {
             if (mode == "missing") fields.Remove("seedCommit");
-            else fields["seedCommit"] = InvalidValue(mode, NetSeedTestData.Commit(NetSeedTestData.Guest));
+            else fields["seedCommit"] = InvalidValue(mode, NetSeedTestData.Commit(NetSeedTestData.Guest, 1));
         }));
         pair.Host.Poll();
         Assert.Equal(NetState.Error, pair.Host.State);
@@ -356,6 +507,8 @@ public class T87_FairSeedTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
     public void LegacyProtocolReportsChineseVersionMismatchBeforeBattle(int version)
     {
         var pair = new Pair(guestRewrite: message => Edit(message, "hello", fields => fields["version"] = version));
@@ -552,7 +705,8 @@ public class T87_FairSeedTests
         foreach (byte[] contribution in new[] { NetSeedTestData.Host, NetSeedTestData.Guest })
         {
             Assert.DoesNotContain(NetSeedTestData.Hex(contribution), json);
-            Assert.DoesNotContain(NetSeedTestData.Commit(contribution), json);
+            Assert.DoesNotContain(NetSeedTestData.Commit(contribution, 0), json);
+            Assert.DoesNotContain(NetSeedTestData.Commit(contribution, 1), json);
         }
         var record = BattleRecord.FromJson(json);
         Assert.Equal(NetSeedTestData.Seed, record.Seed);

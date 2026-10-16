@@ -82,19 +82,20 @@ function Invoke-CompletionCase([bool]$WithError) {
         try { $seedDigest = $sha.ComputeHash([byte[]]($hostContribution + $guestContribution)) }
         finally { $sha.Dispose() }
         $expectedSeed = [uint32]($seedDigest[0] + 256L * $seedDigest[1] + 65536L * $seedDigest[2] + 16777216L * $seedDigest[3])
-        $hostSession = [StreamDuel.Core.NetSession]::new($db, $hostTcp, $true, $hostTeam, '房主', [uint32]7, $null, $null, $hostContribution)
-        $guestSession = [StreamDuel.Core.NetSession]::new($db, $guestTcp, $false, $guestTeam, '客机', $null, $null, $null, $guestContribution)
+        $hostSession = [StreamDuel.Core.NetSession]::new($db, $hostTcp, $true, $hostTeam, '房主', [uint32]7, $null, $null, $true, [StreamDuel.Core.PlayerRating]::new(), $true, $hostContribution)
+        $guestSession = [StreamDuel.Core.NetSession]::new($db, $guestTcp, $false, $guestTeam, '客机', $null, $null, $null, $true, [StreamDuel.Core.PlayerRating]::new(), $true, $guestContribution)
         $sessionElapsed = [Diagnostics.Stopwatch]::StartNew()
 
         while ($hostSession.State -ne [StreamDuel.Core.NetState]::Over -or
             $guestSession.State -ne [StreamDuel.Core.NetState]::Over) {
             Assert-Check ($elapsed.Elapsed.TotalSeconds -lt $TimeoutSeconds) '真实联网对局未在期限内完成。'
-            $hostSession.Poll()
-            $guestSession.Poll()
             $seconds = $sessionElapsed.Elapsed.TotalSeconds
             $sessionElapsed.Restart()
             foreach ($session in @($hostSession, $guestSession)) {
-                $session.Tick($seconds)
+                $timerRevision = $session.TimerRevision
+                $session.Poll()
+                # 新开的承诺/公开窗口不能承担上一窗口耗时。
+                $session.Tick($(if ($timerRevision -eq $session.TimerRevision) { $seconds } else { 0 }))
                 Assert-Healthy $session
                 if ($session.State -eq [StreamDuel.Core.NetState]::Choose -and -not $session.HasSubmitted) {
                     $session.Submit([StreamDuel.Core.Ai]::Choose($session.Battle, $session.MySide, [StreamDuel.Core.AiLevel]::Normal))
@@ -117,12 +118,13 @@ function Invoke-CompletionCase([bool]$WithError) {
         $evidence.final_hash = $hashBefore.ToString('x16', [Globalization.CultureInfo]::InvariantCulture)
         $evidence.state_before_finish = $hostSession.State.ToString()
 
-        # 只在真实协议终局后注入聊天积压；此前所有握手、承诺、公开及哈希都由同一 Core 执行。
+        # 绕过发送频率限制以验证接收上限；仍由真实 Send 封装重连序号，不复制线上 packet 协议。
         for ($index = 0; $index -lt $chatCount; $index++) {
-            $guestTcp.Send('{"type":"chat","index":' + ($index % 8) + '}')
+            [void]$sendMethod.Invoke($guestSession, [object[]]@('{"type":"chat","index":' + ($index % 8) + '}'))
             $evidence.chat_messages_sent++
         }
-        if ($WithError) { $guestTcp.Send('{"type":"error","message":"' + $sentinel + '"}') }
+        if ($WithError) { [void]$sendMethod.Invoke($guestSession, [object[]]@('{"type":"error","message":"' + $sentinel + '"}')) }
+        $guestSession.PrepareClose()
         $guestTcp.CompleteSending()
         $eofWait = [Diagnostics.Stopwatch]::StartNew()
         # 此处故意不调用 Poll/TryReceive。PeerClosed 说明后台已排入最后一行及其后的 EOF。
@@ -139,6 +141,18 @@ function Invoke-CompletionCase([bool]$WithError) {
         $parseArguments = [object[]]::new(1)
         $parseArguments[0] = $arguments
         $options = $parseMethod.Invoke($null, $parseArguments)
+        # 只略过已完成的建连构造；复用真实会话与传输，收尾仍执行当前 CLI 的 Poll/FinishNetwork。
+        $network = [Runtime.CompilerServices.RuntimeHelpers]::GetUninitializedObject($networkType)
+        foreach ($entry in @(
+            @{ Name = 'options'; Value = $options },
+            @{ Name = 'clock'; Value = [Diagnostics.Stopwatch]::StartNew() },
+            @{ Name = '<Session>k__BackingField'; Value = $hostSession },
+            @{ Name = '<Connection>k__BackingField'; Value = $hostTcp }
+        )) {
+            $field = $networkType.GetField($entry.Name, $instanceFlags)
+            Assert-Check ($null -ne $field) ('当前 CLI 连接适配字段缺失：' + $entry.Name)
+            $field.SetValue($network, $entry.Value)
+        }
         $previousOut = [Console]::Out
         $previousError = [Console]::Error
         try {
@@ -146,10 +160,10 @@ function Invoke-CompletionCase([bool]$WithError) {
             [Console]::SetError($stderr)
             try {
                 # 调用构建产物中的原 CLI 方法，避免复制或模拟收尾及保存实现。
-                [void]$finishMethod.Invoke($null, [object[]]@($hostSession, $hostTcp))
+                [void]$finishMethod.Invoke($null, [object[]]@($network, $null))
                 $evidence.finish_returned = $true
                 $evidence.save_invoked = $true
-                $evidence.save_exit = $saveMethod.Invoke($null, [object[]]@($hostSession.Battle, $options, 0))
+                $evidence.save_exit = $saveMethod.Invoke($null, [object[]]@($hostSession.Battle, $options, 0, $hostSession.OpponentRating, $true))
             }
             catch { $evidence.completion_error = $_.Exception.GetBaseException().Message }
         }
@@ -180,6 +194,8 @@ function Invoke-CompletionCase([bool]$WithError) {
             Assert-Check ($stderr.ToString().Length -eq 0) '正常收尾产生了错误输出。'
             $profile = [StreamDuel.Core.Profile]::FromJson([IO.File]::ReadAllText((Join-Path $saveDirectory 'profile.json'), $utf8))
             Assert-Check ($profile.Packs.Count -eq 1 -and $profile.Packs.ContainsKey('original')) '正常终局档案内容包不正确。'
+            Assert-Check ($profile.Ratings.Count -eq 1 -and $profile.Ratings.ContainsKey([StreamDuel.Core.Profile]::DefaultRatingFormat) -and
+                $profile.Ratings[[StreamDuel.Core.Profile]::DefaultRatingFormat].Games -eq 1) '正常终局未恰好累计一次默认赛制排位。'
             $stats = $profile.Packs['original']
             Assert-Check (($stats.Wins + $stats.Losses + $stats.Draws) -eq 1) '正常终局未恰好累计一次。'
             $replays = @(Get-ChildItem -LiteralPath (Join-Path $saveDirectory 'replays') -File |
@@ -217,10 +233,14 @@ try {
     $cliAssembly = [Reflection.Assembly]::LoadFrom($cliDll)
     Assert-Check ([IO.Path]::GetFullPath($coreAssembly.Location) -eq [IO.Path]::GetFullPath($coreDll) -and
         [IO.Path]::GetFullPath($cliAssembly.Location) -eq [IO.Path]::GetFullPath($cliDll)) '当前 PowerShell 已加载其他构建，请在新进程运行。'
-    Assert-Check ([StreamDuel.Core.NetSession]::ProtocolVersion -gt 2) '当前构建尚未包含 T62 快捷语协议，请先构建整合后的 CLI。'
+    Assert-Check ([StreamDuel.Core.NetSession]::ProtocolVersion -eq 6) '当前构建尚未包含 T87 协议 6，请先构建整合后的 CLI。'
     $programType = $cliAssembly.GetType('StreamDuel.Cli.Program', $true)
     $optionsType = $cliAssembly.GetType('StreamDuel.Cli.CliOptions', $true)
     $methodFlags = [Reflection.BindingFlags]'Static, Public, NonPublic'
+    $instanceFlags = [Reflection.BindingFlags]'Instance, Public, NonPublic'
+    $networkType = $programType.GetNestedType('NetworkConnection', [Reflection.BindingFlags]::NonPublic)
+    $sendMethod = [StreamDuel.Core.NetSession].GetMethod('Send', $instanceFlags)
+    Assert-Check ($null -ne $networkType -and $null -ne $sendMethod) '当前 CLI 或 Core 缺少真实连接及发送入口。'
     $finishMethod = $programType.GetMethod('FinishNetwork', $methodFlags)
     $saveMethod = $programType.GetMethod('SaveCompletedBattle', $methodFlags)
     $parseMethod = $optionsType.GetMethod('Parse', $methodFlags)

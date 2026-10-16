@@ -114,11 +114,13 @@ namespace StreamDuel.Core
                 TickSeedHandshake(seconds);
                 return;
             }
-            if (Clock == null || Battle == null || Terminal) return;
+            // 重连窗口只由 Poll(elapsedSeconds) 计时，不能同时耗尽选招预算或十秒网络宽限。
+            if (Clock == null || Battle == null || Terminal || IsDisconnected) return;
+            if (TickTerminationBarrier(seconds)) return;
             double remaining = seconds;
             int peer = 1 - MySide;
             bool automaticallySubmitted = false;
-            while (!Terminal)
+            while (!Terminal && !IsDisconnected)
             {
                 // 只提交本方选择，远端始终必须自己提交并通过承诺校验。
                 if (hashes.Count == 0 && TimerParticipant(MySide) && !HasSubmitted && Clock.TimedOut(MySide))
@@ -131,7 +133,7 @@ namespace StreamDuel.Core
                         if (replacement < 0) { Fault(NetState.Error, "补位超时，但本方没有可上场的队友。"); return; }
                         SubmitReplace(replacement);
                     }
-                    if (Terminal) return;
+                    if (Terminal || IsDisconnected) return;
                 }
                 if (remaining <= 0) return;
                 if (hashes.Count > 0)

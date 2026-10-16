@@ -113,8 +113,24 @@ function Assert-PairCompleted($Pair) {
     $hostHash = [regex]::Match($hostResult.Out, '(?m)^最终状态哈希：([0-9a-f]{16})\r?$')
     $guestHash = [regex]::Match($guestResult.Out, '(?m)^最终状态哈希：([0-9a-f]{16})\r?$')
     Assert-Check ($hostHash.Success -and $guestHash.Success -and $hostHash.Groups[1].Value -eq $guestHash.Groups[1].Value) '联网终局哈希不一致。'
+    $hostSeed = [regex]::Matches($hostResult.Out, '(?m)^连接成功；本方：[^\r\n]+；公平种子：([0-9]+)\r?$')
+    $guestSeed = [regex]::Matches($guestResult.Out, '(?m)^连接成功；本方：[^\r\n]+；公平种子：([0-9]+)\r?$')
+    Assert-Check ($hostSeed.Count -eq 1 -and $guestSeed.Count -eq 1 -and
+        $hostSeed[0].Groups[1].Value -ceq $guestSeed[0].Groups[1].Value) '计时联网双方没有显示同一个公平种子。'
+    $fairSeed = [uint32]::Parse($hostSeed[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+    $contentDirectory = Join-Path $PSScriptRoot "bin/$Configuration/net8.0/Content"
+    $db = [StreamDuel.Core.ContentDb]::FromJson(
+        [IO.File]::ReadAllText((Join-Path $contentDirectory 'StreamDuelRules.json'), $utf8),
+        [IO.File]::ReadAllText((Join-Path $contentDirectory 'Packs/original.json'), $utf8))
     foreach ($child in @($Pair.Host, $Pair.Guest)) {
         Assert-Check (Test-Path -LiteralPath (Join-Path $child.SaveDirectory 'profile.json')) '联网完成后没有保存档案。'
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $child.SaveDirectory 'replays') -File -Filter '*.json')
+        Assert-Check ($files.Count -eq 1) '计时联网每端没有恰好保存一份录像。'
+        $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
+        Assert-Check ($record.Seed -eq $fairSeed) '计时联网录像没有使用双方最终公平种子。'
+        $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
+        Assert-Check ($replayed.Phase -eq [StreamDuel.Core.Phase]::Over -and
+            $replayed.StateHash().ToString('x16', [Globalization.CultureInfo]::InvariantCulture) -ceq $hostHash.Groups[1].Value) '计时联网录像不能独立复现本局终局哈希。'
     }
     return [pscustomobject]@{ Host = $hostResult; Guest = $guestResult }
 }

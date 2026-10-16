@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace StreamDuel.Core
 {
@@ -10,6 +12,7 @@ namespace StreamDuel.Core
         private byte[] seedLocalValue;
         private string seedLocalCommit, seedPeerCommit, seedPeerName;
         private IList<string> seedPeerTeam;
+        private PlayerRating seedPeerRating;
         private bool seedHelloSent, seedHelloReceived, seedRevealSent, seedRevealReceived;
         private double seedWaitElapsed;
 
@@ -26,7 +29,7 @@ namespace StreamDuel.Core
                 seedLocalValue = contribution == null ? new byte[32] : (byte[])contribution.Clone();
                 if (contribution == null)
                     using (var random = RandomNumberGenerator.Create()) random.GetBytes(seedLocalValue);
-                seedLocalCommit = SeedDigest(seedLocalValue);
+                seedLocalCommit = SeedDigest(MySide, seedLocalValue);
                 return true;
             }
             catch (Exception ex)
@@ -73,8 +76,10 @@ namespace StreamDuel.Core
             {
                 for (int i = 0; i < peerValue.Length; i++)
                     peerValue[i] = (byte)((HexDigit(text[i * 2]) << 4) | HexDigit(text[i * 2 + 1]));
-                if (!string.Equals(seedPeerCommit, SeedDigest(peerValue), StringComparison.Ordinal))
+                if (!string.Equals(seedPeerCommit, SeedDigest(1 - MySide, peerValue), StringComparison.Ordinal))
                     throw new FormatException("对方公开的种子原值与承诺不符。");
+                if (seedLocalValue.SequenceEqual(peerValue))
+                    throw new FormatException("双方种子原值不能相同，请重新建立会话。");
                 seedRevealReceived = true;
                 // 按角色拼接，不能按收包顺序拼接，否则两端会算出不同种子。
                 Array.Copy(seedLocalValue, 0, combined, MySide * 32, 32);
@@ -94,7 +99,9 @@ namespace StreamDuel.Core
                 names[MySide] = myName;
                 names[1 - MySide] = seedPeerName;
                 Battle = new Battle(db, teams, names, sharedSeed);
+                opponentRating = seedPeerRating;
                 rngCheckpoint = Battle.NetRngState;
+                RememberCheckpoint();
                 TimerRevision++;
                 BeginPhase();
             }
@@ -113,6 +120,7 @@ namespace StreamDuel.Core
             seedLocalValue = null;
             seedLocalCommit = seedPeerCommit = seedPeerName = null;
             seedPeerTeam = null;
+            seedPeerRating = null;
         }
 
         private static int HexDigit(char value)
@@ -120,9 +128,18 @@ namespace StreamDuel.Core
             return value <= '9' ? value - '0' : value - 'a' + 10;
         }
 
-        private static string SeedDigest(byte[] value)
+        private static string SeedDigest(int side, byte[] value)
         {
-            using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(value));
+            // 角色前缀使复制对端承诺再复制其原值无法通过验证。
+            byte[] prefix = Encoding.UTF8.GetBytes(side == 0 ? "host:" : "guest:");
+            var input = new byte[prefix.Length + value.Length];
+            Array.Copy(prefix, input, prefix.Length);
+            Array.Copy(value, 0, input, prefix.Length, value.Length);
+            try
+            {
+                using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(input));
+            }
+            finally { Array.Clear(input, 0, input.Length); }
         }
     }
 }
