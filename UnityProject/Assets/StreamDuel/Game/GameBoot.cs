@@ -46,6 +46,7 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
             router.Register(ScreenIds.Replay, () => new ReplayScreen());
+            router.Register(ScreenIds.Rank, () => new RankScreen());
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);

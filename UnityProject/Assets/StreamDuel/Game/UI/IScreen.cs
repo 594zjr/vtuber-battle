@@ -20,6 +20,7 @@ namespace StreamDuel.Game
         public const string Battle = "battle";
         public const string Result = "result";
         public const string Replay = "replay";
+        public const string Rank = "rank";
         public const string Settings = "settings";
         public const string Online = "online";
         public const string Legacy = "legacy";
