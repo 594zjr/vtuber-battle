@@ -9,7 +9,7 @@ using StreamDuel.Core;
 
 namespace StreamDuel.PackCheck
 {
-    internal static class Program
+    internal static partial class Program
     {
         private sealed class PackEntry
         {
@@ -24,6 +24,7 @@ namespace StreamDuel.PackCheck
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             try
             {
+                if (args.Contains("--art") || args.Contains("--json")) return RunArt(args);
                 string packId = null;
                 string packDirectory = null;
                 bool writeDocs = false;
@@ -39,6 +40,8 @@ namespace StreamDuel.PackCheck
                             Console.WriteLine("文本检查逐条输出 Level、Where、Id、Message，并汇总 error/warn；任何文本 error 都会阻止名单生成。");
                             Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出，id 冲突时内置优先并提示。");
                             Console.WriteLine("--write-docs 在所选内容包全部通过检查后，更新对应 docs/roster/<packId>.md。");
+                            Console.WriteLine("--art <资源根目录> 只读检查立绘 PNG，可配 --pack、--pack-dir、--json；不能与 --write-docs 或 --list-packs 合用。");
+                            Console.WriteLine("资源路径相对 --art 目录；默认优先使用其中顶层内容包 JSON，否则使用内置包。详见 docs/design.md 的美术文件检查约定。");
                             return 0;
                         case "--pack":
                             if (++i >= args.Length || string.IsNullOrWhiteSpace(args[i]) || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
