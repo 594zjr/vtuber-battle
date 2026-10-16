@@ -229,6 +229,95 @@ try {
         Assert-NoSave $child
     }
     $checks.Add('参数门禁：缺少端口或主机、重复和非法开关、缺值、观战误用主机选项、昵称缺少观战和重复昵称均拒绝')
+
+    function Get-T122ModeFixtureFingerprint([string]$Root) {
+        $rows = [Collections.Generic.List[string]]::new()
+        $rows.Add('D|.|' + [IO.Directory]::GetLastWriteTimeUtc($Root).Ticks)
+        [string[]]$paths = [IO.Directory]::GetFileSystemEntries($Root, '*', [IO.SearchOption]::AllDirectories)
+        [Array]::Sort($paths, [StringComparer]::Ordinal)
+        foreach ($path in $paths) {
+            $relative = [IO.Path]::GetRelativePath($Root, $path)
+            if ([IO.Directory]::Exists($path)) {
+                $rows.Add('D|' + $relative + '|' + [IO.Directory]::GetLastWriteTimeUtc($path).Ticks)
+            }
+            else {
+                $rows.Add('F|' + $relative + '|' + [IO.File]::GetLastWriteTimeUtc($path).Ticks + '|' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($path)))
+            }
+        }
+        return [string]::Join([Environment]::NewLine, $rows)
+    }
+
+    $modeFixtureRoot = Join-Path $runDirectory 'mode-matrix-existing-profile'
+    $modeFixtureKeep = Join-Path $modeFixtureRoot 'keep'
+    [void][IO.Directory]::CreateDirectory($modeFixtureKeep)
+    $modeFixtureProfile = Join-Path $modeFixtureRoot 'profile.json'
+    # 合法的第 2 季档案，带真实历史、定级资格和高于当前分数的峰值。
+    $modeFixtureJson = '{"packs":{"original":{"draws":1,"losses":2,"pickWins":{"bell":1},"picks":{"bell":3},"wins":1}},"ratings":{"默认":{"games":1,"rating":1510,"season":2,"peakRating":1520,"isPlaced":true,"history":[{"season":1,"finalRating":1520,"peakRating":1530,"tier":"人气聚光","games":12}]}}}'
+    [IO.File]::WriteAllText($modeFixtureProfile, [Environment]::NewLine + '  ' + $modeFixtureJson + [Environment]::NewLine, $utf8)
+    [IO.File]::WriteAllText((Join-Path $modeFixtureRoot '.profile.lock'), '', $utf8)
+    [IO.File]::WriteAllText((Join-Path $modeFixtureKeep 'sentinel.txt'), '参数拒绝必须保留既有文件。', $utf8)
+    $modeFixtureTime = [DateTime]::new(2020, 1, 2, 3, 4, 5, [DateTimeKind]::Utc)
+    foreach ($path in [IO.Directory]::GetFiles($modeFixtureRoot, '*', [IO.SearchOption]::AllDirectories)) {
+        [IO.File]::SetLastWriteTimeUtc($path, $modeFixtureTime)
+    }
+    [IO.Directory]::SetLastWriteTimeUtc($modeFixtureKeep, $modeFixtureTime)
+    [IO.Directory]::SetLastWriteTimeUtc($modeFixtureRoot, $modeFixtureTime)
+    $modeFixtureBefore = Get-T122ModeFixtureFingerprint $modeFixtureRoot
+    [IO.File]::WriteAllText((Join-Path $runDirectory 'mode-matrix-fixture-before.txt'), $modeFixtureBefore, $utf8)
+    $modeSource = Join-Path $runDirectory 'mode-matrix-unused.json'
+    Assert-Check (-not (Test-Path -LiteralPath $modeSource)) '互斥夹具的录像路径应不存在，必须在读来源前拒绝。'
+
+    $modeBases = @(
+        [pscustomobject]@{ Name = 'branch'; RatingCommand = $null; Args = [string[]]@('--branch', $modeSource, '--turn', '1', '--side', '0') },
+        [pscustomobject]@{ Name = 'new-season'; RatingCommand = '--new-season'; Args = [string[]]@('--new-season') },
+        [pscustomobject]@{ Name = 'rating-history'; RatingCommand = '--rating-history'; Args = [string[]]@('--rating-history') }
+    )
+    $modeExtras = @(
+        [pscustomobject]@{ Name = 'watch-name-alone'; Args = [string[]]@('--watch-name', '观众甲'); BranchError = '--watch-name 只能与 --watch 一起使用。'; Option = '--watch-name' },
+        [pscustomobject]@{ Name = 'chat-alone'; Args = [string[]]@('--spectator-chat', 'off'); BranchError = '--spectator-chat 只能与 --spectate-port 一起使用。'; Option = '--spectator-chat' },
+        [pscustomobject]@{ Name = 'watch-name-complete'; Args = [string[]]@('--watch', '127.0.0.1:1', '--watch-name', '观众甲'); BranchError = '--watch 只读观战，不支持'; Option = '--watch-name' },
+        [pscustomobject]@{ Name = 'chat-complete'; Args = [string[]]@('--host', '0', '--spectate-port', '0', '--spectator-chat', 'off'); BranchError = '--branch 是独立的手动接手模式'; Option = '--spectator-chat' }
+    )
+    $modeMatrixCount = 0
+    foreach ($modeBase in $modeBases) {
+        foreach ($modeExtra in $modeExtras) {
+            foreach ($reverse in @($false, $true)) {
+                $order = if ($reverse) { 'extra-first' } else { 'mode-first' }
+                $name = 'mode-matrix-' + $modeBase.Name + '-' + $modeExtra.Name + '-' + $order
+                [string[]]$parameters = if ($reverse) { $modeExtra.Args + $modeBase.Args } else { $modeBase.Args + $modeExtra.Args }
+                $parameters += @('--save-dir', $modeFixtureRoot)
+                [IO.File]::WriteAllText((Join-Path $runDirectory ($name + '.argv.json')), ($parameters | ConvertTo-Json -Compress), $utf8)
+                $child = Start-Cli $name $parameters
+                $child.Process.StandardInput.Close()
+                $result = Wait-Cli $child 1
+                $after = Get-T122ModeFixtureFingerprint $modeFixtureRoot
+                [IO.File]::WriteAllText((Join-Path $runDirectory ($name + '.fixture-after.txt')), $after, $utf8)
+                Assert-Check ($after -ceq $modeFixtureBefore) "$name 改写了已有档案字节、mtime、文件或目录树。"
+                Assert-Check ($result.Out.Length -eq 0 -and [regex]::IsMatch($result.Err, '[\u4e00-\u9fff]')) "$name 没有在任何输出或开局前给出中文参数错误。"
+                Assert-Check (-not $result.Err.Contains('未知参数')) "$name 没有识别新增参数，不能把未知参数错误当作互斥验收通过。"
+                if ($null -ne $modeBase.RatingCommand) {
+                    Assert-Check ($result.Err.Contains($modeBase.RatingCommand + ' 是独立的排位档案操作') -and
+                        $result.Err.Contains($modeExtra.Option)) "$name 没有优先执行赛季独立模式校验。"
+                }
+                else {
+                    Assert-Check ($result.Err.Contains($modeExtra.BranchError)) "$name 没有命中观战依赖或 branch 独立模式的参数校验。"
+                    if ($modeExtra.Name -eq 'watch-name-complete') {
+                        Assert-Check ($result.Err.Contains('--branch')) "$name 未明确拒绝观战与接手共用。"
+                    }
+                    if ($modeExtra.Name -eq 'chat-complete') {
+                        Assert-Check ($result.Err.Contains('--spectator-chat')) "$name 未明确拒绝接手与完整主机聊天参数共用。"
+                    }
+                }
+                Assert-NoSave $child
+                Assert-Check ([IO.Directory]::GetFileSystemEntries($child.WorkingDirectory).Length -eq 0) "$name 在子进程工作目录创建了文件或空目录。"
+                Assert-Check (-not (Test-Path -LiteralPath $modeSource)) "$name 创建了本应只作为输入的来源录像。"
+                $modeMatrixCount++
+            }
+        }
+    }
+    Assert-Check ($modeMatrixCount -eq 24) '必须完整执行 3 模式 × 4 观战参数组 × 2 种顺序的 24 次拒绝。'
+    $checks.Add('T116/T119 交叉门禁：branch、new-season、rating-history 与两个观战新参数的裸参数/完整配置双顺序共 24 次拒绝；已有档案字节、mtime、文件树及子进程目录不变')
+
 }
 catch {
     $failure = $_

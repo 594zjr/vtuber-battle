@@ -21,13 +21,14 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class FileSaveStore : ISaveStore
+    public sealed partial class FileSaveStore : ISaveStore
     {
         readonly string root;
         readonly string rootPrefix;
         readonly StringComparison pathComparison;
         readonly bool createRootOnAccess;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false);
+        static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(true, true);
         static readonly string ReplayOwnershipPath = Path.Combine("replays", ".replay-ownership.json");
         static readonly string ReplayOwnershipTemporaryPath = Path.Combine("replays", ".replay-ownership.json.tmp");
         static readonly Regex AutomaticReplayName = new Regex(
@@ -102,7 +103,7 @@ namespace StreamDuel.Core
                 {
                     PlayerRating current;
                     var own = profile.Ratings.TryGetValue(Profile.DefaultRatingFormat, out current)
-                        ? new PlayerRating { Rating = current.Rating, Games = current.Games } : new PlayerRating();
+                        ? current.Clone() : new PlayerRating();
                     // 双方自报分只用于本机显示，不防作弊；对方快照不能作为本方档案保存。
                     var opponent = new PlayerRating { Rating = opponentRating.Rating, Games = opponentRating.Games };
                     double score = battle.Winner < 0 ? 0.5 : battle.Winner == playerSide ? 1.0 : 0.0;
@@ -310,14 +311,15 @@ namespace StreamDuel.Core
                     .Select(value => value.ToString("x2", CultureInfo.InvariantCulture)));
         }
 
-        string ReadOptional(string relative)
+        string ReadOptional(string relative, bool rejectInvalidUtf8 = false)
         {
             string path = CheckedPath(relative);
             try
             {
                 // 读者只看旧或新完整文件，不阻止另一局持锁后原子替换。
                 using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
-                using (var reader = new StreamReader(stream, Utf8)) return reader.ReadToEnd();
+                using (var reader = new StreamReader(stream, rejectInvalidUtf8 ? StrictUtf8 : Utf8,
+                    detectEncodingFromByteOrderMarks: !rejectInvalidUtf8)) return reader.ReadToEnd();
             }
             catch (FileNotFoundException) { return null; }
             catch (DirectoryNotFoundException) { return null; }
