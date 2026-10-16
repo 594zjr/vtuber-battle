@@ -19,7 +19,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value) : null;
+            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value, options.SpectatorChat) : null;
             if (host)
             {
                 connection = WaitForNetworkGuest(db, options, () => spectators?.Pump());

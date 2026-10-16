@@ -185,7 +185,7 @@ namespace StreamDuel.Cli
                     && option != "--report" && option != "--tournament" && option != "--tournament-report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
-                    && option != "--spectate-port" && option != "--watch")
+                    && option != "--spectate-port" && option != "--watch" && option != "--spectator-chat" && option != "--watch-name")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -193,6 +193,16 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--watch-name":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--watch-name 不能重复指定。");
+                        if (value.Length > 4096) throw new ArgumentException("--watch-name 输入过长，请缩短后重试。");
+                        options.WatchName = value;
+                        break;
+                    case "--spectator-chat":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--spectator-chat 不能重复指定。");
+                        if (value != "on" && value != "off") throw new ArgumentException("--spectator-chat 只能是 on 或 off。");
+                        options.SpectatorChat = value == "on";
+                        break;
                     case "--spectate-port":
                         if (options.SpectatePort.HasValue) throw new ArgumentException("--spectate-port 不能重复指定。");
                         options.SpectatePort = ParsePort(value, 0, "--spectate-port");
