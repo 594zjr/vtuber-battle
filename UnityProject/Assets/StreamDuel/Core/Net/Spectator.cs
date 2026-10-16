@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public sealed class SpectatorFeed
+    public sealed partial class SpectatorFeed
     {
         public const int ProtocolVersion = 2;
         readonly Battle source;
@@ -20,6 +20,7 @@ namespace StreamDuel.Core
         {
             public string Message;
             public long ReadyTurn;
+            public int ReleasedTurn;
         }
 
         sealed class Viewer
@@ -27,13 +28,24 @@ namespace StreamDuel.Core
             public INetTransport Transport;
             public bool Started, Finished;
             public int Cursor;
+            public bool ChatJoined, ChatInputClosed;
+            public string DisplayName;
+            public int ReleasedTurn = 1, ChatTurn = -1, ChatCount;
         }
 
-        public SpectatorFeed(Battle b, int delayTurns)
+        public SpectatorFeed(Battle b, int delayTurns) : this(b, delayTurns, false)
+        {
+            // 保留旧单向发送端的契约；只有显式采用扩展的调用者才读取观众输入。
+            receiveChatRequests = false;
+        }
+
+        public SpectatorFeed(Battle b, int delayTurns, bool chatEnabled)
         {
             source = b ?? throw new ArgumentNullException(nameof(b));
             if (delayTurns < 0) throw new ArgumentOutOfRangeException(nameof(delayTurns), "观战延迟不能为负数。");
             this.delayTurns = delayTurns;
+            ChatEnabled = chatEnabled;
+            receiveChatRequests = true;
             var record = source.Record;
             SpectatorProtocol.ValidateRecord(source.Db, record);
             string contentHash = source.Db.ContentHash();
@@ -63,6 +75,7 @@ namespace StreamDuel.Core
         {
             if (ending == null) CaptureEvents();
             Deliver();
+            PollQuickChats();
         }
 
         public void Finish()
@@ -132,7 +145,7 @@ namespace StreamDuel.Core
                 // 终局协商同样不能绕过延迟；选手确认完局后才由 Finish 公开。
                 long readyTurn = entry.Type == BattleRecordEventType.Turn || next.Phase == Phase.Over
                     ? Math.Max((long)beforeTurn + 1, next.Turn) : next.Turn;
-                frames.Add(new Frame { Message = message, ReadyTurn = readyTurn });
+                frames.Add(new Frame { Message = message, ReadyTurn = readyTurn, ReleasedTurn = next.Turn });
                 shadow = next;
             }
         }
@@ -153,6 +166,7 @@ namespace StreamDuel.Core
                     while (viewer.Cursor < frames.Count && (ending != null || frames[viewer.Cursor].ReadyTurn <= threshold))
                     {
                         viewer.Transport.Send(frames[viewer.Cursor].Message);
+                        viewer.ReleasedTurn = frames[viewer.Cursor].ReleasedTurn;
                         viewer.Cursor++;
                     }
                     if (ending != null && !viewer.Finished)
@@ -170,7 +184,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class SpectatorClient
+    public sealed partial class SpectatorClient
     {
         readonly ContentDb db;
         readonly INetTransport transport;
@@ -182,11 +196,13 @@ namespace StreamDuel.Core
         public string Error { get; private set; }
         public bool IsFinished { get; private set; }
 
-        public SpectatorClient(ContentDb db, INetTransport t)
+        public SpectatorClient(ContentDb db, INetTransport t, bool enableChat = false, string displayName = "观众")
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             contentHash = db.ContentHash();
+            ChatEnabled = enableChat;
+            DisplayName = TextInput.Clean(displayName, TextInputKind.PlayerName).Text;
         }
 
         public void Poll()
@@ -195,7 +211,9 @@ namespace StreamDuel.Core
             try
             {
                 string message;
-                while (transport.TryReceive(out message)) Receive(message);
+                int chatFrames = 0;
+                while (transport.TryReceive(out message))
+                    if (Receive(message) && ++chatFrames >= SpectatorChatProtocol.PollLimit) break;
             }
             catch (TcpDisconnectedException ex)
             {
@@ -208,9 +226,20 @@ namespace StreamDuel.Core
             }
         }
 
-        void Receive(string message)
+        bool Receive(string message)
         {
-            var obj = SpectatorProtocol.Object(message);
+            Dictionary<string, object> obj;
+            try { obj = SpectatorProtocol.Object(message); }
+            catch (FormatException)
+            {
+                if (SpectatorChatProtocol.HasHeader(message)) return true;
+                throw;
+            }
+            if (obj.TryGetValue("type", out var rawType) && rawType as string == SpectatorChatProtocol.Type)
+            {
+                ReceiveQuickChat(obj);
+                return true;
+            }
             int version = (int)NetJson.Integer(obj, "version", 1, int.MaxValue);
             if (version != 1 && version != SpectatorFeed.ProtocolVersion
                 || protocolVersion != 0 && version != protocolVersion)
@@ -222,7 +251,7 @@ namespace StreamDuel.Core
             if (type == "spectator_start")
             {
                 ReceiveOpening(obj, version);
-                return;
+                return false;
             }
             if (Battle == null) throw new FormatException("开局信息到达前不能接收观战事件。");
             if ((int)NetJson.Integer(obj, "turn", 1, int.MaxValue) != Battle.Turn)
@@ -234,7 +263,7 @@ namespace StreamDuel.Core
                 SpectatorProtocol.VerifyHash(obj, Battle);
                 IsFinished = true;
                 nextSequence++;
-                return;
+                return false;
             }
             if (type != "spectator_event") throw new FormatException("未知观战消息类型。");
             string kind = NetJson.Text(obj, "event");
@@ -275,6 +304,7 @@ namespace StreamDuel.Core
             SpectatorProtocol.VerifyHash(obj, next);
             Battle = next;
             nextSequence++;
+            return false;
         }
 
         void ReceiveOpening(Dictionary<string, object> obj, int version)
@@ -312,6 +342,7 @@ namespace StreamDuel.Core
             Battle = initial;
             protocolVersion = version;
             nextSequence = 1;
+            JoinQuickChat();
         }
     }
 

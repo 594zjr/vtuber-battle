@@ -149,6 +149,14 @@ try {
         @('--tournament', $missing, '--seed-by', 'rating', '--replay', 'missing'),
         @('--tournament', $missing, '--seed-by', 'rating', '--host', '0'),
         @('--watch', '127.0.0.1:1', '--tournament', $missing, '--seed-by', 'rating'),
+        @('--tournament', $missing, '--seed-by', 'rating', '--ruleset', 'casual'),
+        @('--ruleset', 'ranked', '--seed-by', 'rating', '--tournament', $missing),
+        @('--tournament', $missing, '--seed-by', 'rating', '--watch-name', '排种子观众'),
+        @('--tournament', $missing, '--seed-by', 'rating', '--watch', '127.0.0.1:1', '--watch-name', '排种子观众'),
+        @('--watch', '127.0.0.1:1', '--watch-name', '排种子观众', '--seed-by', 'rating', '--tournament', $missing),
+        @('--tournament', $missing, '--seed-by', 'rating', '--spectator-chat', 'on'),
+        @('--tournament', $missing, '--seed-by', 'rating', '--host', '0', '--spectate-port', '0', '--spectator-chat', 'on'),
+        @('--host', '0', '--spectate-port', '0', '--spectator-chat', 'off', '--seed-by', 'rating', '--tournament', $missing),
         @('--tournament', $missing, '--seed-by', 'rating', '--seed', '1')
     )
     for ($i = 0; $i -lt $invalid.Count; $i++) {

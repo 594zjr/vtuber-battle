@@ -188,12 +188,13 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
+                    && option != "--ruleset"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament" && option != "--tournament-report" && option != "--format"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
                     && option != "--branch" && option != "--turn" && option != "--side" && option != "--ai"
-                    && option != "--spectate-port" && option != "--watch")
+                    && option != "--spectate-port" && option != "--watch" && option != "--spectator-chat" && option != "--watch-name")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -201,6 +202,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--ruleset":
+                        if (options.RulesetId != null) throw new ArgumentException("--ruleset 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空赛制编号。");
+                        options.RulesetId = value;
+                        break;
                     case "--branch":
                     case "--turn":
                     case "--side":
@@ -247,6 +253,16 @@ namespace StreamDuel.Cli
                     case "--watch":
                         if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
                         ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
+                        break;
+                    case "--watch-name":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--watch-name 不能重复指定。");
+                        if (value.Length > 4096) throw new ArgumentException("--watch-name 输入过长，请缩短后重试。");
+                        options.WatchName = value;
+                        break;
+                    case "--spectator-chat":
+                        if (provided.Count(item => item == option) > 1) throw new ArgumentException("--spectator-chat 不能重复指定。");
+                        if (value != "on" && value != "off") throw new ArgumentException("--spectator-chat 只能是 on 或 off。");
+                        options.SpectatorChat = value == "on";
                         break;
                     case "--tournament-report":
                         if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
@@ -367,6 +383,7 @@ namespace StreamDuel.Cli
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
+            ValidateRulesetOptions(options, provided);
             if (!options.Help)
             {
                 if (options.BranchReplay == null && (options.BranchTurn.HasValue || options.BranchSide.HasValue || provided.Contains("--ai")))
@@ -401,13 +418,13 @@ namespace StreamDuel.Cli
             {
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
-                    "--advice", "--ban", "--lead", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
+                    "--advice", "--ban", "--lead", "--ruleset", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
                     "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
                     throw new ArgumentException(Loc.Current.T("advice.cli.conflict", string.Join("、", unsupported)));
-                if (!options.Ban && !options.Lead)
+                if (!options.Ban && !options.Lead && options.RulesetId == null)
                     throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
             }
             if (options.TournamentFile != null && !options.Help)
