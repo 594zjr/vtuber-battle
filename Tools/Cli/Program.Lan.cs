@@ -12,57 +12,55 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options, Action poll = null)
+        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options, TcpHost listener, int actualPort, Action poll = null)
         {
             var nameInput = options.LanHostName == null ? null
                 : TextInput.Clean(options.LanHostName, TextInputKind.RoomName);
             if (nameInput != null && nameInput.Changed)
                 Console.WriteLine("房间名提示：" + nameInput.Message);
-            using (var listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort))
+            // 重连复用同一个监听端口，由整场会话负责释放监听器。
+            LanRoom room = options.LanHostName == null ? null : new LanRoom
             {
-                LanRoom room = options.LanHostName == null ? null : new LanRoom
+                Name = nameInput.Text,
+                Port = actualPort,
+                Protocol = NetSession.ReconnectProtocolVersion,
+                ContentHash = db.ContentHash(),
+                Ruleset = "casual"
+            };
+            using (var beacon = room == null ? null : new LanBeaconSender(room))
+            {
+                if (beacon != null)
                 {
-                    Name = nameInput.Text,
-                    Port = actualPort,
-                    Protocol = NetSession.TerminationProtocolVersion,
-                    ContentHash = db.ContentHash(),
-                    Ruleset = "casual"
-                };
-                using (var beacon = room == null ? null : new LanBeaconSender(room))
+                    if (beacon.Error != null) throw new IOException(beacon.Error);
+                    var advertised = LanBeacon.Decode(LanBeacon.Encode(room));
+                    if (!string.Equals(room.Name, advertised.Name, StringComparison.Ordinal))
+                        Console.WriteLine("房间名提示：局域网广播沿用现有长度限制，房名已进一步缩短。");
+                    Console.WriteLine("局域网房间：" + advertised.DisplayName);
+                    Console.WriteLine("广播端口：" + LanBeacon.Port + "（UDP，每秒一次）");
+                }
+                Console.WriteLine("监听端口：" + actualPort);
+                Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
+                Console.Out.Flush();
+                using (var cancellation = new LanCancellation())
                 {
-                    if (beacon != null)
+                    var timer = Stopwatch.StartNew();
+                    double previous = 0;
+                    while (!cancellation.IsCancelled)
                     {
-                        if (beacon.Error != null) throw new IOException(beacon.Error);
-                        var advertised = LanBeacon.Decode(LanBeacon.Encode(room));
-                        if (!string.Equals(room.Name, advertised.Name, StringComparison.Ordinal))
-                            Console.WriteLine("房间名提示：局域网广播沿用现有长度限制，房名已进一步缩短。");
-                        Console.WriteLine("局域网房间：" + advertised.DisplayName);
-                        Console.WriteLine("广播端口：" + LanBeacon.Port + "（UDP，每秒一次）");
-                    }
-                    Console.WriteLine("监听端口：" + actualPort);
-                    Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
-                    Console.Out.Flush();
-                    using (var cancellation = new LanCancellation())
-                    {
-                        var timer = Stopwatch.StartNew();
-                        double previous = 0;
-                        while (!cancellation.IsCancelled)
+                        poll?.Invoke();
+                        double now = timer.Elapsed.TotalSeconds;
+                        if (beacon != null)
                         {
-                            poll?.Invoke();
-                            double now = timer.Elapsed.TotalSeconds;
-                            if (beacon != null)
-                            {
-                                beacon.Tick(now - previous);
-                                if (beacon.Error != null) throw new IOException(beacon.Error);
-                            }
-                            previous = now;
-                            var connection = listener.Accept(100);
-                            if (connection == null) continue;
-                            if (!cancellation.IsCancelled) return connection;
-                            connection.Dispose();
+                            beacon.Tick(now - previous);
+                            if (beacon.Error != null) throw new IOException(beacon.Error);
                         }
-                        return null;
+                        previous = now;
+                        var connection = listener.Accept(100);
+                        if (connection == null) continue;
+                        if (!cancellation.IsCancelled) return connection;
+                        connection.Dispose();
                     }
+                    return null;
                 }
             }
         }
@@ -106,8 +104,8 @@ namespace StreamDuel.Cli
                             + "；规则：" + LanText(room.Ruleset) + "；内容指纹：" + LanText(room.ContentHash));
                         if (finished - room.LastSeen > 3)
                             Console.WriteLine("  状态：已失联（超过 3 秒未收到广播）");
-                        else if (room.Protocol != NetSession.TerminationProtocolVersion)
-                            Console.WriteLine("  状态：协议版本不兼容，当前版本为 " + NetSession.TerminationProtocolVersion + "。");
+                        else if (room.Protocol != NetSession.ReconnectProtocolVersion)
+                            Console.WriteLine("  状态：协议版本不兼容，当前版本为 " + NetSession.ReconnectProtocolVersion + "。");
                         else
                         {
                             Console.WriteLine("  状态：可见（加入时仍会校验内容一致性）");

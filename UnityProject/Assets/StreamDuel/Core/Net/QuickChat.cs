@@ -55,7 +55,7 @@ namespace StreamDuel.Core
 
         public bool SendQuickChat(int index, double now)
         {
-            if (Battle == null || Faulted || index < 0 || index >= QuickChat.Count
+            if (Battle == null || Faulted || IsDisconnected || index < 0 || index >= QuickChat.Count
                 || double.IsNaN(now) || double.IsInfinity(now) || now < 0 || now < lastChatTime) return false;
 
             lastChatTime = now;

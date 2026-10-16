@@ -1,6 +1,6 @@
-# 联网对战协议 v3 与可选终止协议 v4
+# 联网对战协议 v3、终止协议 v4 与重连协议 v5
 
-第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节；T-75 的显式重连协议 v5 列在第 12 节。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
 
 v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
 
@@ -247,7 +247,7 @@ CLI 的 `FinishNetwork` 在 `Over` 后调用 `CompleteSending()`，仅关闭 TCP
 
 ## 10. T-98：显式启用终止协议 v4
 
-双方构造 `NetSession(..., enableTermination: true)` 才使用本节。hello 的 `version` 为 4，并额外要求数值 `terminationVersion:1`；旧端 v3 与新端 v4 明确拒绝连接，未声明能力的 v4 端也拒绝。其他 hello、快捷语、计时和错误字段沿用前文，主机种子规则暂不改变。CLI 默认使用此模式，库的默认构造仍为 v3，因此原固定消息样例和旧集成调用保持原样。尚未合并的公平种子任务 T-87 也涉及新版本，后合并方须统一版本及能力组合，不能仅因版本号相等省略能力核对。
+双方构造 `NetSession(..., enableTermination: true)` 才使用本节。hello 的 `version` 为 4，并额外要求数值 `terminationVersion:1`；旧端 v3 与新端 v4 明确拒绝连接，未声明能力的 v4 端也拒绝。其他 hello、快捷语、计时和错误字段沿用前文，主机种子规则暂不改变。仅启用终止功能时使用此模式；当前 CLI 同时启用第 12 节的重连，使用 v5。库的默认构造仍为 v3，因此原固定消息样例和旧集成调用保持原样。尚未合并的公平种子任务 T-87 也涉及新版本，后合并方须统一版本及能力组合，不能仅因版本号相等省略能力核对。
 
 在可信 FIFO 传输上，新模式把每次普通结算和投降/和局控制操作都排入一次确认窗口。阶段编号 `phase` 从 1 开始，每次开放新的选择或补位阶段递增；`turn` 为该阶段的 Battle.Turn。控制序号 `seq` 从 1 开始，由主机逐窗口递增，不随回合归零。
 
@@ -287,3 +287,48 @@ v3 的既有已知问题仍保留，本扩展不增加认证、加密或可信�
 库的两参数 `SpectatorFeed` 不开启双向读取；三个参数的重载处理上传，`chatEnabled: true` 才转发，false 则按读取预算丢弃。CLI 主机默认显式开启，`--spectator-chat off` 关闭。`SpectatorClient` 缺省不登记，`enableChat: true` 才能发送和收集聊天。未升级客户端不懂未知消息，因此主机**不会向未登记客户端发送扩展**，而不是假定旧二进制会自动忽略。更新后的客户端即使关闭聊天，也会在战斗版本/顺序校验前忽略 `spectator_chat`，不会改动 `seq` 或因该扩展而停止观战。旧主机忽略观众上传，继续提供原有单向观战；不保证聊天送达，也不提供身份认证。
 
 聊天发送或转发失败只影响对应观众；主机不把错误发送给选手。观众上传方向正常 EOF 只停止读取该方向，保留观战帧、其他观众聊天和结束标记的下行，允许 `TcpTransport.CompleteSending()` 后继续只读观看；其他读取异常或下行发送失败才移除对应观众。真实终局未由 `Finish()` 释放前，仍按可见回合处理聊天；释放结束后不再转发。快捷语不是战斗事件，客户端处理它时不替换已确认的 `Battle`。
+
+## 12. T-75：显式启用原会话重连 v5
+
+构造参数在原 `seed, turnSeconds, bankSeconds, enableTermination, rating` 后追加 `enableReconnect=false`，不改变原有参数位置。双方显式启用时使用 `ReconnectProtocolVersion=5`；缺省仍按 v3 或 v4 运行，未完成会话断线立即错误；原终局排空后的正常 EOF 仍按旧规则处理。不同版本不协商降级。v5 可单独使用，也可和终止功能组合；组合时双方均须声明 `terminationVersion:1`，单独使用的一端拒绝对方声明该能力，避免同为 v5 却拥有不同控制流程。计时能力和评级元数据沿用原校验。
+
+### 12.1 握手、标识与有序消息
+
+v5 `hello` 在原格式中增加必需的 `sessionId`：主机用密码学随机源产生 16 字节、编码成 32 位小写十六进制；客机必须为 null，收到主机 hello 后保存原值。此标识不含账号、设备或时间，不进入 Battle.Rng、内容指纹、状态哈希或录像。它只区分保留在内存的原会话，不提供加密或可信身份认证。
+
+握手后的普通消息，包括 `commit/reveal/hash/chat/termination-*/error/goodbye`，均放入以下信封。`payload` 是原消息 JSON 字符串，字段仍按各自协议校验：
+
+```json
+{"type":"packet","sessionId":"00112233445566778899aabbccddeeff","side":0,"sequence":1,"payload":"{\"type\":\"chat\",\"index\":0}"}
+```
+
+`side` 必须为对方实际角色，标识必须相等；每个发送方向的 `sequence` 从 1 连续递增。发送前保存原始 payload，再尝试传输，因此写入后才报告失败也不允许重选行动、生成新 nonce 或重复结算。接收保存已处理的原文；正常连接上的旧编号、跳号或被更改的旧编号均报错。恢复期间可忽略内容完全一致的已处理旧编号，不能把相同序号的不同文本视为重传。嵌套 payload 不接受另一层 packet/resume/resumed。聊天的无效载荷仍按原规则丢弃，外层编号照常消耗，且不推进对战。
+
+每次 Poll 仍最多读取 64 条线路消息，恢复控制和无效消息均占额度；不得为了补齐而无限排空接收队列。旧 v3/v4 固定消息不增加信封，不重生成原样例。对端可能尚未建立 Battle 而因握手校验失败发送原始 error；本端虽已建立 Battle，但尚未发送过 packet 且未断线时仍接受这种握手拒绝消息。
+
+### 12.2 断线、恢复与 60 秒窗口
+
+完成握手后，传输 IOException/ObjectDisposedException 可暂停为 `IsDisconnected=true`、`State=Waiting`。完整消息格式错误、非法 UTF-8、内容变化以及显式 Leave 不恢复。正常 UTF-8 在 EOF 前只有半行时以传输截断处理，未交付该半行，允许新连接从 journal 重发；v3/v4 对同样情况仍报错。握手尚未完成的断线仍是未开局，不自动构造或恢复另一场对战。
+
+调用方通过 `Poll(elapsedSeconds)` 传入有限非负秒数；参数无效抛异常，无参数 Poll 为 0 秒。首次检测断线后累计 60 秒，恰到 60 秒进入 Error；建立候选连接、重复失败或未完成的恢复不重置窗口。成功恢复后下一次独立断线拥有新的 60 秒。选招预算和原 10 秒承诺/公开/哈希/终止等待在断线及恢复期间暂停，不能抢先判错；保留余额，恢复后重新设置调用方测量基线。
+
+双方保留各自 NetSession 和 Battle，在新传输建立后调用 `Reconnect(replacement, SessionId)`。本地错误标识抛参数异常并保留原会话；只能在已断线、未超时、没有正在使用的候选连接时调用。线路上的错误标识或角色直接拒绝。API 不自行连接套接字、不拥有传输释放职责，也不从磁盘恢复进程退出后的会话。
+
+| type | 必需附加字段 | 含义 |
+|---|---|---|
+| `resume` | `sessionId, side, received, eventIndex, turn, hash` | received 是已处理的对方 packet 数；检查点采用开局或最后一次本地结算后保存的快照 |
+| `resumed` | `sessionId, side, sent` | 对方已按原序补发至 sent；接收数不足时拒绝，不能凭确认跳过消息 |
+
+`received/eventIndex/sent` 为非负整数，`received` 不能大于本端已发消息数；`turn` 为正整数，恢复检查点 hash 须为 16 位小写十六进制。开局 `eventIndex=0`，每次保存操作哈希加一。双补位即使同回合也有不同检查点；终止控制窗口可能包含多条录像事件，检查点编号不等于录像事件数。
+
+接收 resume 后先核对已有的对应检查点，再按对方 received 补发缺失原文并发送 resumed。缺失公开、控制和哈希仍经过正常校验与 Core 结算；不覆盖本地 Battle，不接受对方提供的完整状态替代。补齐后必须取得对方声明的检查点且 turn/hash 相等，否则 Desync。恢复使用共享 RNG 检查点，本地 AI 建议消耗随机数不会污染恢复哈希。
+
+恢复期间保留 HasSubmitted、原承诺、公开和终止屏障；禁止新行动、换招、终止请求或聊天。确认完成后才开放尚未提交的合法输入，后续普通消息继续原有序号，不重置到 1。
+
+### 12.3 终局、CLI 与保存
+
+最终状态仍须双方 hash 校验。仅在 NetState.Over 且没有断线时调用 `PrepareClose()`，发送 journal 中的 `{"type":"goodbye"}`。收到该载荷时必须已到 Battle.Phase.Over 且无待确认哈希；否则拒绝。收到对方 goodbye 后的纯 EOF 才视为正常收尾；最终 hash 或 goodbye 丢失仍进入恢复窗口。晚到的 error、非法帧或 I/O 故障仍阻止保存，不能只凭 Battle.Over 判定完成。
+
+CLI 保留房主监听器及原会话，客机使用原连接地址重试，显示「对方断线，等待重连（剩余 N 秒）」。保留计时、终止、评级和观战配置；恢复期间不执行新的玩家选择，恢复后丢弃已经失效的输入并重新提示。q/输入 EOF 用 Leave 通知主动退出，不把退出伪装为短暂抖动。当前 CLI 和局域网广播均使用 v5。
+
+正常终局发送 goodbye 后半关闭，再继续分批 Poll，直到无会话错误且 ReceiveDrained 确认正常 EOF 与队列为空；之后才结束观战流、导出录像并累计本机战绩和评级。恢复失败、超时或不同步不保存战绩。成功恢复并完成终局校验后按正常结果保存。恢复过程本身不创建第二局、追加重复录像或重复累计排位。

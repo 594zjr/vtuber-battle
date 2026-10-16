@@ -133,13 +133,15 @@ namespace StreamDuel.Cli
         private sealed class NetworkPump
         {
             private readonly NetSession session;
+            private readonly Action poll;
             private readonly Stopwatch elapsed = Stopwatch.StartNew();
             private readonly ClockDisplay display = new ClockDisplay();
             private long observedTimerRevision;
 
-            public NetworkPump(NetSession session)
+            public NetworkPump(NetSession session, Action poll = null)
             {
                 this.session = session;
+                this.poll = poll ?? (() => session.Poll());
                 observedTimerRevision = session.TimerRevision;
             }
 
@@ -149,17 +151,20 @@ namespace StreamDuel.Cli
                 elapsed.Restart();
                 var beforePoll = new ChoiceStamp(session.Battle);
                 NetState oldState = session.State;
+                bool wasDisconnected = session.IsDisconnected;
                 long timerRevision = session.TimerRevision;
-                session.Poll();
+                poll();
                 CheckNetwork(session);
                 // 刚通过哈希确认开放的新阶段，不承担前一阶段等待所花的时间。
-                if (observedTimerRevision != timerRevision || timerRevision != session.TimerRevision || !beforePoll.Matches(session.Battle)
+                if (wasDisconnected || session.IsDisconnected || observedTimerRevision != timerRevision
+                    || timerRevision != session.TimerRevision || !beforePoll.Matches(session.Battle)
                     || oldState == NetState.Waiting && session.State != oldState)
                 {
                     seconds = 0;
                     elapsed.Restart();
                 }
-                bool choosing = !session.HasSubmitted && (session.State == NetState.Choose || session.State == NetState.Replace);
+                bool choosing = !session.IsDisconnected && !session.HasSubmitted
+                    && (session.State == NetState.Choose || session.State == NetState.Replace);
                 Phase phase = session.Battle.Phase;
                 var beforeTick = new ChoiceStamp(session.Battle);
                 timerRevision = session.TimerRevision;
@@ -169,7 +174,7 @@ namespace StreamDuel.Cli
                 observedTimerRevision = session.TimerRevision;
                 if (choosing && (session.HasSubmitted || !beforeTick.Matches(session.Battle)))
                     PrintTimeout(session.Battle, session.MySide, phase == Phase.Replace);
-                display.Show(session.Clock, session.Battle, session.MySide);
+                if (!session.IsDisconnected) display.Show(session.Clock, session.Battle, session.MySide);
             }
         }
 
