@@ -26,7 +26,7 @@ namespace StreamDuel.Core
                 if (e.Code == "POWER_MUL" && b.CondMet(p, f, assumeFirst ? Node.First : Node.Second, e.Cond, out why)) pm *= e.Mul;
                 if (e.Code == "POWER_PER_MARK") { var m = p.FieldOf(e.Field); pm *= 1 + e.Per * (m == null ? 0 : m.Stacks); }
             }
-            return b.CalcDamage(s, sk, pm, true).Dmg * (sk.Acc / 100.0);
+            return b.EstimateDamageForAi(s, sk, pm) * (sk.Acc / 100.0);
         }
 
         // 对面场上主播对 s 方场上主播的最大估算伤害占比

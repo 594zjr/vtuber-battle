@@ -37,10 +37,20 @@ namespace StreamDuel.Core
         public StreamerDef Def; public int Slot, Side, Hp, MaxHp, EnteredTurn = 1; public bool Fainted;
         public int LastSkillIndex = -1;
         public bool FirstControlImmunityUsed, EndureUsed;
-        public Dictionary<string, int> Stages = NewStages();
-        public List<SkillSlot> Skills = new List<SkillSlot>();
-        public List<StatusInst> Statuses = new List<StatusInst>();
-        public List<FieldInst> Fields = new List<FieldInst>();
+        public Dictionary<string, int> Stages;
+        public List<SkillSlot> Skills;
+        public List<StatusInst> Statuses;
+        public List<FieldInst> Fields;
+        public Fighter() : this(true) { }
+        // 克隆会直接填入独立集合，避免先分配默认集合再丢弃。
+        internal Fighter(bool initializeCollections)
+        {
+            if (!initializeCollections) return;
+            Stages = NewStages();
+            Skills = new List<SkillSlot>();
+            Statuses = new List<StatusInst>();
+            Fields = new List<FieldInst>();
+        }
         public string Name { get { return Def.Name; } }
         public string Type { get { return Def.Type; } }
         public string Type2 { get { return Def.Type2; } }
@@ -417,12 +427,31 @@ namespace StreamDuel.Core
         }
 
         // ================= 伤害 =================
-        public sealed class DamageResult { public int Dmg; public double Eff = 1; public bool Crit; public List<string> Notes = new List<string>(); }
+        public sealed class DamageResult
+        {
+            public int Dmg;
+            public double Eff = 1;
+            public bool Crit;
+            public List<string> Notes;
+            public DamageResult() : this(true) { }
+            internal DamageResult(bool includeNotes) { if (includeNotes) Notes = new List<string>(); }
+        }
 
         /// <summary>纯计算。estimate=true 时不掷骰、不暴击，可指定随机系数供预览使用。</summary>
         public DamageResult CalcDamage(int s, SkillDef skill, double powerMul, bool estimate, double estimateRandomFactor = 0.925)
         {
-            var r = new DamageResult();
+            return CalculateDamage(s, skill, powerMul, estimate, estimateRandomFactor, true);
+        }
+
+        internal int EstimateDamageForAi(int s, SkillDef skill, double powerMul, double randomFactor = 0.925)
+        {
+            return CalculateDamage(s, skill, powerMul, true, randomFactor, false).Dmg;
+        }
+
+        DamageResult CalculateDamage(int s, SkillDef skill, double powerMul, bool estimate,
+            double estimateRandomFactor, bool includeNotes)
+        {
+            var r = new DamageResult(includeNotes);
             var p = Active(s); var f = Active(1 - s);
             if (skill.Power <= 0) return r;
             bool inter = skill.Cat == "interact";
@@ -433,15 +462,15 @@ namespace StreamDuel.Core
             foreach (var st in p.Statuses)
             {
                 var sd = Db.Statuses[st.Id];
-                if (inter && sd.InteractMul != 1) { mul *= sd.InteractMul; r.Notes.Add(sd.Name + " ×" + sd.InteractMul); }
+                if (inter && sd.InteractMul != 1) { mul *= sd.InteractMul; if (includeNotes) r.Notes.Add(sd.Name + " ×" + sd.InteractMul); }
             }
             double am; string an;
-            if (PersonaAtkMul(p, f, skill, out am, out an)) { mul *= am; r.Notes.Add("人设·" + PersonaOf(p).Name + "（" + an + "）×" + am); }
-            if (!inter) foreach (var fl in p.Fields) { var fd = Db.Fields[fl.Id]; if (fd.TalentMul != 1) { mul *= fd.TalentMul; r.Notes.Add(fd.Name + " ×" + fd.TalentMul); } }
-            foreach (var fl in f.Fields) { var fd = Db.Fields[fl.Id]; if (fd.DmgTakenMul != 1) { mul *= fd.DmgTakenMul; r.Notes.Add(fd.Name + " ×" + fd.DmgTakenMul); } }
+            if (PersonaAtkMul(p, f, skill, out am, out an)) { mul *= am; if (includeNotes) r.Notes.Add("人设·" + PersonaOf(p).Name + "（" + an + "）×" + am); }
+            if (!inter) foreach (var fl in p.Fields) { var fd = Db.Fields[fl.Id]; if (fd.TalentMul != 1) { mul *= fd.TalentMul; if (includeNotes) r.Notes.Add(fd.Name + " ×" + fd.TalentMul); } }
+            foreach (var fl in f.Fields) { var fd = Db.Fields[fl.Id]; if (fd.DmgTakenMul != 1) { mul *= fd.DmgTakenMul; if (includeNotes) r.Notes.Add(fd.Name + " ×" + fd.DmgTakenMul); } }
             double dm; string dn;
-            if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
-            if (!estimate && rng.Next() < 1.0 / 16) { r.Crit = true; mul *= 1.5; r.Notes.Add("暴击 ×1.5"); }
+            if (PersonaDefMul(f, p, skill, out dm, out dn)) { mul *= dm; if (includeNotes) r.Notes.Add("人设·" + PersonaOf(f).Name + "（" + dn + "）×" + dm.ToString("0.##")); }
+            if (!estimate && rng.Next() < 1.0 / 16) { r.Crit = true; mul *= 1.5; if (includeNotes) r.Notes.Add("暴击 ×1.5"); }
             double rand = estimate ? estimateRandomFactor : 0.85 + rng.Next() * 0.15;
             r.Dmg = Math.Max(1, (int)Math.Floor((50 * power * A / D / 50 + 2) * mul * rand));
             return r;
@@ -450,32 +479,68 @@ namespace StreamDuel.Core
         // ================= 先制 =================
         public PrioInfo PrioOf(int s, SkillDef skill)
         {
-            var p = Active(s);
-            var info = new PrioInfo { Value = skill.Prio };
-            foreach (var fl in p.Fields)
-            {
-                var fd = Db.Fields[fl.Id];
-                if (fd.Prio != 0) { info.Value += fd.Prio; info.Parts.Add(fd.Name + (fd.Prio > 0 ? "+" : "") + fd.Prio); }
-            }
-            int tp = PersonaPrio(p);
-            if (tp != 0) { info.Value += tp; info.Parts.Add("人设·" + PersonaOf(p).Name + "+" + tp); }
+            var info = new PrioInfo();
+            info.Value = PriorityValue(s, skill, info.Parts);
             return info;
         }
 
+        // 结算只需要数值，展示入口才收集说明；二者共用优先度规则。
+        int PriorityValue(int s, SkillDef skill, List<string> parts = null)
+        {
+            var p = Active(s);
+            int value = skill.Prio;
+            foreach (var fl in p.Fields)
+            {
+                var fd = Db.Fields[fl.Id];
+                if (fd.Prio != 0)
+                {
+                    value += fd.Prio;
+                    if (parts != null) parts.Add(fd.Name + (fd.Prio > 0 ? "+" : "") + fd.Prio);
+                }
+            }
+            int tp = PersonaPrio(p);
+            if (tp != 0)
+            {
+                value += tp;
+                if (parts != null) parts.Add("人设·" + PersonaOf(p).Name + "+" + tp);
+            }
+            return value;
+        }
+
         // ================= 合法行动 =================
+        struct Eligibility
+        {
+            public string Controlled;
+            public bool CanAct, FreePp, CanSwitch;
+            public bool SkillUsable(SkillSlot slot) { return CanAct && (slot.Pp > 0 || FreePp); }
+        }
+
+        Eligibility EligibilityFor(int s)
+        {
+            var p = Active(s);
+            var control = ControlOf(p);
+            return new Eligibility
+            {
+                Controlled = control == null ? null : Db.Statuses[control.Id].Name,
+                CanAct = control == null,
+                FreePp = PersonaFreePp(p),
+                CanSwitch = !SwitchLocked(p)
+            };
+        }
+
         public Legal LegalFor(int s)
         {
             var sd = Sides[s]; var p = Active(s);
-            var ctrl = ControlOf(p);
-            var L = new Legal { Controlled = ctrl == null ? null : Db.Statuses[ctrl.Id].Name, FreePp = PersonaFreePp(p) };
+            var eligibility = EligibilityFor(s);
+            var L = new Legal { Controlled = eligibility.Controlled, FreePp = eligibility.FreePp };
             for (int i = 0; i < p.Skills.Count; i++)
             {
                 var sl = p.Skills[i];
-                L.Skills.Add(new SkillOption { Index = i, Id = sl.Id, Fifth = sl.Fifth, Pp = sl.Pp, Max = sl.Max, Usable = ctrl == null && (sl.Pp > 0 || L.FreePp), Prio = PrioOf(s, Db.Skills[sl.Id]) });
+                L.Skills.Add(new SkillOption { Index = i, Id = sl.Id, Fifth = sl.Fifth, Pp = sl.Pp, Max = sl.Max, Usable = eligibility.SkillUsable(sl), Prio = PrioOf(s, Db.Skills[sl.Id]) });
             }
-            if (!SwitchLocked(p))
+            if (eligibility.CanSwitch)
                 for (int i = 0; i < sd.Team.Count; i++) if (i != sd.Active && !sd.Team[i].Fainted) L.Switches.Add(i);
-            L.Struggle = ctrl == null && !L.Skills.Any(o => o.Usable);
+            L.Struggle = eligibility.CanAct && !L.Skills.Any(o => o.Usable);
             return L;
         }
 
@@ -670,16 +735,22 @@ namespace StreamDuel.Core
         {
             if (a.Type == ActionType.Pass || a.Type == ActionType.PassControlled) return 0;
             var sk = a.Type == ActionType.Skill ? Db.Skills[Active(s).Skills[a.Index].Id] : Db.Struggle;
-            return PrioOf(s, sk).Value;
+            return PriorityValue(s, sk);
         }
 
         BattleAction Normalize(int s, BattleAction a)
         {
-            var L = LegalFor(s);
-            if (a.Type == ActionType.Switch && L.Switches.Contains(a.Index)) return a;
-            if (L.Controlled != null) return new BattleAction { Type = ActionType.PassControlled };
-            if (L.Struggle) return new BattleAction { Type = ActionType.Struggle };
-            if (a.Type == ActionType.Skill && a.Index >= 0 && a.Index < L.Skills.Count && L.Skills[a.Index].Usable) return a;
+            var eligibility = EligibilityFor(s);
+            var side = Sides[s];
+            var skills = Active(s).Skills;
+            if (a.Type == ActionType.Switch && eligibility.CanSwitch && a.Index >= 0 && a.Index < side.Team.Count
+                && a.Index != side.Active && !side.Team[a.Index].Fainted) return a;
+            if (eligibility.Controlled != null) return new BattleAction { Type = ActionType.PassControlled };
+            bool anyUsable = false;
+            foreach (var slot in skills)
+                if (eligibility.SkillUsable(slot)) { anyUsable = true; break; }
+            if (eligibility.CanAct && !anyUsable) return new BattleAction { Type = ActionType.Struggle };
+            if (a.Type == ActionType.Skill && a.Index >= 0 && a.Index < skills.Count && eligibility.SkillUsable(skills[a.Index])) return a;
             return BattleAction.Pass();
         }
 

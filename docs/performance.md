@@ -7,7 +7,7 @@ dotnet run -c Release --project Tools/Bench -- --quick
 dotnet run -c Release --project Tools/Bench
 ```
 
-第一条用较小的固定样本集检查性能，第二条增加采样量。工具只接受 `--quick`、`--help` / `-h`；Debug 构建会报错。终端打印结果表，并将环境、样本数、工作负载和指标写入当前工作目录的 `bench_out/bench.json`，再次运行会覆盖该报告。
+第一条用较小的固定样本集检查性能，第二条增加采样量。快照模式接受 `--quick`、`--help` / `-h`；Debug 构建会报错。终端打印结果表，并将环境、样本数、工作负载和指标写入当前工作目录的 `bench_out/bench.json`，再次运行会覆盖该报告。T-117 另提供四包三难度共 2400 局的 `--full-games` 模式，命令与严格字节比较口径见 [Tools/Bench/README.md](../Tools/Bench/README.md)，前后实测见 [design.md §9.2](design.md#92-整局性能与行为不变性)。
 
 ## 测量口径
 

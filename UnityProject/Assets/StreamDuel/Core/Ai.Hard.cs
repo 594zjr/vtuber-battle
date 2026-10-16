@@ -47,12 +47,6 @@ namespace StreamDuel.Core
             if (skill == null || skill.Power <= 0 || skill.Cat == "status") return result;
             if (b.HardAiPreEffectsInterrupt(s, skill, node)) return result;
 
-            if (action.Type == ActionType.Skill)
-            {
-                var preview = b.PreviewDamage(s, action.Index);
-                result.Min = preview.Min;
-                result.Max = preview.Max;
-            }
             double minPower = 1, maxPower = 1, expectedPower = 1;
             bool complete = true;
             foreach (var effect in skill.Effects)
@@ -75,13 +69,10 @@ namespace StreamDuel.Core
                 maxPower *= chance < 1 ? Math.Max(1, factor) : factor;
                 expectedPower *= 1 + (factor - 1) * chance;
             }
-            // PreviewDamage 假定先手并把概率威力视为触发，这里按真实节点和概率下界校正。
-            if (action.Type == ActionType.Struggle || skill.Effects.Any(e => e.At == "pre"))
-            {
-                result.Min = b.CalcDamage(s, skill, minPower, true, 0.85).Dmg;
-                result.Max = b.CalcDamage(s, skill, maxPower, true, 1).Dmg;
-            }
-            result.Expected = b.CalcDamage(s, skill, expectedPower, true).Dmg * Math.Min(1, skill.Acc / 100.0);
+            // 直接按真实节点和概率下界估算，省去随后会被覆盖的界面预览及说明文字。
+            result.Min = b.EstimateDamageForAi(s, skill, minPower, 0.85);
+            result.Max = b.EstimateDamageForAi(s, skill, maxPower, 1);
+            result.Expected = b.EstimateDamageForAi(s, skill, expectedPower) * Math.Min(1, skill.Acc / 100.0);
             result.Guaranteed = complete && skill.Acc >= 100;
             return result;
         }
@@ -442,22 +433,16 @@ namespace StreamDuel.Core
                 Sides[s] = new SideState { Name = source.Sides[s].Name, Active = source.Sides[s].Active };
                 foreach (var fighter in source.Sides[s].Team)
                 {
-                    Sides[s].Team.Add(new Fighter
-                    {
-                        Def = fighter.Def, Slot = fighter.Slot, Side = fighter.Side, Hp = fighter.Hp, MaxHp = fighter.MaxHp,
-                        EnteredTurn = fighter.EnteredTurn, Fainted = fighter.Fainted,
-                        LastSkillIndex = fighter.LastSkillIndex,
-                        FirstControlImmunityUsed = fighter.FirstControlImmunityUsed, EndureUsed = fighter.EndureUsed,
-                        Stages = new Dictionary<string, int>(fighter.Stages),
-                        Skills = fighter.Skills.Select(k => new SkillSlot { Id = k.Id, Pp = k.Pp, Max = k.Max, Fifth = k.Fifth }).ToList(),
-                        Statuses = fighter.Statuses.Select(k => new StatusInst { Id = k.Id, Left = k.Left }).ToList(),
-                        Fields = fighter.Fields.Select(k => new FieldInst { Id = k.Id, Turns = k.Turns, Stacks = k.Stacks }).ToList()
-                    });
+                    Sides[s].Team.Add(CloneFighter(fighter, false));
                 }
             }
         }
 
-        internal Battle CopyForHardAi() { return new Battle(this); }
+        internal Battle CopyForHardAi()
+        {
+            BattleDiagnostics.OnHardCopy();
+            return new Battle(this);
+        }
 
         internal bool HardAiPreEffectsInterrupt(int side, SkillDef skill, string node)
         {

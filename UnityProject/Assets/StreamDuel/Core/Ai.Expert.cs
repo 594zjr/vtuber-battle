@@ -20,11 +20,7 @@ namespace StreamDuel.Core
 
         static Battle ExpertRoot(Battle live)
         {
-            var root = live.Clone();
-            // 历史不参与未来结算；只清理独立副本，避免分支重复复制整场日志。
-            root.Log.Clear();
-            root.Record.Events.Clear();
-            root.ClearEventHistory();
+            var root = live.CopyForSimulation();
             return root;
         }
 
@@ -62,13 +58,13 @@ namespace StreamDuel.Core
             // 每个候选使用相同的采样起点，避免候选遍历顺序改变随机收益。
             for (int sample = 0; sample < ExpertSamples; sample++)
             {
-                var start = root.Clone();
+                var start = root.CopyForSimulation();
                 for (int i = 0; i < sample * 11; i++) start.Random();
-                var opponent = ChooseHard(start.Clone(), 1 - s);
+                var opponent = ChooseHard(start.CopyForSimulation(), 1 - s);
                 foreach (var option in options)
                 {
                     if (!search.TryVisit()) return ExpertPartial(live, root, s, options, search, true);
-                    var next = start.Clone();
+                    var next = start.CopyForSimulation();
                     ExpertResolve(next, s, option.Action, opponent);
                     if (!ExpertFillReplacements(next, search))
                         return ExpertPartial(live, root, s, options, search, true);
@@ -127,7 +123,7 @@ namespace StreamDuel.Core
                 for (int sample = 0; sample < ExpertSamples; sample++)
                 {
                     if (!search.TryVisit()) return ExpertPartial(live, root, s, options, search, false);
-                    var next = root.Clone();
+                    var next = root.CopyForSimulation();
                     for (int i = 0; i < sample * 11; i++) next.Random();
                     next.Replace(s, index);
                     if (!ExpertFillReplacements(next, search) || !ExpertRollout(next, s, search, out double future))
@@ -180,7 +176,7 @@ namespace StreamDuel.Core
                 return true;
             }
             if (!search.TryVisit()) return false;
-            var next = after.Clone();
+            var next = after.CopyForSimulation();
             var a0 = ChooseHard(next, 0);
             var a1 = ChooseHard(next, 1);
             next.ResolveTurn(a0, a1);
