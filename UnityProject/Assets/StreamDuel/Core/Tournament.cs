@@ -28,15 +28,19 @@ namespace StreamDuel.Core
         public int Round { get; }
         public int Player0 { get; }
         public int Player1 { get; }
+        public string Bracket { get; }
+        public int BracketRound { get; }
         public bool IsBye { get { return Player1 == -1; } }
         public int? WinnerSide { get; private set; }
 
-        internal Pairing(int id, int round, int player0, int player1)
+        internal Pairing(int id, int round, int player0, int player1, string bracket = null, int bracketRound = 0)
         {
             Id = id;
             Round = round;
             Player0 = player0;
             Player1 = player1;
+            Bracket = bracket;
+            BracketRound = bracketRound;
             if (IsBye) WinnerSide = 0;
         }
 
@@ -88,6 +92,7 @@ namespace StreamDuel.Core
         {
             get
             {
+                if (IsElimination) return EliminationRounds();
                 if (players.Count < 2) return requestedRounds;
                 if (Format == "roundrobin") return players.Count % 2 == 0 ? players.Count - 1 : players.Count;
                 if (requestedRounds > 0) return requestedRounds;
@@ -98,22 +103,27 @@ namespace StreamDuel.Core
         }
         public bool IsFinished
         {
-            get { return Round > 0 && Round == Rounds && roundsPlayed[Round - 1].All(item => item.WinnerSide.HasValue); }
+            get
+            {
+                if (IsElimination) return EliminationFinished();
+                return Round > 0 && Round == Rounds && roundsPlayed[Round - 1].All(item => item.WinnerSide.HasValue);
+            }
         }
 
-        public Tournament(ContentDb db, string format, int rounds = 0)
+        public Tournament(ContentDb db, string format, int rounds = 0, TournamentOptions options = null)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db), "内容数据不能为空。");
-            if (format != "roundrobin" && format != "swiss")
-                throw new ArgumentException("赛制必须为循环赛或瑞士轮。", nameof(format));
+            if (format != "roundrobin" && format != "swiss" && format != SingleElimination && format != DoubleElimination)
+                throw new ArgumentException("赛制必须为循环赛、瑞士轮、单败或双败淘汰赛。", nameof(format));
             if (rounds < 0) throw new ArgumentOutOfRangeException(nameof(rounds), "赛事轮数不能为负数。");
-            if (format == "roundrobin" && rounds != 0)
-                throw new ArgumentException("循环赛轮数由人数决定，不能指定轮数。", nameof(rounds));
+            if (format != "swiss" && rounds != 0)
+                throw new ArgumentException("循环赛与淘汰赛轮数由人数和赛程决定，不能指定轮数。", nameof(rounds));
             Format = format;
             requestedRounds = rounds;
             packId = db.PackId;
             contentHash = db.ContentHash();
             Players = players.AsReadOnly();
+            InitializeElimination(options);
         }
 
         public void AddPlayer(string name, string teamCode)
@@ -136,6 +146,20 @@ namespace StreamDuel.Core
             if (Round > 0 && roundsPlayed[Round - 1].Any(item => !item.WinnerSide.HasValue))
                 return new List<Pairing>(roundsPlayed[Round - 1]);
             if (IsFinished) return new List<Pairing>();
+            if (IsElimination)
+            {
+                var eliminationRound = new List<Pairing>();
+                foreach (var choice in EliminationRound())
+                {
+                    var pairing = new Pairing(pairings.Count, Round + 1, choice.Player0, choice.Player1,
+                        choice.Bracket, choice.BracketRound);
+                    pairings.Add(pairing);
+                    eliminationRound.Add(pairing);
+                }
+                if (eliminationRound.Count == 0) throw new InvalidOperationException("淘汰赛没有可推进的对阵。");
+                roundsPlayed.Add(eliminationRound);
+                return new List<Pairing>(eliminationRound);
+            }
             if (Format == "swiss" && players.Count % 2 != 0 && Rounds > players.Count)
                 throw new InvalidOperationException("奇数人数的瑞士轮不能多于参赛人数，否则无法保证每人最多轮空一次。");
 
@@ -160,6 +184,8 @@ namespace StreamDuel.Core
             if (pairing.WinnerSide.HasValue) throw new InvalidOperationException("这场对阵已经登记结果。");
             if (winnerSide < -1 || winnerSide > 1)
                 throw new ArgumentOutOfRangeException(nameof(winnerSide), "胜方只能是 0、1，或以 -1 表示平局。");
+            if (IsElimination && winnerSide == -1)
+                throw new ArgumentException("淘汰赛需要明确胜负；平局不能决定晋级，本场仍待赛。", nameof(winnerSide));
             pairing.SetResult(winnerSide);
         }
 
@@ -202,6 +228,7 @@ namespace StreamDuel.Core
             }
             var order = Enumerable.Range(0, count).OrderByDescending(id => points[id])
                 .ThenByDescending(id => opponents[id]).ThenByDescending(id => direct[id]).ThenBy(id => id).ToList();
+            if (IsElimination) order = EliminationRankOrder().ToList();
             var result = new List<Standing>();
             foreach (int id in order)
                 result.Add(new Standing(id, players[id].Name, points[id], opponents[id], direct[id],
@@ -289,12 +316,13 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
-            var text = new StringBuilder("{\"version\":1,\"packId\":");
+            var text = new StringBuilder(IsElimination ? "{\"version\":2,\"packId\":" : "{\"version\":1,\"packId\":");
             TeamPresetJson.WriteString(text, packId);
             text.Append(",\"contentHash\":");
             TeamPresetJson.WriteString(text, contentHash);
             text.Append(",\"format\":");
             TeamPresetJson.WriteString(text, Format);
+            if (IsElimination) WriteEliminationConfiguration(text);
             text.Append(",\"rounds\":").Append(Number(requestedRounds)).Append(",\"players\":[");
             for (int i = 0; i < players.Count; i++)
             {
@@ -316,8 +344,13 @@ namespace StreamDuel.Core
                     if (j > 0) text.Append(',');
                     var pairing = roundsPlayed[i][j];
                     text.Append("{\"id\":").Append(Number(pairing.Id)).Append(",\"round\":").Append(Number(pairing.Round))
-                        .Append(",\"player0\":").Append(Number(pairing.Player0)).Append(",\"player1\":").Append(Number(pairing.Player1))
-                        .Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append('}');
+                        .Append(",\"player0\":").Append(Number(pairing.Player0)).Append(",\"player1\":").Append(Number(pairing.Player1));
+                    if (IsElimination)
+                    {
+                        text.Append(",\"bracket\":"); TeamPresetJson.WriteString(text, pairing.Bracket);
+                        text.Append(",\"bracketRound\":").Append(Number(pairing.BracketRound));
+                    }
+                    text.Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append('}');
                 }
                 text.Append(']');
             }
@@ -330,12 +363,19 @@ namespace StreamDuel.Core
             try
             {
                 var root = TournamentJson.Parse(json);
-                TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "rounds", "players", "roundsPlayed");
-                if (TournamentJson.Integer(root, "version", 1, int.MaxValue) != 1)
+                if (!root.ContainsKey("version")) throw new FormatException("赛事存档缺少版本。");
+                int version = TournamentJson.Integer(root, "version", 1, int.MaxValue);
+                if (version != 1 && version != 2)
                     throw new FormatException("不支持此赛事存档版本。");
+                if (version == 1) TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "rounds", "players", "roundsPlayed");
+                else TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "seed", "seedOrder", "resetFinal", "rounds", "players", "roundsPlayed");
                 if (TournamentJson.Text(root, "packId") != db.PackId) throw new FormatException("赛事内容包不匹配。");
                 if (TournamentJson.Text(root, "contentHash") != db.ContentHash()) throw new FormatException("赛事内容不一致，请使用相同规则与内容包。");
-                var result = new Tournament(db, TournamentJson.Text(root, "format"), TournamentJson.Integer(root, "rounds", 0, int.MaxValue));
+                string format = TournamentJson.Text(root, "format");
+                bool elimination = format == SingleElimination || format == DoubleElimination;
+                if (elimination != (version == 2)) throw new FormatException("赛事版本与赛制不匹配。");
+                var result = new Tournament(db, format, TournamentJson.Integer(root, "rounds", 0, int.MaxValue),
+                    elimination ? ReadEliminationConfiguration(root) : null);
                 foreach (var value in TournamentJson.Array(root, "players"))
                 {
                     var player = TournamentJson.Object(value);
@@ -354,13 +394,17 @@ namespace StreamDuel.Core
                     for (int i = 0; i < round.Count; i++)
                     {
                         var pairing = TournamentJson.Object(savedRound[i]);
-                        TournamentJson.Keys(pairing, "id", "round", "player0", "player1", "winnerSide");
+                        if (elimination) TournamentJson.Keys(pairing, "id", "round", "player0", "player1", "bracket", "bracketRound", "winnerSide");
+                        else TournamentJson.Keys(pairing, "id", "round", "player0", "player1", "winnerSide");
                         var expected = round[i];
                         if (TournamentJson.Integer(pairing, "id", 0, int.MaxValue) != expected.Id
                             || TournamentJson.Integer(pairing, "round", 1, int.MaxValue) != expected.Round
                             || TournamentJson.Integer(pairing, "player0", 0, int.MaxValue) != expected.Player0
                             || TournamentJson.Integer(pairing, "player1", -1, int.MaxValue) != expected.Player1)
                             throw new FormatException("存档对阵不符合当前赛制的排轮顺序。");
+                        if (elimination && (TournamentJson.Text(pairing, "bracket") != expected.Bracket
+                            || TournamentJson.Integer(pairing, "bracketRound", 1, int.MaxValue) != expected.BracketRound))
+                            throw new FormatException("存档对阵的胜败组或组内轮次不一致。");
                         object winner = pairing["winnerSide"];
                         if (expected.IsBye)
                         {
