@@ -19,7 +19,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value) : null;
+            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value, options.SpectatorChat) : null;
             if (host)
             {
                 connection = WaitForNetworkGuest(db, options, () => spectators?.Pump());
@@ -197,7 +197,8 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null,
+            bool exportReport = true)
         {
             var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
@@ -220,7 +221,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options, mySide);
+                if (exportReport) SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {

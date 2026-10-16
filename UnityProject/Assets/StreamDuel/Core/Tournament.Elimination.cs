@@ -9,6 +9,7 @@ namespace StreamDuel.Core
         public uint? Seed;
         public IList<int> SeedOrder;
         public bool ResetFinal = true;
+        public bool AutoTiebreak;
     }
 
     public sealed partial class Tournament
@@ -20,6 +21,7 @@ namespace StreamDuel.Core
         public uint? Seed { get; private set; }
         public IReadOnlyList<int> SeedOrder { get; private set; }
         public bool ResetFinal { get; private set; } = true;
+        public bool AutoTiebreak { get; private set; }
         public int BestOf { get { return 1; } }
         public int? Champion
         {
@@ -140,6 +142,7 @@ namespace StreamDuel.Core
                 throw new ArgumentException("赛事种子和指定种子顺序不能同时使用。", nameof(options));
             Seed = options.Seed;
             ResetFinal = options.ResetFinal;
+            AutoTiebreak = options.AutoTiebreak;
             if (options.SeedOrder != null)
             {
                 var copy = options.SeedOrder.ToArray();
