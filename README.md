@@ -184,6 +184,19 @@ dotnet run --project Tools/Cli -- --lan-list
 
 联网对局完成终局校验后，双方各自更新 `profile.json` 中“默认”赛制的本地排位分，并显示段位。初始 1500 分，个人前 10 局使用 K=40，之后 K=24；双方评级在开场自报，仅供本机显示，不提供防作弊。单机对电脑、回看、提前退出或断线不计排位分。旧档案兼容，首次联网完局后自动增加排位记录；规则与段位表见[设计文档“排位分”](docs/design.md#13-排位分)。
 
+### 观战
+
+房主可额外开放独立观战端口；比赛期间固定延迟 2 回合，终局校验完成后发送剩余内容。观众可以先于对手连接或中途加入，使用相同版本的规则与内容包：
+
+```powershell
+# 房主：7777 给对手，7778 给观众；端口 0 表示系统分配，启动时显示实际值
+dotnet run --project Tools/Cli -- --host 7777 --spectate-port 7778 --pack original --seed 7 --save-dir ./saves/host
+# 观众：只读观看，不写个人档案或回放
+dotnet run --project Tools/Cli -- --watch 127.0.0.1:7778 --pack original
+```
+
+`--spectate-port` 配合 `--host` 或 `--lan-host`。`--watch` 支持 `--pack`、`--packs`、`--pack-dir` 和 `--hash`，不接受选手操作、存档或战报选项；地址格式与 `--join` 相同。加 `--list-packs` 时只列包，不连接观战。内容不一致、消息损坏或结束标记前断线时会报错；观众掉线不终止选手对战。观战同样仅适用于可信本机或局域网。协议与延迟边界见[设计文档 10.5 节](docs/design.md#105-观战数据流)。
+
 ## 自制内容包
 
 第一次制作请从[自制内容包教程](docs/modding.md)和[完整示例包](docs/examples/example_pack.json)开始，按步骤检查、运行并试测平衡。

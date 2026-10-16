@@ -184,7 +184,8 @@ namespace StreamDuel.Cli
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament" && option != "--tournament-report"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
-                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host")
+                    && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
+                    && option != "--spectate-port" && option != "--watch")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -192,6 +193,14 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--spectate-port":
+                        if (options.SpectatePort.HasValue) throw new ArgumentException("--spectate-port 不能重复指定。");
+                        options.SpectatePort = ParsePort(value, 0, "--spectate-port");
+                        break;
+                    case "--watch":
+                        if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
+                        ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
+                        break;
                     case "--tournament-report":
                         if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--tournament-report 需要非空的赛事 JSON 文件路径。");
@@ -246,7 +255,7 @@ namespace StreamDuel.Cli
                         break;
                     case "--join":
                         if (options.JoinHost != null) throw new ArgumentException("--join 不能重复指定。");
-                        ParseJoin(value, out options.JoinHost, out options.JoinPort);
+                        ParseEndpoint(value, "--join", out options.JoinHost, out options.JoinPort);
                         break;
                     case "--replay":
                         if (string.IsNullOrWhiteSpace(value))
@@ -307,6 +316,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
             if (!options.Help)
             {
@@ -464,9 +474,9 @@ namespace StreamDuel.Cli
             return port;
         }
 
-        private static void ParseJoin(string value, out string host, out int port)
+        private static void ParseEndpoint(string value, string option, out string host, out int port)
         {
-            const string formatError = "--join 必须是地址:端口，例如 127.0.0.1:7777、localhost:7777 或 [::1]:7777。";
+            string formatError = option + " 必须是地址:端口，例如 127.0.0.1:7777、localhost:7777 或 [::1]:7777。";
             if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsWhiteSpace))
                 throw new ArgumentException(formatError);
 
@@ -479,7 +489,7 @@ namespace StreamDuel.Cli
                 host = value.Substring(1, closing - 1);
                 IPAddress address;
                 if (!IPAddress.TryParse(host, out address) || address.AddressFamily != AddressFamily.InterNetworkV6)
-                    throw new ArgumentException("--join 的方括号内必须是有效的 IPv6 地址。");
+                    throw new ArgumentException(option + " 的方括号内必须是有效的 IPv6 地址。");
                 portText = value.Substring(closing + 2);
             }
             else
@@ -490,10 +500,10 @@ namespace StreamDuel.Cli
                 host = value.Substring(0, separator);
                 var hostType = Uri.CheckHostName(host);
                 if (hostType != UriHostNameType.Dns && hostType != UriHostNameType.IPv4)
-                    throw new ArgumentException("--join 需要有效的 IPv4 地址或主机名；IPv6 地址请使用 [地址]:端口。");
+                    throw new ArgumentException(option + " 需要有效的 IPv4 地址或主机名；IPv6 地址请使用 [地址]:端口。");
                 portText = value.Substring(separator + 1);
             }
-            port = ParsePort(portText, 1, "--join");
+            port = ParsePort(portText, 1, option);
         }
     }
 }
