@@ -148,6 +148,7 @@ namespace StreamDuel.Game
             detailPortrait.AddToClassList("sd-team__detail-portrait"); heading.Add(detailPortrait);
             detailName = Label(heading, "team-detail-name", "主播详情", "sd-team__detail-name");
             detailName.style.unityFont = router.Resources.BoldFont;
+            BuildCardEntry(detail);
             detailText = Label(detail, "team-detail-text", "选择主播卡查看能力、人设和全部技能。", "sd-team__detail-text");
         }
 
@@ -193,6 +194,7 @@ namespace StreamDuel.Game
 
         void PopulatePack()
         {
+            CloseCardPanel();
             foreach (var remove in rosterUnbind) remove(); rosterUnbind.Clear();
             pickButtons.Clear(); grid.Clear();
             packField.SetValueWithoutNotify(packField.choices[packs.IndexOf(db)]);
@@ -211,7 +213,7 @@ namespace StreamDuel.Game
             {
                 string id = streamer.Id;
                 var tile = Element(grid, "team-tile-" + id, "sd-team__tile");
-                var card = Button(tile, "streamer-card-" + id, "", () => ShowDetail(id), "sd-team__card", rosterUnbind);
+                var card = Button(tile, "streamer-card-" + id, "", () => { ShowDetail(id); OpenCardPanel(); }, "sd-team__card", rosterUnbind);
                 var portrait = new Image { name = "portrait-" + id, image = portraits.Get(db, id), scaleMode = ScaleMode.ScaleToFit };
                 portrait.AddToClassList("sd-team__portrait"); card.Add(portrait);
                 Label(card, "streamer-name-" + id, streamer.Name, "sd-team__card-name");
@@ -258,6 +260,7 @@ namespace StreamDuel.Game
             foreach (var rule in Glossary.Build(db).Where(entry => entry.Category == "rule" && (entry.Id == "stages" || entry.Id == "switch")))
                 text.Append('\n').Append(rule.Title).Append('\n').Append(rule.Text).Append('\n');
             detailText.text = text.ToString();
+            RefreshCardEntry();
         }
 
         void Refresh()
@@ -345,9 +348,10 @@ namespace StreamDuel.Game
             try { action(); } catch (Exception ex) { if (status != null) status.text = "操作失败：" + ex.Message; }
         }
         void Message(string text) { if (status != null) status.text = text; }
-        public void Tick(float dt) { }
+        public void Tick(float dt) { TickCardPanel(dt); }
         public void Dispose()
         {
+            DisposeCardPanel();
             focus?.Pause(); focus = null;
             foreach (var remove in rosterUnbind) remove(); rosterUnbind.Clear();
             foreach (var remove in unbind) remove(); unbind.Clear();

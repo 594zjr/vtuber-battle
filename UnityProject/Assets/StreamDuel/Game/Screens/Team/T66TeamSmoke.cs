@@ -245,6 +245,11 @@ namespace StreamDuel.Game
                         Submit("streamer-card-" + member.Id);
                         yield return Settle();
                         CheckDetail(db, member);
+                        Submit("team-card-close");
+                        yield return Settle();
+                        Require(router.Document.rootVisualElement.Q<Button>("team-card-close") == null
+                            && Element<Button>("team-auto").enabledInHierarchy,
+                            "资料卡关闭后未恢复组队界面。");
                     }
                     Element<ScrollView>("team-roster").scrollOffset = Vector2.zero;
                     yield return Settle();
