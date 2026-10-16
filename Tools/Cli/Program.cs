@@ -118,6 +118,11 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    分数快照随赛事保存；续赛省略时保留原方式，显式 rating 不能改变旧赛事方式。坏档案拒绝报名。");
             Console.WriteLine("                    不能与 --tournament-seed 同用；淘汰赛可搭配 --auto 与 --no-auto-tiebreak，自动加赛按未指定赛事种子的 0 派生。");
             Console.WriteLine("  --tournament-seed 整数  淘汰赛种子 0..4294967295，用于种子顺位和加赛派生；续赛不能更改已存种子。");
+            Console.WriteLine("  --tournament-ruleset 编号  为新赛事显式选择 casual、ranked 或 chaos，须与 --tournament、--auto 同用。");
+            Console.WriteLine("                    支持单败、双败和循环赛（菜单选1），不支持瑞士轮；每局按快照进行禁用/首发并独立归档、保存检查点。");
+            Console.WriteLine("                    续赛默认读取规则快照，显式编号必须与快照相同；不能升级旧赛事或搭配 --no-auto-tiebreak。");
+            Console.WriteLine("                    可搭配 --seed-by rating；自动赛事保留计时配置但不按墙钟截断 AI。满局按胜场多者胜，胜场相等才算整场平局。");
+            Console.WriteLine("                    仅淘汰赛整场平局最多决胜加赛 3 次；循环赛平局按原积分计分，不加赛、不按种子裁定。");
             Console.WriteLine("  --no-auto-tiebreak  关闭新建淘汰赛的自动加赛，平局保持待赛，重赛分出胜负后手工报分。");
             Console.WriteLine("                    新建淘汰赛配合 --auto 默认自动加赛，最多 3 次仍平按种子顺位晋级；原场和每次加赛先归档再登记结果。");
             Console.WriteLine("                    手工新建默认关闭加赛；已开启赛事必须用 --auto 续赛，省略时只读提示，不接受手工报分绕过录像。");
