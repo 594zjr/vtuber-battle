@@ -46,10 +46,18 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Team, () => new TeamScreen(legacy));
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
-            router.Register(ScreenIds.Replay, () => new ReplayScreen());
+            router.Register(ScreenIds.Replay, () => new ReplayScreen(legacy.FindLoadedPack));
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
+            legacy.ResultRequested = battle => router.Show(ScreenIds.Result, new ResultScreenArgs
+            {
+                Battle = battle,
+                ResolvePack = legacy.FindLoadedPack,
+                RematchLabel = legacy.ResultRematchLabel,
+                Rematch = () => { legacy.RematchFromResult(); router.Show(ScreenIds.Legacy); },
+                ReturnToTeam = legacy.ReturnToTeamFromResult
+            });
             legacy.TeamScreenRequested = () => router.Show(ScreenIds.Team);
             // 旧版验收入口继续直接开局；玩家和主菜单验收从正式菜单进入。
             var arguments = System.Environment.GetCommandLineArgs();

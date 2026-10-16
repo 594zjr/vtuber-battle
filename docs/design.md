@@ -660,6 +660,8 @@ Switch 事件只标识离场者。SwitchIn 在当前区间内跳过不生成提�
 
 公开接口为 `string Save(BattleRecord r, BattleSummary s, string note = null)`、`List<ReplayEntry> List(ReplayFilter f = null)`、`BattleRecord Load(string id)`、`void Delete(string id)` 和 `void SetNote(string id, string note)`。`Save` 使用时间戳与种子生成 id，同名时追加碰撞序号。`ReplayEntry` 包含 `Id`、`Date`、`PackId`、`Names`、`Teams`、`Winner`、`Turns`、`Note`、`IsCorrupt` 和 `Error`；双方名字与阵容按 0 方、1 方排列，阵容来自记录中的禁用及首发重排前原始队伍。旧记录未保存名字时，沿用回放的“你/对手”。`BattleSummary.From` 将真实对战的 `Winner` 及记录中 `Turn` 事件数量分别保存为 `Winner`、`Turns`；这两个字段不改变原有 `ToText()` 输出。正常录像的胜方为 0 或 1，-1 表示平局。
 
+`BattleSummary.Mvp()` 返回可空的 `(int Side, int Slot)`，两项均从 0 开始，号位对应统计快照中的队伍顺序（禁用及首发重排后的顺序）。只在胜方中选，平局时双方一起选；得分为 `造成伤害 + 0.5 × 承受伤害 + 100 × 击倒数`，同分依次比击倒数、造成伤害、队伍号位靠前者。平局中双方同号位仍完全相同时稳定选择 0 方。比较采用双倍整数分数，不截断半点承伤，也不改变统计本身。尚未结束（`Winner = -2`）、没有任何已结算行动回合（`Turns = 0`），或没有可选的统计条目时返回 null；仅禁用、首发、开局投降或和局不构成行动回合，已结算的辅助技能、换人或跳过回合即使伤害全为 0 也照常评选。该查询不修改 `BattleSummary`、原战斗、随机流、回放或状态哈希，不改变既有 `ToText()` 及 JSON 编码；画面只显示 Core 返回的结果。
+
 每份录像保存为 `<id>.json`，保留完整的对战记录字段，并在同一 JSON 根对象的 `library` 字段中附加 `date`、`winner`、`turns`、`note` 元数据。`BattleRecord.FromJson` 及回放仍可直接读取此文件。`index.json` 单独保存列表缓存，每次 `List` 扫描录像文件重建；索引丢失或损坏不影响从录像恢复信息，也不能以索引中的路径或条目作为删除文件的依据。单个文件或元数据损坏时，该条目以 `IsCorrupt = true` 和 `Error` 标记，不能加载，也不自动删除；其它录像仍可列出和读取。
 
 `ReplayFilter` 支持 `StreamerId`、`PackId`、可空的 `Winner` 及可空的 `From`、`To`。多个条件同时满足才匹配；主播 id 匹配任意一方的原始阵容，包 id 按记录值匹配，胜方按 0、1 或平局 -1 匹配，日期范围包含两个端点。列表按日期及 id 稳定排序。损坏条目在任何筛选条件下仍返回并显示错误，避免被筛选条件隐藏。

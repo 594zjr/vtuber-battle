@@ -8,7 +8,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    public sealed class UiSmoke : MonoBehaviour
+    public sealed partial class UiSmoke : MonoBehaviour
     {
         [Serializable]
         sealed class Report
@@ -41,6 +41,7 @@ namespace StreamDuel.Game
 
         Report report;
         bool running;
+        bool t70Smoke;
         float deadline;
         ScreenRouter router;
         UIDocument document;
@@ -90,12 +91,14 @@ namespace StreamDuel.Game
         {
             report = new Report { unityVersion = Application.unityVersion };
             running = true;
-            deadline = Time.realtimeSinceStartup + 300f;
+            t70Smoke = Array.IndexOf(args, "--t70-smoke") >= 0;
+            deadline = Time.realtimeSinceStartup + (t70Smoke ? 600f : 300f);
             Application.logMessageReceived += CollectLog;
             try
             {
                 Require(index + 1 < args.Length && Path.IsPathFullyQualified(args[index + 1]),
                     "--ui-smoke-test 后必须提供绝对输出目录。");
+                if (t70Smoke) ValidateT70Output(args[index + 1]);
                 // 每轮证据独立保存；目录编号不参与游戏或 Battle 随机数。
                 report.outputDirectory = Path.Combine(Path.GetFullPath(args[index + 1]), "run-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(report.outputDirectory);
@@ -114,7 +117,28 @@ namespace StreamDuel.Game
         {
             // 截图等待不到帧末时也要有退出路径，不能让验收进程一直挂起。
             if (running && Time.realtimeSinceStartup >= deadline)
-                Finish("UI 验收超过 300 秒；必须使用真实渲染，不能以 -nographics 启动。");
+                Finish("UI 验收超过 " + (t70Smoke ? "600" : "300") + " 秒；必须使用真实渲染，不能以 -nographics 启动。");
+        }
+
+        static void ValidateT70Output(string directory)
+        {
+            string project = Path.GetFullPath(Application.dataPath);
+            // 发布验收也只允许位于本工程下的构建；向上只计算路径，不扫描用户目录。
+            while (!string.IsNullOrEmpty(project)
+                && !string.Equals(Path.GetFileName(project), "UnityProject", StringComparison.OrdinalIgnoreCase))
+                project = Path.GetDirectoryName(project);
+            Require(!string.IsNullOrEmpty(project), "T70 验收必须在工作树 UnityProject 或其构建目录运行。");
+            string allowed = Path.Combine(project, "Logs", "T70");
+            string full = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            Require(string.Equals(full, allowed, StringComparison.OrdinalIgnoreCase)
+                || full.StartsWith(allowed + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
+                "T70 验收输出必须位于本工程 Logs/T70 下。");
+            for (var current = new DirectoryInfo(full); current != null; current = current.Parent)
+            {
+                Require(!current.Exists || (current.Attributes & FileAttributes.ReparsePoint) == 0,
+                    "T70 验收目录不能经过重解析点。");
+                if (string.Equals(current.FullName, project, StringComparison.OrdinalIgnoreCase)) break;
+            }
         }
 
         void CollectLog(string message, string stack, LogType type)
@@ -168,6 +192,13 @@ namespace StreamDuel.Game
                 "默认入口没有保持可用的旧版对战。");
             Require(document.rootVisualElement.panel != null, "UIDocument 未连接到运行时面板。");
             report.steps.Add("单一 UIDocument，默认旧版对战入口已启用。");
+
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "--t70-smoke") >= 0)
+            {
+                yield return RunT70();
+                report.completed = true;
+                yield break;
+            }
 
             var rules = Resources.Load<TextAsset>("StreamDuelRules");
             var pack = Resources.Load<TextAsset>("Packs/original");

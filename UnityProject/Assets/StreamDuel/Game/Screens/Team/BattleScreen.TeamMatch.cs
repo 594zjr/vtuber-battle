@@ -106,7 +106,7 @@ namespace StreamDuel.Game
             if (teamMatch == null) return false;
             Fill(new Rect(0, 0, RefW, RefH), new Color(Bg.r, Bg.g, Bg.b, 0.75f));
             DrawTeamMatchFanNotice(true);
-            var r = new Rect(RefW / 2 - 300, RefH / 2 - 170, 600, 340);
+            var r = new Rect(RefW / 2 - 300, RefH / 2 - 205, 600, 410);
             Box(r);
             string result = b.Winner == 0 ? "本局胜利" : b.Winner == 1 ? "本局失败" : "本局平局";
             GUI.Label(new Rect(r.x, r.y + 18, r.width, 80), result, sHuge);
@@ -121,6 +121,8 @@ namespace StreamDuel.Game
             if (GUI.Button(new Rect(r.x + 30, r.y + 260, 290, 50), teamMatch.Over ? "同样阵容重新比赛" : "继续下一局", sBtn))
                 Do(ContinueTeamMatch);
             if (GUI.Button(new Rect(r.x + 340, r.y + 260, 230, 50), "重新组队", sBtn)) Do(RequestTeamScreen);
+            if (ResultRequested != null && GUI.Button(new Rect(r.x + 30, r.y + 326, 540, 50), "查看本局结算、保存与回看", sBtn))
+                Do(() => ResultRequested(b));
             return true;
         }
 
