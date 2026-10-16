@@ -172,6 +172,13 @@ namespace StreamDuel.Core
 
         static BattleAction ChooseHard(Battle live, int s)
         {
+            return ChooseHard(live, s, AiWeights.HardDefault);
+        }
+
+        static BattleAction ChooseHard(Battle live, int s, AiWeights weights)
+        {
+            // 本次只训练无风格内容，既有风格仍在旧策略基底上表达原来的偏好。
+            if (StyleWeights(live, s) != null) weights = AiWeights.Legacy;
             var b = live.CopyForHardAi();
             b.PrepareHardAiTurn();
             var actions = HardActions(b, s);
@@ -187,7 +194,7 @@ namespace StreamDuel.Core
                     return damage.Guaranteed && damage.Min >= foe.Hp &&
                         (HardFirst(b, s, action, other) == s || HardSkill(b, 1 - s, other) == null);
                 });
-                if (safeKill) kills.Add(new HardOption { Action = action, Score = HardScore(b, s, action) });
+                if (safeKill) kills.Add(new HardOption { Action = action, Score = HardScore(b, s, action, weights) });
             }
             if (kills.Count > 0) return HardPick(live, kills, o => o.Score).Action;
 
@@ -231,7 +238,7 @@ namespace StreamDuel.Core
                 if (switches.Count > 0) return HardPick(live, switches, o => o.Score).Action;
             }
 
-            var choices = actions.Select(a => new HardOption { Action = a, Score = HardScore(b, s, a) }).ToList();
+            var choices = actions.Select(a => new HardOption { Action = a, Score = HardScore(b, s, a, weights) }).ToList();
             return HardPick(live, choices, o => o.Score).Action;
         }
 
@@ -244,7 +251,7 @@ namespace StreamDuel.Core
             return outgoing.Expected / Math.Max(1, b.Active(1 - s).Hp) - incoming / Math.Max(1, b.Active(s).Hp) + b.Active(s).HpRatio * 0.2;
         }
 
-        static double HardScore(Battle b, int s, BattleAction action)
+        static double HardScore(Battle b, int s, BattleAction action, AiWeights weights)
         {
             var skill = HardSkill(b, s, action);
             if (skill == null) return 0;
@@ -261,8 +268,8 @@ namespace StreamDuel.Core
             double estimate = damage.Expected / Math.Max(1, foe.Hp);
             double threat = incoming.Expected / Math.Max(1, me.Hp);
             // 保留普通难度的基础估值，只用准确的先后手、伤害和防护收益补充判断。
-            double score = estimate >= 1 ? 1.6 + (goesFirst ? 0.6 : 0) : estimate;
-            if (threat >= 1 && goesFirst && estimate >= 1) score += 1;
+            double score = estimate >= 1 ? weights.KnockoutScore + (goesFirst ? weights.FirstKnockoutBonus : 0) : estimate * weights.DamageScoreMultiplier;
+            if (threat >= 1 && goesFirst && estimate >= 1) score += weights.ThreatenedFirstKnockoutBonus;
             double myHits = HardHitsToKo(b, 1 - s, damage.Min);
             double theirHits = HardHitsToKo(b, s, incoming.Min);
             bool winsRace = myHits < theirHits || (myHits == theirHits && goesFirst);
@@ -280,8 +287,8 @@ namespace StreamDuel.Core
                 double benefit = 0;
                 switch (effect.Code)
                 {
-                    case "HEAL": if (me.HpRatio < 0.5) benefit = (1 - me.HpRatio) * 0.9; break;
-                    case "DRAIN": benefit = Math.Min(me.MaxHp - me.Hp, dealt * effect.Frac) / me.MaxHp * 0.9; break;
+                    case "HEAL": if (me.HpRatio < weights.HealMaxHpRatio) benefit = (1 - me.HpRatio) * weights.HealMissingHpScore; break;
+                    case "DRAIN": benefit = Math.Min(me.MaxHp - me.Hp, dealt * effect.Frac) / me.MaxHp * weights.HealMissingHpScore; break;
                     case "RECOIL":
                         benefit = -dealt * effect.Frac / Math.Max(1, me.Hp) * 0.1;
                         if (dealt * effect.Frac >= me.Hp) benefit -= 0.8;
@@ -294,7 +301,7 @@ namespace StreamDuel.Core
                         {
                             if (b.ControlOf(foe) == null && !foe.Fields.Any(f => b.Db.Fields[f.Id].ImmuneControl))
                             {
-                                benefit = 0.5;
+                                benefit = weights.ControlStatusScore;
                                 if (skill.Power <= 0 && goesFirst && status.Skip == 1)
                                 {
                                     // 先手使用纯单次控制，双方都没有输出；只有持续效果带来的进展值得加分。
@@ -309,19 +316,19 @@ namespace StreamDuel.Core
                                     benefit += incoming.Max / me.MaxHp + 0.6;
                             }
                         }
-                        else if (!foe.HasStatus(effect.Status) && !foe.Fields.Any(f => b.Db.Fields[f.Id].ImmuneWeak)) benefit = 0.3;
+                        else if (!foe.HasStatus(effect.Status) && !foe.Fields.Any(f => b.Db.Fields[f.Id].ImmuneWeak)) benefit = weights.WeakStatusScore;
                         break;
                     }
                     case "STAGE":
                     {
-                        if (effect.Target == "self" && me.HpRatio > 0.6 && threat < 0.5)
+                        if (effect.Target == "self" && me.HpRatio > weights.StageMinHpRatio && threat < weights.StageMaxThreatRatio)
                         {
-                            benefit = 0.22 * effect.Changes.Count(change => change.Value > 0 && me.Stages[change.Key] < 2 &&
+                            benefit = weights.StageScore * effect.Changes.Count(change => change.Value > 0 && me.Stages[change.Key] < weights.StageBoostTarget &&
                                 ((change.Key != "atk" && change.Key != "spa") || HardActions(b, s).Any(a =>
                                 HardSkill(b, s, a) != null && HardSkill(b, s, a).Power > 0 &&
                                 HardSkill(b, s, a).Cat == (change.Key == "atk" ? "interact" : "talent"))));
                         }
-                        else if (effect.Target != "self" && skill.Power == 0) benefit = 0.18;
+                        else if (effect.Target != "self" && skill.Power == 0) benefit = weights.FoeStageScore;
                         benefit += HardProtectionBonus(b, s, effect, node, action, incoming.Max);
                         break;
                     }
@@ -329,24 +336,24 @@ namespace StreamDuel.Core
                     {
                         var target = effect.Target == "self" ? me : foe;
                         if (target.HasField(effect.Field)) break;
-                        benefit = FieldValue(b, s, effect, threat, goesFirst);
+                        benefit = FieldValue(b, s, effect, threat, goesFirst, weights);
                         benefit += HardProtectionBonus(b, s, effect, node, action, incoming.Max);
                         break;
                     }
                     case "DISPEL_TURNS":
                         benefit = foe.Fields.Where(f => b.Db.Fields[f.Id].Dispel)
-                            .Sum(f => b.Db.Fields[f.Id].PreventSwitch ? -0.2 : 0.2);
+                            .Sum(f => b.Db.Fields[f.Id].PreventSwitch ? weights.DispelTrapScore : weights.DispelFieldScore);
                         break;
-                    case "DISPEL_BOOST": benefit = 0.12 * foe.Stages.Values.Count(n => n > 0); break;
+                    case "DISPEL_BOOST": benefit = weights.DispelBoostScore * foe.Stages.Values.Count(n => n > 0); break;
                     case "STEAL_BOOST":
                     {
                         if (effect.Target != "foe") break;
                         foreach (var stage in foe.Stages.Where(change => change.Value > 0))
-                            benefit += 0.12 + 0.08 * Math.Min(stage.Value, b.StageLimit - me.Stages[stage.Key]);
+                            benefit += weights.StealBoostBaseScore + weights.StealBoostPerStageScore * Math.Min(stage.Value, b.StageLimit - me.Stages[stage.Key]);
                         benefit += HardProtectionBonus(b, s, effect, node, action, incoming.Max);
                         break;
                     }
-                    case "CLEANSE": if (me.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) benefit = 0.4; break;
+                    case "CLEANSE": if (me.Statuses.Any(x => b.Db.Statuses[x.Id].Cleanse)) benefit = weights.CleanseScore; break;
                     case "ADD_MARK":
                     {
                         var field = b.Db.Fields[effect.Field];
@@ -357,6 +364,7 @@ namespace StreamDuel.Core
                 }
                 score += benefit * probability;
             }
+            score += StylePreference(b, s, action);
             if (!goesFirst && incoming.Min >= me.Hp) score *= 0.08;
             return score;
         }
@@ -413,6 +421,7 @@ namespace StreamDuel.Core
             Turn = source.Turn;
             Phase = source.Phase;
             Winner = source.Winner;
+            CopyTerminationFrom(source);
             leadPickAfterBan = source.leadPickAfterBan;
             modifiers = new List<string>(source.modifiers).AsReadOnly();
             Record = new BattleRecord

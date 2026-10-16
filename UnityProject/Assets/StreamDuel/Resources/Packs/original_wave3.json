@@ -342,7 +342,7 @@
   "streamers": [
     {
       "id": "og3_liling", "name": "栗铃踏拍", "org": "原创", "type": "song", "type2": "game",
-      "stats": { "hp": 365, "atk": 210, "def": 255, "spa": 285, "sdef": 260, "spd": 330 },
+      "stats": { "hp": 365, "atk": 210, "def": 255, "spa": 235, "sdef": 260, "spd": 330 },
       "persona": "og3_toe_count", "skills": [ "og3_bell_skip", "og3_rhythm_route", "og3_tempo_tip", "og3_ribbon_rest" ], "fifth": "og3_spark_chorus",
       "blurb": "快攻：戴栗子铃跳节奏游戏，把每次踩拍唱成小曲。"
     },
@@ -408,7 +408,7 @@
     },
     {
       "id": "og3_jufan", "name": "橘帆飞票", "org": "原创", "type": "game",
-      "stats": { "hp": 370, "atk": 285, "def": 260, "spa": 210, "sdef": 265, "spd": 320 },
+      "stats": { "hp": 370, "atk": 260, "def": 260, "spa": 210, "sdef": 265, "spd": 320 },
       "persona": "og3_spare_ticket", "skills": [ "og3_ticket_dash", "og3_sail_clap", "og3_crease_sprint", "og3_juice_break" ], "fifth": "og3_sunny_landing",
       "blurb": "快攻：折橘色纸帆直播竞速，口袋里总留一张再试票。"
     }

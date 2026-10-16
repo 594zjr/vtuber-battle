@@ -10,6 +10,7 @@ namespace StreamDuel.Game
 {
     public sealed partial class BattleScreen : MonoBehaviour
     {
+        public System.Action MainMenuRequested;
         const float RefW = 1600f, RefH = 900f;
         enum View { Team, Battle }
 
@@ -28,12 +29,13 @@ namespace StreamDuel.Game
         // 详情面板当前显示什么
         string detailKind; string detailId; int detailSide, detailIdx;
         string teamDetail;
+        string teamPolicyNotice;
 
         // 点击产生的状态变化推迟到本次 OnGUI 结束再执行，避免同一帧里自动布局前后不一致
         System.Action pending;
         void Do(System.Action a) { pending = a; }
 
-        Vector2 rosterScroll, logScroll, detailScroll, teamDetailScroll, packScroll, packErrorScroll;
+        Vector2 rosterScroll, logScroll, detailScroll, teamDetailScroll, packScroll, packErrorScroll, actionScroll;
         int logCountDrawn;
 
         // ---------- 颜色与样式 ----------
@@ -43,7 +45,7 @@ namespace StreamDuel.Game
 
         Font font;
         Texture2D white, circle;
-        GUIStyle sText, sSmall, sTitle, sBig, sHuge, sBtn, sChip, sPanel, sSkill, sCenter, sPortrait, sPackError;
+        GUIStyle sText, sSmall, sTitle, sRosterTitle, sBig, sHuge, sBtn, sChip, sSkillInfo, sPanel, sSkill, sCenter, sPortrait, sPackError;
         bool stylesReady;
 
         static Color Hex(string h) { Color c; return ColorUtility.TryParseHtmlString(h, out c) ? c : Color.magenta; }
@@ -70,15 +72,38 @@ namespace StreamDuel.Game
 
         void Awake()
         {
-            string rulesJson = Resources.Load<TextAsset>("StreamDuelRules").text;
+            LoadSettingsSafely();
+            fast = settings.FastPlay;
+            timerOn = settings.TurnTimer;
+            PackPolicy policy;
+            try { policy = UnityPackPolicy.Load(); }
+            catch (System.Exception ex)
+            {
+                packErrors.Add("下架策略无法读取，已停止加载内容包：" + ex.Message);
+                return;
+            }
+            var rules = Resources.Load<TextAsset>("StreamDuelRules");
+            if (rules == null)
+            {
+                packErrors.Add("缺少规则数据。");
+                return;
+            }
+            string rulesJson = rules.text;
             // Unity 也会把包目录的许可说明导入为 TextAsset，它不是内容包 JSON。
             foreach (var ta in Resources.LoadAll<TextAsset>("Packs").Where(t => t.name != "LICENSE")
                 .OrderBy(t => t.name == "original" ? 1 : 0).ThenBy(t => t.name))
             {
-                var probe = ContentDb.FromJson(rulesJson, ta.text);
-                packs.Add(probe);
+                var result = PackLoader.LoadJson(rulesJson, ta.text, ta.name + ".json", policy);
+                if (result.IsDisabled) continue;
+                if (result.Db == null)
+                    packErrors.Add(result.FileName + "：" + result.Error);
+                else if (packs.Any(p => p.PackId == result.Db.PackId))
+                    packErrors.Add(result.FileName + "：内容包 id " + result.Db.PackId + " 重复，已使用先加载的内置包");
+                else packs.Add(result.Db);
             }
-            foreach (var result in PackLoader.LoadDirectory(rulesJson, Path.Combine(Application.persistentDataPath, "packs")))
+            var externalPacks = SmokeRequested ? new List<PackLoadResult>()
+                : PackLoader.LoadDirectory(rulesJson, Path.Combine(Application.persistentDataPath, "packs"), policy);
+            foreach (var result in externalPacks)
             {
                 if (result.Error != null)
                 {
@@ -92,9 +117,7 @@ namespace StreamDuel.Game
                 }
                 packs.Add(result.Db);
             }
-            LoadSettingsSafely();
-            fast = settings.FastPlay;
-            timerOn = settings.TurnTimer;
+            if (packs.Count == 0) return;
             string want = settings.DefaultPack;
             LoadPack(packs.Any(p => p.PackId == want) ? want : packs[0].PackId);
         }
@@ -104,10 +127,21 @@ namespace StreamDuel.Game
             db = packs.First(p => p.PackId == id);
             settings.DefaultPack = id;
             SaveSettingsSafely();
-            var saved = PlayerPrefs.GetString("sd.pick." + id, "");
-            pick = saved.Split(',').Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
-            if (pick.Count == 0) RandomPick();
-            teamDetail = pick[0];
+            var saved = SmokeRequested ? "" : PlayerPrefs.GetString("sd.pick." + id, "");
+            var savedIds = saved.Split(',');
+            teamPolicyNotice = db.Policy.CheckTeam(id, savedIds);
+            if (teamPolicyNotice != null)
+            {
+                // 原保存内容留待玩家主动重选；政策不能悄悄换掉队友或覆盖队伍。
+                teamPolicyNotice += "；已停止使用原队伍，请重新选择六位主播。";
+                pick = new List<string>();
+            }
+            else
+            {
+                pick = savedIds.Where(x => db.Streamers.Any(s => s.Id == x)).Distinct().Take(6).ToList();
+                if (pick.Count == 0) RandomPick();
+            }
+            teamDetail = pick.FirstOrDefault() ?? db.Streamers[0].Id;
             rosterScroll = teamDetailScroll = Vector2.zero;
         }
 
@@ -118,13 +152,17 @@ namespace StreamDuel.Game
         }
         void SavePick()
         {
+            teamPolicyNotice = null;
             if (!SmokeRequested) PlayerPrefs.SetString("sd.pick." + db.PackId, string.Join(",", pick));
         }
 
         void EnsureStyles()
         {
             if (stylesReady) return;
-            font = Font.CreateDynamicFontFromOSFont(new[] { "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", "SimHei", "Arial" }, 18);
+            var resources = Resources.Load<ScreenResources>("StreamDuelUI");
+            if (resources == null || resources.RegularFont == null || resources.BoldFont == null)
+                throw new System.InvalidOperationException("旧版画面缺少 StreamDuelUI 的中文字体资源。");
+            font = resources.RegularFont;
             white = Texture2D.whiteTexture;
             circle = MakeCircle(128);
             var panelTex = MakeTex(Panel);
@@ -137,12 +175,13 @@ namespace StreamDuel.Game
             sSmall.normal.textColor = Muted;
             sPackError = new GUIStyle(sSmall) { wordWrap = false, richText = false };
             sPackError.normal.textColor = Foe;
-            sTitle = new GUIStyle(sText) { fontSize = 22, fontStyle = FontStyle.Bold, wordWrap = false };
-            sBig = new GUIStyle(sText) { fontSize = 30, fontStyle = FontStyle.Bold, wordWrap = false };
-            sHuge = new GUIStyle(sText) { fontSize = 64, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false };
+            sTitle = new GUIStyle(sText) { font = resources.BoldFont, fontSize = 22, fontStyle = FontStyle.Bold, wordWrap = false };
+            sRosterTitle = new GUIStyle(sTitle) { wordWrap = true };
+            sBig = new GUIStyle(sText) { font = resources.BoldFont, fontSize = 30, fontStyle = FontStyle.Bold, wordWrap = false };
+            sHuge = new GUIStyle(sText) { font = resources.BoldFont, fontSize = 64, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = false };
             sHuge.normal.textColor = Accent;
             sCenter = new GUIStyle(sText) { alignment = TextAnchor.MiddleCenter };
-            sPortrait = new GUIStyle(sText) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, wordWrap = false };
+            sPortrait = new GUIStyle(sText) { font = resources.BoldFont, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, wordWrap = false };
             sPortrait.normal.textColor = Hex("#10142a");
 
             sBtn = new GUIStyle(GUI.skin.button) { font = font, fontSize = 17, richText = true, padding = new RectOffset(12, 12, 6, 6) };
@@ -150,6 +189,7 @@ namespace StreamDuel.Game
             sBtn.normal.textColor = sBtn.hover.textColor = sBtn.active.textColor = Fg;
 
             sChip = new GUIStyle(sBtn) { fontSize = 14, padding = new RectOffset(10, 10, 3, 3), wordWrap = false };
+            sSkillInfo = new GUIStyle(sChip) { padding = new RectOffset(), alignment = TextAnchor.MiddleCenter };
             sPanel = new GUIStyle(GUI.skin.box);
             sPanel.normal.background = panelTex;
             sSkill = new GUIStyle(sBtn) { alignment = TextAnchor.UpperLeft, wordWrap = true, padding = new RectOffset(12, 30, 10, 8) };
@@ -255,17 +295,26 @@ namespace StreamDuel.Game
         void OnGUI()
         {
             EnsureStyles();
-            float scale = Mathf.Min(Screen.width / RefW, Screen.height / RefH);
-            float ox = (Screen.width - RefW * scale) / 2f, oy = (Screen.height - RefH * scale) / 2f;
+            const float navigationHeight = 44f;
+            float availableHeight = Mathf.Max(1, Screen.height - navigationHeight);
+            float scale = Mathf.Min(Screen.width / RefW, availableHeight / RefH);
+            float ox = (Screen.width - RefW * scale) / 2f, oy = navigationHeight + (availableHeight - RefH * scale) / 2f;
             GUI.color = Bg;
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), white);
             GUI.color = Color.white;
             GUI.matrix = Matrix4x4.TRS(new Vector3(ox, oy, 0), Quaternion.identity, new Vector3(scale, scale, 1));
-            if (view == View.Team) DrawTeam();
+            if (db == null)
+            {
+                var unavailableStyle = new GUIStyle(sText) { richText = false, wordWrap = true };
+                GUI.Label(new Rect(40, 60, RefW - 80, RefH - 120),
+                    "暂无可用内容包，部分内容可能已下架。\n" + string.Join("\n", packErrors), unavailableStyle);
+            }
+            else if (view == View.Team) DrawTeam();
             else if (b.Phase == Phase.Lead) DrawLead();
             else DrawBattle();
             DrawSettingsNotice();
             GUI.matrix = Matrix4x4.identity;
+            if (MainMenuRequested != null && GUI.Button(new Rect(12, 6, 120, 32), "主菜单", sBtn)) Do(MainMenuRequested);
             if (pending != null) { var a = pending; pending = null; a(); }
         }
 
@@ -297,12 +346,14 @@ namespace StreamDuel.Game
         void DrawTeam()
         {
             GUI.Label(new Rect(24, 14, 600, 44), C("开播对决", Accent) + C("  工作名 · 原型 v0.1", Muted), sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)))
                 GUI.Label(new Rect(650, 24, 480, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
-            float errorHeight = packErrors.Count > 0 ? 34 : 0;
-            if (packErrors.Count > 0)
+            float errorHeight = packErrors.Count > 0 || teamPolicyNotice != null ? 34 : 0;
+            if (errorHeight > 0)
             {
-                var errorText = new GUIContent(string.Join("；", packErrors).Replace('\r', ' ').Replace('\n', ' '));
+                string notice = string.Join("；", packErrors);
+                if (teamPolicyNotice != null) notice += (notice.Length == 0 ? "" : "；") + teamPolicyNotice;
+                var errorText = new GUIContent(notice.Replace('\r', ' ').Replace('\n', ' '));
                 float errorWidth = Mathf.Max(1532, sPackError.CalcSize(errorText).x);
                 packErrorScroll = GUI.BeginScrollView(new Rect(24, 60, 1552, errorHeight), packErrorScroll, new Rect(0, 0, errorWidth, 18));
                 GUI.Label(new Rect(0, 0, errorWidth, 18), errorText, sPackError);
@@ -351,44 +402,90 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(24, 162 + errorHeight, 1552, 44), C(db.PackNotice ?? "", Muted), sSmall);
             var area = new Rect(24, 210 + errorHeight, 1110, 672 - errorHeight);
             int rows = Mathf.CeilToInt(db.Streamers.Count / 3f);
-            rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rows * 256));
+            var layouts = new RosterCardLayout[db.Streamers.Count];
+            var rowHeights = new float[rows];
             for (int i = 0; i < db.Streamers.Count; i++)
             {
-                var d = db.Streamers[i];
-                var r = new Rect((i % 3) * 365, (i / 3) * 256, 350, 244);
-                DrawRosterCard(r, d);
+                layouts[i] = MeasureRosterCard(db.Streamers[i], 350);
+                rowHeights[i / 3] = Mathf.Max(rowHeights[i / 3], layouts[i].Height);
+            }
+            rosterScroll = GUI.BeginScrollView(area, rosterScroll, new Rect(0, 0, 1090, rowHeights.Sum() + rows * 12));
+            float rowY = 0;
+            for (int row = 0; row < rows; row++)
+            {
+                for (int col = 0; col < 3; col++)
+                {
+                    int i = row * 3 + col;
+                    if (i >= db.Streamers.Count) break;
+                    DrawRosterCard(new Rect(col * 365, rowY, 350, rowHeights[row]), db.Streamers[i], layouts[i]);
+                }
+                rowY += rowHeights[row] + 12;
             }
             GUI.EndScrollView();
 
             DrawTeamDetail(new Rect(1150, 210 + errorHeight, 426, 672 - errorHeight));
         }
 
-        void DrawRosterCard(Rect r, StreamerDef d)
+        sealed class RosterCardLayout
+        {
+            public GUIContent Name, Intro, Persona;
+            public GUIContent[] Stats = new GUIContent[2];
+            public Rect NameRect, IntroRect, PersonaRect;
+            public Rect[] StatRects = new Rect[2];
+            public float Height;
+        }
+
+        static Rect MeasureRosterText(GUIContent text, GUIStyle style, float x, float y, float width, float minimumHeight)
+        {
+            return new Rect(x, y, width, Mathf.Max(minimumHeight, Mathf.Ceil(style.CalcHeight(text, width))));
+        }
+
+        RosterCardLayout MeasureRosterCard(StreamerDef d, float width)
+        {
+            var layout = new RosterCardLayout();
+            layout.Name = new GUIContent(d.Name);
+            layout.Intro = new GUIContent(TypeTag(d) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted));
+            // 姓名避开右上按钮，简介从按钮下方开始；测量和绘制共用矩形，避免更换字体后裁字。
+            layout.NameRect = MeasureRosterText(layout.Name, sRosterTitle, 90, 12, width - 200, 30);
+            layout.IntroRect = MeasureRosterText(layout.Intro, sSmall, 90, Mathf.Max(54, layout.NameRect.yMax), width - 104, 46);
+            float y = Mathf.Max(78, layout.IntroRect.yMax) + 8;
+            var statKeys = new[] { "hp", "atk", "def", "spa", "sdef", "spd" };
+            for (int row = 0; row < 2; row++)
+            {
+                layout.Stats[row] = new GUIContent(string.Join("  ", statKeys.Skip(row * 3).Take(3)
+                    .Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k])));
+                layout.StatRects[row] = MeasureRosterText(layout.Stats[row], sSmall, 14, y, width - 28, 24);
+                y = layout.StatRects[row].yMax;
+            }
+            var p = db.Personas[d.Persona];
+            layout.Persona = new GUIContent(C("人设·" + p.Name, Accent) + " " + C("（" + p.Node + "，不可消除）", Muted) + "\n" + p.Desc);
+            layout.PersonaRect = MeasureRosterText(layout.Persona, sSmall, 14, y + 4, width - 28, 0);
+            layout.Height = layout.PersonaRect.yMax + 14;
+            return layout;
+        }
+
+        void DrawRosterCard(Rect r, StreamerDef d, RosterCardLayout layout)
         {
             int n = pick.IndexOf(d.Id);
             Box(r);
             if (n >= 0) { Fill(new Rect(r.x, r.y, r.width, 3), Accent); }
             if (teamDetail == d.Id) Fill(new Rect(r.x, r.yMax - 3, r.width, 3), Mine);
-            if (GUI.Button(new Rect(r.x, r.y, r.width - 110, r.height), GUIContent.none, GUIStyle.none)) Do(() => teamDetail = d.Id);
-            Portrait(new Rect(r.x + 14, r.y + 14, 64, 64), d, false);
-            GUI.Label(new Rect(r.x + 90, r.y + 12, 160, 30), d.Name, sTitle);
-            GUI.Label(new Rect(r.x + 90, r.y + 42, 250, 46), TypeTag(d) + (d.Org != null ? C(" " + d.Org, Muted) : "") + " " + C(d.Blurb, Muted), sSmall);
-            var statKeys = new[] { "hp", "atk", "def", "spa", "sdef", "spd" };
+            GUI.BeginGroup(r);
+            if (GUI.Button(new Rect(0, 0, r.width - 110, r.height), GUIContent.none, GUIStyle.none)) Do(() => teamDetail = d.Id);
+            Portrait(new Rect(14, 14, 64, 64), d, false);
+            GUI.Label(layout.NameRect, layout.Name, sRosterTitle);
+            GUI.Label(layout.IntroRect, layout.Intro, sSmall);
             for (int row = 0; row < 2; row++)
-            {
-                string stats = string.Join("  ", statKeys.Skip(row * 3).Take(3)
-                    .Select(k => C(db.StatName(k), Muted) + " " + d.Stats[k]));
-                GUI.Label(new Rect(r.x + 14, r.y + 92 + row * 24, 330, 26), stats, sSmall);
-            }
-            var p = db.Personas[d.Persona];
-            GUI.Label(new Rect(r.x + 14, r.y + 144, 330, 96), C("人设·" + p.Name, Accent) + " " + C("（" + p.Node + "，不可消除）", Muted) + "\n" + p.Desc, sSmall);
-            if (GUI.Button(new Rect(r.xMax - 100, r.y + 14, 86, 36), n >= 0 ? C((n + 1) + " 号位", Accent) : "选入", sBtn))
+                GUI.Label(layout.StatRects[row], layout.Stats[row], sSmall);
+            GUI.Label(layout.PersonaRect, layout.Persona, sSmall);
+            if (GUI.Button(new Rect(r.width - 100, 14, 86, 36), n >= 0 ? C((n + 1) + " 号位", Accent) : "选入", sBtn))
                 Do(() =>
                 {
                     if (n >= 0) pick.RemoveAt(n); else if (pick.Count < 6) pick.Add(d.Id);
                     SavePick();
                     teamDetail = d.Id;
                 });
+            GUI.EndGroup();
         }
 
         void DrawTeamDetail(Rect r)
@@ -398,6 +495,7 @@ namespace StreamDuel.Game
             GUILayout.BeginArea(new Rect(r.x + 14, r.y + 12, r.width - 28, r.height - 24));
             teamDetailScroll = GUILayout.BeginScrollView(teamDetailScroll);
             GUILayout.Label(d.Name + "  " + TypeTag(d), sTitle);
+            DrawMixedNotice(d.Id);
             var p = db.Personas[d.Persona];
             GUILayout.Label(C("人设·" + p.Name, Accent) + C("  时机：" + p.Node + " · 不可消除", Muted) + "\n" + p.Desc, sSmall);
             GUILayout.Space(6);
@@ -437,7 +535,7 @@ namespace StreamDuel.Game
         void DrawLead()
         {
             GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
             if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(() => { view = View.Team; b = null; });
             GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
 
@@ -486,7 +584,7 @@ namespace StreamDuel.Game
             var battleView = BattleViewModel.From(b, 0);
             int turnShown = shown > 0 ? b.Log[Mathf.Min(shown, b.Log.Count) - 1].Turn : 1;
             GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
-            if (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal)) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
+            if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
             if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
             bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
@@ -502,8 +600,11 @@ namespace StreamDuel.Game
             bool replacing = b.Phase == Phase.Replace && b.Need[0] && !playing;
             GUI.Label(new Rect(24, 434, 800, 24), replacing ? C("你的主播下播了，点下面一位补位", Mine) : "你的队伍（蓝边 = 可以换上，换人会用掉这回合）", sSmall);
             DrawBench(0, new Rect(24, 458, 1090, 46), act);
-            DrawActions(new Rect(24, 514, 1090, 166), battleView);
-            DrawDetail(new Rect(24, 690, 1090, 192));
+            var actions = MeasureActions(battleView, 1090);
+            var actionsRect = new Rect(24, 514, 1090, actions.Height);
+            DrawActions(actionsRect, battleView, actions);
+            float detailY = actionsRect.yMax + 10;
+            DrawDetail(new Rect(24, detailY, 1090, 882 - detailY));
             DrawLog(new Rect(1130, 60, 446, 822));
             if (b.Phase == Phase.Over && !playing) DrawResult();
         }
@@ -576,7 +677,54 @@ namespace StreamDuel.Game
 
         static string StripTags(string s) { return System.Text.RegularExpressions.Regex.Replace(s, "<.*?>", ""); }
 
-        void DrawActions(Rect r, BattleViewModel battleView)
+        sealed class ActionLayout
+        {
+            public GUIContent Head;
+            public GUIContent[] Labels;
+            public float Height = 166, ContentWidth, ContentHeight, HeaderHeight, ButtonWidth, ButtonHeight;
+        }
+
+        string ActionSkillLabel(SkillView skill, FighterView foe)
+        {
+            double m = skill.Effectiveness;
+            string hint = skill.Power == 0 ? C("状态技能", Muted) : C("对" + foe.Tracks + " ×" + m, m > 1 ? Ok : m < 1 ? Foe : Muted);
+            string prio = skill.Priority != 0 ? C("先制 " + (skill.Priority > 0 ? "+" : "") + skill.Priority, Accent) : C("先制 0", Muted);
+            return (skill.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + skill.Name + "</b>\n" +
+                   C(skill.Track + " · " + skill.Category + (skill.Power > 0 ? " · 威力 " + skill.Power : ""), Muted) + "\n" +
+                   C("PP " + skill.Pp + "/" + skill.MaxPp, Muted) + "  " + prio + "\n" + hint;
+        }
+
+        ActionLayout MeasureActions(BattleViewModel battleView, float width)
+        {
+            var layout = new ActionLayout();
+            if (playing || b.Phase != Phase.Choose) return layout;
+            var me = battleView.Sides[0].Team[battleView.Sides[0].Active];
+            var foe = battleView.Sides[1].Team[battleView.Sides[1].Active];
+            string head = "选择技能，或点上方蓝边的队友换人。";
+            if (battleView.ControlledReason != null) head = "<b>" + me.Name + " 处于「" + battleView.ControlledReason + "」，本回合不能用技能。</b>可以换人，或直接跳过。";
+            else if (battleView.Struggle) head = "<b>所有技能 PP 用完</b>，将自动使用「" + battleView.StruggleName + "」。";
+            else if (battleView.FreePp) head = "人设·团魂生效中：6 号位队友在播，技能不消耗 PP。";
+            layout.Head = new GUIContent(head);
+            // 预留滚动条宽度，让极长文本滚动时仍与测量使用同一宽度。
+            layout.ContentWidth = width - 48;
+            bool hasPass = battleView.ControlledReason != null || battleView.Struggle;
+            float headWidth = layout.ContentWidth - (hasPass ? 174 : 0);
+            layout.HeaderHeight = Mathf.Max(hasPass ? 36 : 30, Mathf.Ceil(sText.CalcHeight(layout.Head, headWidth)));
+            layout.ButtonWidth = (layout.ContentWidth - 4 * 10) / 5f;
+            layout.ButtonHeight = 108;
+            layout.Labels = new GUIContent[battleView.Skills.Count];
+            for (int i = 0; i < battleView.Skills.Count; i++)
+            {
+                layout.Labels[i] = new GUIContent(ActionSkillLabel(battleView.Skills[i], foe));
+                layout.ButtonHeight = Mathf.Max(layout.ButtonHeight, Mathf.Ceil(sSkill.CalcHeight(layout.Labels[i], layout.ButtonWidth)));
+            }
+            layout.ContentHeight = layout.HeaderHeight + 8 + layout.ButtonHeight;
+            // 底部详情至少保留 96 高，额外长的技能文本在行动区内滚动查看。
+            layout.Height = Mathf.Clamp(layout.ContentHeight + 20, 166, 262);
+            return layout;
+        }
+
+        void DrawActions(Rect r, BattleViewModel battleView, ActionLayout layout)
         {
             Box(r);
             var inner = new Rect(r.x + 14, r.y + 10, r.width - 28, r.height - 20);
@@ -592,36 +740,31 @@ namespace StreamDuel.Game
                 GUI.Label(new Rect(inner.x, inner.y, 900, 30), "<b>你的主播下播了。</b>点上方蓝边的一位队友补位。", sText);
                 return;
             }
-            var me = battleView.Sides[0].Team[battleView.Sides[0].Active];
-            var foe = battleView.Sides[1].Team[battleView.Sides[1].Active];
-            string head = "选择技能，或点上方蓝边的队友换人。";
-            if (battleView.ControlledReason != null) head = "<b>" + me.Name + " 处于「" + battleView.ControlledReason + "」，本回合不能用技能。</b>可以换人，或直接跳过。";
-            else if (battleView.Struggle) head = "<b>所有技能 PP 用完</b>，将自动使用「" + battleView.StruggleName + "」。";
-            else if (battleView.FreePp) head = "人设·团魂生效中：6 号位队友在播，技能不消耗 PP。";
-            GUI.Label(new Rect(inner.x, inner.y, 820, 30), head, sText);
-            if (battleView.ControlledReason != null || battleView.Struggle)
-                if (GUI.Button(new Rect(inner.xMax - 160, inner.y - 2, 160, 36), battleView.Struggle ? "使用" + battleView.StruggleName : "跳过本回合", sBtn)) { Do(() => Submit(BattleAction.Pass())); return; }
+            bool mouseInActions = inner.Contains(Event.current.mousePosition);
+            actionScroll = GUI.BeginScrollView(inner, actionScroll, new Rect(0, 0, layout.ContentWidth, layout.ContentHeight));
+            bool hasPass = battleView.ControlledReason != null || battleView.Struggle;
+            GUI.Label(new Rect(0, 0, layout.ContentWidth - (hasPass ? 174 : 0), layout.HeaderHeight), layout.Head, sText);
+            if (hasPass)
+                if (GUI.Button(new Rect(layout.ContentWidth - 160, 0, 160, 36), battleView.Struggle ? "使用" + battleView.StruggleName : "跳过本回合", sBtn)) Do(() => Submit(BattleAction.Pass()));
 
-            float w = (inner.width - 4 * 10) / 5f;
+            float w = layout.ButtonWidth;
             for (int i = 0; i < battleView.Skills.Count; i++)
             {
                 var skill = battleView.Skills[i];
                 int si = skill.Index;
-                var br = new Rect(inner.x + i * (w + 10), inner.y + 38, w, 108);
-                if (GUI.Button(new Rect(br.xMax - 30, br.y + 6, 24, 24), "?", sChip)) Do(() => { detailKind = "skill"; detailIdx = si; });
-                if (br.Contains(Event.current.mousePosition)) { detailKind = "skill"; detailIdx = si; }
+                var br = new Rect(i * (w + 10), layout.HeaderHeight + 8, w, layout.ButtonHeight);
+                var infoRect = new Rect(br.xMax - 30, br.y + 6, 24, 24);
+                if (mouseInActions && br.Contains(Event.current.mousePosition)) { detailKind = "skill"; detailIdx = si; }
                 var tc = TypeColor(skill.TrackId);
-                Fill(new Rect(br.x, br.y, br.width, 4), skill.Fifth ? Accent : tc);
-                double m = skill.Effectiveness;
-                string hint = skill.Power == 0 ? C("状态技能", Muted) : C("对" + foe.Tracks + " ×" + m, m > 1 ? Ok : m < 1 ? Foe : Muted);
-                string prio = skill.Priority != 0 ? C("先制 " + (skill.Priority > 0 ? "+" : "") + skill.Priority, Accent) : C("先制 0", Muted);
-                string label = (skill.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + skill.Name + "</b>\n" +
-                               C(skill.Track + " · " + skill.Category + (skill.Power > 0 ? " · 威力 " + skill.Power : ""), Muted) + "\n" +
-                               C("PP " + skill.Pp + "/" + skill.MaxPp, Muted) + "  " + prio + "\n" + hint;
-                GUI.enabled = skill.Usable;
-                if (GUI.Button(br, label, sSkill)) Do(() => Submit(BattleAction.Skill(si)));
+                // 问号后绘制以保持可见，按下时不让下层技能按钮抢走输入。
+                bool pressingInfo = Event.current.type == EventType.MouseDown && infoRect.Contains(Event.current.mousePosition);
+                GUI.enabled = skill.Usable && !pressingInfo;
+                if (GUI.Button(br, layout.Labels[i], sSkill)) Do(() => Submit(BattleAction.Skill(si)));
                 GUI.enabled = true;
+                Fill(new Rect(br.x, br.y, br.width, 4), skill.Fifth ? Accent : tc);
+                if (GUI.Button(infoRect, "?", sSkillInfo)) Do(() => { detailKind = "skill"; detailIdx = si; });
             }
+            GUI.EndScrollView();
         }
 
         void DrawDetail(Rect r)
@@ -669,6 +812,7 @@ namespace StreamDuel.Game
                     var p = b.Sides[detailSide].Team[detailIdx];
                     var pd = db.Personas[p.Def.Persona];
                     GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
+                    DrawMixedNotice(p.Def.Id);
                     GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + Describe.PersonaDescription(db, pd, b), sSmall);
                     foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp, sl.Max, b);
                     break;
@@ -682,6 +826,14 @@ namespace StreamDuel.Game
         }
 
         static readonly string[] Steps = { Node.Switch, Node.TurnStart, Node.First, Node.Second, Node.TurnEnd, Node.Replace };
+
+        void DrawMixedNotice(string streamerId)
+        {
+            if (!db.IsMixed) return;
+            string notice = db.NoticeFor(streamerId);
+            if (!string.IsNullOrEmpty(notice))
+                GUILayout.Label(notice, new GUIStyle(sSmall) { richText = false, wordWrap = true });
+        }
 
         void DrawLog(Rect r)
         {
@@ -727,6 +879,22 @@ namespace StreamDuel.Game
             GUI.Label(new Rect(r.x, r.y + 130, r.width, 30), "共 " + b.Log[b.Log.Count - 1].Turn + " 回合", sCenter);
             if (GUI.Button(new Rect(r.x + 40, r.y + 200, 230, 50), "同样阵容再来一局", sBtn)) Do(() => StartBattle(lastTeams));
             if (GUI.Button(new Rect(r.x + 290, r.y + 200, 190, 50), "重新组队", sBtn)) Do(() => { view = View.Team; b = null; });
+        }
+    }
+
+    internal static class UnityPackPolicy
+    {
+        internal static PackPolicy Load()
+        {
+            string path = Path.Combine(Application.streamingAssetsPath, "PackPolicy.json");
+            bool deployed = true;
+            // 只有确认文件不存在才回退，访问失败不能使已下架的内容重新开放。
+            try { File.GetAttributes(path); }
+            catch (FileNotFoundException) { deployed = false; }
+            catch (DirectoryNotFoundException) { deployed = false; }
+            if (deployed) return PackPolicy.FromJson(File.ReadAllText(path));
+            var fallback = Resources.Load<TextAsset>("PackPolicy");
+            return fallback == null ? PackPolicy.Empty : PackPolicy.FromJson(fallback.text);
         }
     }
 }

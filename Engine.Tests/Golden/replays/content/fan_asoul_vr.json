@@ -1,0 +1,42 @@
+{
+  "id": "fan_asoul_vr",
+  "name": "同人包：A-SOUL × VirtuaReal",
+  "notice": "非官方同人作品（个人二次创作），免费、非商业，与 A-SOUL 及其运营方、VirtuaReal 及各位主播本人无关。A-SOUL 成员依据《二创规则说明5.0》收录；VirtuaReal 未见公开的二创规范，按同人惯例收录，公司或本人提出即下架。只使用公开艺名和公开人设，形象为自制占位图形，不使用任何官方立绘、模型、音频或标志。",
+  "_readme": "四个普通技能沿用共用规则；每位主播的人设和第五技能由本包独立定义。赛道、能力和招式都是游戏设定，不代表主播本人的直播内容或现实表现。文案仅采用任务列出的公开形象与中性直播意象。",
+  "skillNames": { "stir_drama": "热场", "rage_collab": "激情连麦", "delete_save": "全力一击", "dig_history": "回放轰炸", "thick_skin": "沉着应对", "yolo_rush": "全力冲锋", "pull_cable": "强制断线", "hex": "压迫感", "grudge_hit": "重击" },
+  "fieldNames": { "blackhist": "循环回放" },
+  "statusNames": { "flame": "过热", "hater": "刷屏干扰" },
+  "personas": {
+    "av_bella_rhythm": { "name": "领舞节拍", "code": "T_SPEED_IF_FIRST", "node": "回合结束", "params": { "n": 1 }, "desc": "回合结束时，若本回合被判为先手（无需成功出招），自身反应 +1，最高 +6；提升可被消强化，下场清零。人设本体不可消除。" },
+    "av_diana_encore": { "name": "嘉心糖加油站", "code": "T_KO_HEAL", "node": "击倒对手后", "params": { "frac": 0.125 }, "desc": "本方技能直接击倒对手后，若对战尚未结束，自身回复 1/8 最大人气，向下取整且不超过上限。回复即时结算，人设不可消除。" },
+    "av_eileen_support": { "name": "安心接棒", "code": "T_ALLY_PP_ON_ENTER", "node": "登场时", "params": { "n": 1 }, "desc": "登场时，己方后排仍在播的队友每个技能 PP +1，不超过上限；不回复自身和已下播队友。PP 回复即时结算，人设不可消除。" },
+    "av_nana7mi_tide": { "name": "逆潮鲨影", "code": "T_ENDURE", "node": "受到伤害时", "params": {}, "desc": "每场对战一次，受到致命伤害时保留 1 点人气；下场不重置，反弹伤害不触发。人设不可消除。" },
+    "av_koichi_lane": { "name": "稳线步调", "code": "T_STAGE_ON_HIT", "node": "被击中后", "params": { "def": 1 }, "desc": "受到按威力计算的技能直接伤害，实际扣除人气且未下播时，自身抗压 +1，最高 +6；固定和持续伤害、反噬及反弹不触发。反弹使行动方下播后，不再触发。提升可被消强化，下场清零，人设不可消除。" },
+    "av_aza_continuity": { "name": "持续开播", "code": "T_REGEN", "node": "回合结束", "params": { "frac": 0.0625 }, "desc": "回合结束时回复 1/16 最大人气，向下取整且不超过上限。回复即时结算，人设不可消除。" },
+    "av_eine_composure": { "name": "从容开场", "code": "T_FIRST_CONTROL_IMMUNE", "node": "被施加控制类状态时", "params": {}, "desc": "每次登场后，第一次本来可施加的控制类状态无效；重新登场恢复次数。已被重连保护或已有控制挡下的施加不消耗次数。人设不可消除。" }
+  },
+  "fields": {
+    "av_diana_cheer": { "name": "糖光应援", "kind": "turn", "when": "回合结束", "dispel": true, "heal": 0.0625, "desc": "回合结束时回复 1/16 最大人气，向下取整且不超过上限；可被消回合，下场清除。" },
+    "av_eileen_shelter": { "name": "安心守护", "kind": "turn", "when": "受到技能伤害时 / 回合结束", "dispel": true, "dmgTakenMul": 0.8, "heal": 0.0625, "desc": "受到的按威力计算的技能伤害 ×0.8，不影响固定伤害、反弹和持续伤害；回合结束时回复 1/16 最大人气，向下取整且不超过上限。可被消回合，下场清除。" },
+    "av_nana7mi_riptide": { "name": "回潮反咬", "kind": "turn", "when": "受到对手技能直接伤害后", "dispel": true, "reflectDamage": 0.2, "desc": "受到对手技能直接伤害（含固定伤害）且实际扣除人气后，向攻击方反弹实际扣减人气的 20%，向下取整且至少为 1；不连锁反弹，持续伤害、反噬与自伤不触发。任一方全灭立即停止结算；可被消回合，下场清除。" },
+    "av_aza_echo": { "name": "续场回声", "kind": "turn", "when": "回合结束", "dispel": true, "heal": 0.0625, "desc": "回合结束时回复 1/16 最大人气，向下取整且不超过上限；可被消回合，下场清除。" }
+  },
+  "skills": {
+    "av_bella_centerbeat": { "name": "领舞拍点", "type": "song", "cat": "talent", "power": 90, "pp": 8, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1 }, "chance": 30, "cond": { "kind": "actedFirst" } } ] },
+    "av_diana_sugarwave": { "name": "元气糖光", "type": "meme", "cat": "interact", "power": 85, "pp": 8, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "av_diana_cheer", "turns": 2 } ] },
+    "av_eileen_reassure": { "name": "安心守望", "type": "talk", "cat": "status", "power": 0, "pp": 5, "effects": [ { "at": "pre", "code": "FIELD", "target": "self", "field": "av_eileen_shelter", "turns": 3 }, { "at": "post", "code": "STAGE", "target": "self", "changes": { "sdef": 1 } } ] },
+    "av_nana7mi_surge": { "name": "回潮跃击", "type": "game", "cat": "interact", "power": 85, "pp": 6, "effects": [ { "at": "pre", "code": "FIELD", "target": "self", "field": "av_nana7mi_riptide", "turns": 2 }, { "at": "post", "code": "FIXED_DAMAGE", "target": "foe", "n": 20, "cond": { "kind": "actedSecond" } } ] },
+    "av_koichi_counterplay": { "name": "稳线反攻", "type": "game", "cat": "interact", "power": 90, "pp": 8, "effects": [ { "at": "pre", "code": "STAGE", "target": "self", "changes": { "atk": 1 }, "cond": { "kind": "actedSecond" } }, { "at": "post", "code": "PP_REDUCE", "target": "foe", "n": 1 } ] },
+    "av_aza_continuous": { "name": "续场回响", "type": "asmr", "cat": "talent", "power": 85, "pp": 10, "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "av_aza_echo", "turns": 2 } ] },
+    "av_eine_anchor": { "name": "稳场定音", "type": "art", "cat": "talent", "power": 95, "pp": 7, "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 1, "sdef": 1 }, "cond": { "kind": "actedSecond" } } ] }
+  },
+  "streamers": [
+    { "id": "bella",   "name": "贝拉",       "org": "A-SOUL",     "type": "song", "stats": { "hp": 340, "atk": 220, "def": 220, "spa": 340, "sdef": 230, "spd": 360 }, "persona": "av_bella_rhythm", "skills": ["warm_up", "full_volume", "go_live_early", "noise_cancel"], "fifth": "av_bella_centerbeat", "blurb": "领舞踩准节拍，让舞台随节奏展开。" },
+    { "id": "diana",   "name": "嘉然",       "org": "A-SOUL",     "type": "meme", "stats": { "hp": 390, "atk": 280, "def": 260, "spa": 260, "sdef": 260, "spd": 300 }, "persona": "av_diana_encore", "skills": ["quick_mic", "cat_walk", "lucky_draw", "sudden_cute"], "fifth": "av_diana_sugarwave", "blurb": "嘉心糖的应援点亮元气舞台。" },
+    { "id": "eileen",  "name": "乃琳",       "org": "A-SOUL",     "type": "talk", "stats": { "hp": 420, "atk": 230, "def": 270, "spa": 290, "sdef": 290, "spd": 240 }, "persona": "av_eileen_support", "skills": ["roast_chain", "siphon_fans", "lullaby_talk", "ride_trend"], "fifth": "av_eileen_reassure", "blurb": "温柔接过话筒，为队友留一份安心。" },
+    { "id": "nana7mi", "name": "七海Nana7mi", "org": "VirtuaReal", "type": "game", "stats": { "hp": 380, "atk": 330, "def": 250, "spa": 220, "sdef": 240, "spd": 320 }, "persona": "av_nana7mi_tide", "skills": ["aim_burst", "quick_mic", "yolo_rush", "pregame"], "fifth": "av_nana7mi_surge", "blurb": "鲨影迎着海潮，蓄好下一次跃击。" },
+    { "id": "koichi",  "name": "中单光一",   "org": "VirtuaReal", "type": "game", "stats": { "hp": 470, "atk": 270, "def": 340, "spa": 240, "sdef": 280, "spd": 150 }, "persona": "av_koichi_lane", "skills": ["rage_collab", "stir_drama", "thick_skin", "map_cannon"], "fifth": "av_koichi_counterplay", "blurb": "稳住对线步调，等到反攻的时机。" },
+    { "id": "aza",     "name": "阿萨Aza",    "org": "VirtuaReal", "type": "asmr", "stats": { "hp": 460, "atk": 260, "def": 300, "spa": 250, "sdef": 300, "spd": 180 }, "persona": "av_aza_continuity", "skills": ["whisper_tide", "wave_mic", "deep_breath", "mod_guard"], "fifth": "av_aza_continuous", "blurb": "话筒亮起，稳定的陪伴延续整场。" },
+    { "id": "eine",    "name": "艾因Eine",   "org": "VirtuaReal", "type": "art",  "stats": { "hp": 400, "atk": 200, "def": 250, "spa": 320, "sdef": 320, "spd": 270 }, "persona": "av_eine_composure", "skills": ["sketch", "redraw", "thick_paint", "one_stroke"], "fifth": "av_eine_anchor", "blurb": "可靠的前辈，从容接稳每一次开场。" }
+  ]
+}

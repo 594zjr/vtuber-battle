@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "contentBaselineCommit": "a5e3360147312ed7601f39e28dec51547e80f674",
+  "integrationBaseCommit": "72b76c923dd6a110d6faa0f23ad3cb04142594a5",
+  "featureCommit": "7ff081f45014babfe7ae61cfca5956befc491788",
+  "coverage": "core-match-best-of-three",
+  "policy": "manual-one-side-attacks-no-state-edits",
+  "rules": {
+    "file": "../replays/content/StreamDuelRules.json",
+    "sha256": "75a259d99a4666c2b2699fddd316f327aa73eb7f1a7157ea5af442f01070e59d"
+  },
+  "pack": {
+    "file": "../replays/content/original.json",
+    "sha256": "770c2b6880cc72e3fe23dfe9e9a7c96082ee2ae26aec2f7be2ee6d58a5b54e8e"
+  },
+  "contentHash": "63a758a4fa663be9",
+  "seed": 540001,
+  "ruleset": {
+    "id": "ranked",
+    "name": "排位",
+    "season": null,
+    "banOne": true,
+    "leadPick": true,
+    "bestOf": 3,
+    "modifiers": [],
+    "turnSeconds": 10,
+    "bankSeconds": 30
+  },
+  "teams": [
+    [
+      "enka",
+      "shiori",
+      "lumi",
+      "bell",
+      "hane",
+      "momo"
+    ],
+    [
+      "enka",
+      "shiori",
+      "lumi",
+      "bell",
+      "hane",
+      "momo"
+    ]
+  ],
+  "names": [
+    "多局黄金甲",
+    "多局黄金乙"
+  ],
+  "games": [
+    {
+      "game": 1,
+      "file": "ranked-game-1-v2.json",
+      "sha256": "e4c61e5525c0221ab135901d3aba9933a8fc8a4abcd168cb320e14f5c2122cb7",
+      "seed": 540001,
+      "recordVersion": 2,
+      "initialStateHash": "14d958262f511571",
+      "finalStateHash": "dad44f55fb5f56cd",
+      "winner": 0,
+      "eventCount": 128,
+      "turnCount": 120,
+      "wins": [
+        1,
+        0
+      ],
+      "draws": 0,
+      "over": false
+    },
+    {
+      "game": 2,
+      "file": "ranked-game-2-v2.json",
+      "sha256": "7132014e6d99e8832e03ae8c841444d87aa3a8488fe4dd8fa80654d4b12927af",
+      "seed": 540002,
+      "recordVersion": 2,
+      "initialStateHash": "0eb8999d0061b92c",
+      "finalStateHash": "b7ca542f520556a1",
+      "winner": 1,
+      "eventCount": 128,
+      "turnCount": 120,
+      "wins": [
+        1,
+        1
+      ],
+      "draws": 0,
+      "over": false
+    },
+    {
+      "game": 3,
+      "file": "ranked-game-3-v2.json",
+      "sha256": "a8787710ca767a6ef20a3027e9c5fca1efa26546ccad7a6623178a560bc529b0",
+      "seed": 540003,
+      "recordVersion": 2,
+      "initialStateHash": "6a0efb6dd81c6daf",
+      "finalStateHash": "20e7eea357404ba8",
+      "winner": 0,
+      "eventCount": 128,
+      "turnCount": 120,
+      "wins": [
+        2,
+        1
+      ],
+      "draws": 0,
+      "over": true
+    }
+  ],
+  "finalWins": [
+    2,
+    1
+  ],
+  "finalDraws": 0,
+  "over": true
+}
