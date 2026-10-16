@@ -75,6 +75,7 @@ namespace StreamDuel.Core
                 hash.Int(modifiers.Count);
                 foreach (string id in modifiers) hash.Text(id);
             }
+            HashTermination(hash);
             bool delayedHeader = false;
             for (int side = 0; side < Sides.Length; side++)
             {

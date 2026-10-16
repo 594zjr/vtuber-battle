@@ -7,7 +7,29 @@ namespace StreamDuel.Core
     public sealed partial class ContentDb
     {
         public const string DelayedDamageFieldId = "delayed_damage";
+        private const string DelayedDamageFieldName = "延迟伤害";
         private FieldDef delayedDamageDefinition;
+
+        private void MergeDelayedDamageField(ContentDb source)
+        {
+            if (!source.Fields.TryGetValue(DelayedDamageFieldId, out var definition)) return;
+            var candidate = CopyField(definition);
+            // 自动定义不属于加载时的共用基线；只还原有声明来源的别名，再比较完整定义。
+            if (source.mergeFieldAliases.ContainsKey(DelayedDamageFieldId)) candidate.Name = DelayedDamageFieldName;
+            if (delayedDamageDefinition == null)
+            {
+                delayedDamageDefinition = candidate;
+                Fields.Add(DelayedDamageFieldId, candidate);
+                return;
+            }
+
+            var previousHash = new ContentHashWriter();
+            var candidateHash = new ContentHashWriter();
+            previousHash.Field(delayedDamageDefinition);
+            candidateHash.Field(candidate);
+            if (previousHash.Value != candidateHash.Value)
+                throw new KeyError("合并内容包的共用规则不一致：" + source.PackId + "（" + DelayedDamageFieldId + "）");
+        }
 
         private static int ReadDelayedDamageNumber(Dictionary<string, object> data, string key, int fallback)
         {
@@ -45,7 +67,7 @@ namespace StreamDuel.Core
             delayedDamageDefinition = new FieldDef
             {
                 Id = DelayedDamageFieldId,
-                Name = "延迟伤害",
+                Name = DelayedDamageFieldName,
                 Kind = "turn",
                 When = "回合结束时倒计时，到期造成固定伤害",
                 Desc = "到期造成施加时指定的固定伤害；重复施加刷新时长与伤害；可被消回合，下场清除。",

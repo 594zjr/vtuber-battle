@@ -19,7 +19,7 @@ namespace StreamDuel.Core
             }
             field.Turns = turns;
             field.PendingDamage = amount;
-            Add(ctx.Node, target.Name + (refresh ? " 刷新" : " 获得") + "「延迟伤害」（"
+            Add(ctx.Node, target.Name + (refresh ? " 刷新" : " 获得") + "「" + Db.Fields[field.Id].Name + "」（"
                 + turns + " 回合，含本回合；到期固定伤害 " + amount + "，可被消回合，下场清除）", "field", target.Side);
             Emit(BattleEventKind.FieldAdd, target, field.Id, turns);
         }
@@ -29,16 +29,16 @@ namespace StreamDuel.Core
             field.Turns--;
             if (field.Turns > 0)
             {
-                Add(Node.TurnEnd, target.Name + " 的「延迟伤害」剩余 " + field.Turns
+                Add(Node.TurnEnd, target.Name + " 的「" + Db.Fields[field.Id].Name + "」剩余 " + field.Turns
                     + " 回合，到期固定伤害 " + field.PendingDamage, "field", target.Side);
                 return;
             }
 
             // 先移除再伤害，避免下播或终局后仍保留可再次结算的待办效果。
             target.Fields.Remove(field);
-            Add(Node.TurnEnd, target.Name + " 的「延迟伤害」到期（固定伤害 " + field.PendingDamage + "）", "field", target.Side);
+            Add(Node.TurnEnd, target.Name + " 的「" + Db.Fields[field.Id].Name + "」到期（固定伤害 " + field.PendingDamage + "）", "field", target.Side);
             Emit(BattleEventKind.FieldRemove, target, field.Id);
-            Damage(target, field.PendingDamage, Node.TurnEnd, target.Name + " 因「延迟伤害」人气 -{n}", true);
+            Damage(target, field.PendingDamage, Node.TurnEnd, target.Name + " 因「" + Db.Fields[field.Id].Name + "」人气 -{n}", true);
         }
 
         void ClearDelayedDamageOnFaint(Fighter target, string node)
@@ -46,7 +46,7 @@ namespace StreamDuel.Core
             var field = target.FieldOf(ContentDb.DelayedDamageFieldId);
             if (field == null) return;
             target.Fields.Remove(field);
-            Add(node, target.Name + " 下播，清除「延迟伤害」（待结算固定伤害 " + field.PendingDamage + "）", "field", target.Side);
+            Add(node, target.Name + " 下播，清除「" + Db.Fields[field.Id].Name + "」（待结算固定伤害 " + field.PendingDamage + "）", "field", target.Side);
             Emit(BattleEventKind.FieldRemove, target, field.Id);
         }
     }
