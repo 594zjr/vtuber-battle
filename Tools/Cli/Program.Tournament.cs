@@ -33,14 +33,30 @@ namespace StreamDuel.Cli
                 tournament = Tournament.FromJson(db, saved);
                 if (options.TournamentFormat != null && options.TournamentFormat != tournament.Format)
                     throw new ArgumentException("--format 与已保存的赛事赛制不一致，不能更改续赛事制；原文件未修改。");
+                ValidateTournamentTiebreakOptions(options, tournament.Format);
+                if (options.TournamentSeed.HasValue && options.TournamentSeed != tournament.Seed)
+                    throw new ArgumentException("--tournament-seed 与已保存的赛事种子不一致，不能在续赛时更改；原文件未修改。");
+                if (options.NoAutoTiebreak && tournament.AutoTiebreak)
+                    throw new ArgumentException("已保存的赛事启用了自动加赛，不能通过 --no-auto-tiebreak 更改；原文件未修改。");
+                if (tournament.AutoTiebreak && !options.Auto)
+                {
+                    Console.WriteLine("本赛事启用了自动加赛，请加 --auto 继续真实对战与逐局归档；当前仅查看配置，未改动赛事进度。");
+                    return 0;
+                }
             }
             else
             {
                 string format = options.TournamentFormat ?? ReadTournamentFormat();
                 if (format == null) return 0;
+                ValidateTournamentTiebreakOptions(options, format);
                 int? rounds = format == "swiss" ? ReadTournamentRounds() : 0;
                 if (!rounds.HasValue) return 0;
-                tournament = new Tournament(db, format, rounds.Value);
+                bool elimination = format == Tournament.SingleElimination || format == Tournament.DoubleElimination;
+                tournament = new Tournament(db, format, rounds.Value, elimination ? new TournamentOptions
+                {
+                    Seed = options.TournamentSeed,
+                    AutoTiebreak = options.Auto && !options.NoAutoTiebreak
+                } : null);
                 file.Save(tournament);
             }
 
@@ -50,8 +66,16 @@ namespace StreamDuel.Cli
             Console.WriteLine("赛制：" + tournament.FormatName
                 + "；模式：" + (options.Auto ? "普通 AI 自动代打" : "交互式记录结果"));
             if (tournament.IsElimination)
-                Console.WriteLine("每场一局定胜负，平局须重赛分出胜负；" + (tournament.Format == "double"
+            {
+                Console.WriteLine((tournament.AutoTiebreak
+                    ? "自动加赛开启：原场平局后最多加赛 3 次，仍平则按种子顺位晋级；"
+                    : "自动加赛关闭：平局须重赛分出胜负后手工录入；") + (tournament.Format == "double"
                     ? "总决赛重置：" + (tournament.ResetFinal ? "开启。" : "关闭。") : "一场失利即淘汰。"));
+                if (!options.Auto) Console.WriteLine("手工报分模式不生成对战录像，默认关闭自动加赛。");
+                if (tournament.AutoTiebreak)
+                    Console.WriteLine("加赛派生使用赛事种子：" + (tournament.Seed ?? 0).ToString(CultureInfo.InvariantCulture)
+                        + (tournament.Seed.HasValue ? "（也用于初始种子顺位）。" : "（未指定时按 0 派生，初始顺位仍按报名顺序）。"));
+            }
             Console.WriteLine("赛事存档：" + file.Path);
             foreach (var player in tournament.Players) PrintTournamentNameHint(player.Id, player.Name);
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
@@ -83,6 +107,12 @@ namespace StreamDuel.Cli
                     if (pairing.WinnerSide.HasValue)
                     {
                         PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已记录：");
+                        continue;
+                    }
+                    if (tournament.AutoTiebreak)
+                    {
+                        if (!RunTournamentTiebreak(tournament, pairing, file)) return 1;
+                        PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已保存结果：");
                         continue;
                     }
                     int? winner;
@@ -203,6 +233,11 @@ namespace StreamDuel.Cli
             uint seed = unchecked(0x9E3779B9u + (uint)pairingId);
             var battle = new Battle(db, new IList<string>[] { first.Team.ToArray(), second.Team.ToArray() },
                 new[] { first.Name, second.Name }, new BattleOptions { Seed = seed });
+            return PlayAutomaticTournamentGame(battle);
+        }
+
+        private static Battle PlayAutomaticTournamentGame(Battle battle)
+        {
             while (battle.Phase != Phase.Over)
             {
                 if (battle.Phase == Phase.Replace)
@@ -217,7 +252,7 @@ namespace StreamDuel.Cli
                     battle.ResolveTurn(firstAction, secondAction);
                 }
             }
-            Console.WriteLine("自动对局种子：" + seed + "；回合：" + battle.Turn
+            Console.WriteLine("自动对局种子：" + battle.Seed + "；回合：" + battle.Turn
                 + "；最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
             return battle;
         }

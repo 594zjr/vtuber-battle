@@ -113,8 +113,13 @@ namespace StreamDuel.Core
             {
                 if (archive != null)
                 {
-                    string existing = ExistingTournamentReplay(tournament, archive.PairingId, recordJson, s);
-                    if (existing != null) return existing;
+                    string existing = ExistingTournamentReplay(tournament, archive, recordJson, s);
+                    if (existing != null)
+                    {
+                        // 逐局归档后、赛事存档前中断时，重试也补齐可能尚未写成的索引。
+                        if (archive.Attempt.HasValue) WriteIndex(Scan());
+                        return existing;
+                    }
                 }
                 DateTimeOffset date = clock().ToUniversalTime();
                 string stem = date.ToString("yyyyMMdd_HHmmss_fffffff", CultureInfo.InvariantCulture)
@@ -123,7 +128,11 @@ namespace StreamDuel.Core
                 var entry = Entry(record, id, date, s.Winner, s.Turns, NormalizeNote(note));
                 entry.TournamentArchive = archive;
                 WriteAtomic(id + ".json", WithMetadata(recordJson, entry));
-                try { RefreshAndPrune(); }
+                try
+                {
+                    if (archive != null && archive.Attempt.HasValue) WriteIndex(Scan());
+                    else RefreshAndPrune();
+                }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
                     throw new ReplayLibraryMaintenanceException(id, ex);
@@ -221,7 +230,8 @@ namespace StreamDuel.Core
             var entries = Scan();
             // 下架不代表文件损坏，也不能成为自动删除用户原始录像的理由。
             int count = entries.Count(entry => !entry.IsCorrupt && !entry.IsUnavailable);
-            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && !entry.IsUnavailable && entry.Note == null)
+            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && !entry.IsUnavailable && entry.Note == null
+                && !(entry.TournamentArchive?.Attempt.HasValue ?? false))
                 .OrderBy(entry => entry.Date).ThenBy(entry => entry.Id, StringComparer.Ordinal).ToList())
             {
                 if (count <= maxCount) break;

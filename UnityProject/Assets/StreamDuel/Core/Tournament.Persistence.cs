@@ -23,6 +23,7 @@ namespace StreamDuel.Core
                 text.Append(']');
             }
             text.Append(",\"resetFinal\":").Append(ResetFinal ? "true" : "false");
+            if (AutoTiebreak) text.Append(",\"autoTiebreak\":true");
         }
 
         static TournamentOptions ReadEliminationConfiguration(Dictionary<string, object> root)
@@ -50,6 +51,11 @@ namespace StreamDuel.Core
             }
             if (!(root["resetFinal"] is bool reset)) throw new FormatException("重置总决赛选项必须为布尔值。");
             options.ResetFinal = reset;
+            if (root.TryGetValue("autoTiebreak", out var autoTiebreak))
+            {
+                if (!(autoTiebreak is bool enabled)) throw new FormatException("自动加赛选项必须为布尔值。");
+                options.AutoTiebreak = enabled;
+            }
             return options;
         }
     }
