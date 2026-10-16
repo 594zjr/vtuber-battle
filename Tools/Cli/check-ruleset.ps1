@@ -208,6 +208,23 @@ Assert-Check ($failureReport -ceq $report) '档案保存失败不妨碍生成完
 Assert-Check (Test-Path -LiteralPath $failedProfileDirectory -PathType Container) '存档失败不覆盖占据档案路径的目录。'
 Assert-Check (@(LibraryFiles $profileFailure.SaveDir).Count -eq $games.Count) '档案失败时各局仍进入独立录像库。'
 
+$overflowSaveDirectory = Join-Path $runDirectory 'profile-overflow/saves'
+[void][IO.Directory]::CreateDirectory($overflowSaveDirectory)
+$overflowProfilePath = Join-Path $overflowSaveDirectory 'profile.json'
+$overflowFixture = '{"packs":{"original":{"wins":0,"losses":2147483647,"draws":0,"picks":{},"pickWins":{}}}}'
+[IO.File]::WriteAllText($overflowProfilePath, $overflowFixture, $utf8)
+$overflowBefore = [Convert]::ToBase64String([IO.File]::ReadAllBytes($overflowProfilePath))
+$overflow = Invoke-CliCheck 'profile-overflow' @('--ruleset', 'ranked', '--seed', '54', '--report', 'overflow.md') `
+    -ExpectedExit 1 -InputText "/surrender`n/surrender`n"
+Assert-Check ($overflow.Out.Contains('赛制结束：共 2 局；你 0 : 2 电脑')) '合法战绩计数达到上限时仍完成两局投降结算。'
+Assert-Check (@(Replays $overflow.SaveDir).Count -eq 2 -and @(LibraryFiles $overflow.SaveDir).Count -eq 2) '两局档案计数溢出仍分别保存两份回放和两份录像库条目。'
+$overflowReport = [IO.File]::ReadAllText((Join-Path $overflow.Directory 'overflow.md'))
+Assert-Check ($overflowReport.StartsWith('# 赛制战报') -and $overflowReport.Contains('比分：你 0 : 2 电脑') -and
+    [regex]::Matches($overflowReport, '(?m)^## 第 \d+ 局$').Count -eq 2) '档案计数溢出后仍生成包含两局及最终比分的汇总战报。'
+Assert-Check ([regex]::Matches($overflow.Err, '档案保存失败').Count -eq 2 -and
+    $overflow.Err.Contains('错误：第 1 局档案保存失败：') -and $overflow.Err.Contains('错误：第 2 局档案保存失败：')) '每局计数溢出均给出明确档案保存错误并最终返回失败。'
+Assert-Check ($overflowBefore -ceq [Convert]::ToBase64String([IO.File]::ReadAllBytes($overflowProfilePath))) '两次计数溢出均不改变原档案的任何字节。'
+
 $manual = Invoke-CliCheck 'manual-timed-series' @('--ruleset', 'ranked', '--seed', '54', '--report', 'manual.md') -InputSteps @(
     @{ Expect = '请选择要禁用的对手号位（q 退出）> '; Input = "1`n" },
     @{ Expect = '请选择首发号位（q 退出）> '; Input = "1`n" },

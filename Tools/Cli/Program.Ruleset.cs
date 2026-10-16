@@ -65,7 +65,8 @@ namespace StreamDuel.Cli
                 {
                     if (SaveCompletedBattle(battle, options, 0, exportReport: false) != 0) exitCode = 1;
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is FormatException)
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                    || ex is FormatException || ex is OverflowException)
                 {
                     // 单局档案失败不能中断整场比赛，也不能阻止最终战报保存。
                     Console.Error.WriteLine("错误：第 " + completed.Count + " 局档案保存失败：" + ex.Message);
