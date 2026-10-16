@@ -187,6 +187,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
+                    && option != "--ruleset"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
                     && option != "--report" && option != "--tournament" && option != "--tournament-report" && option != "--format"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
@@ -200,6 +201,11 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--ruleset":
+                        if (options.RulesetId != null) throw new ArgumentException("--ruleset 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空赛制编号。");
+                        options.RulesetId = value;
+                        break;
                     case "--branch":
                     case "--turn":
                     case "--side":
@@ -375,6 +381,7 @@ namespace StreamDuel.Cli
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
+            ValidateRulesetOptions(options, provided);
             if (!options.Help)
             {
                 if (options.BranchReplay == null && (options.BranchTurn.HasValue || options.BranchSide.HasValue || provided.Contains("--ai")))
@@ -409,13 +416,13 @@ namespace StreamDuel.Cli
             {
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
-                    "--advice", "--ban", "--lead", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
+                    "--advice", "--ban", "--lead", "--ruleset", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
                     "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
                     throw new ArgumentException(Loc.Current.T("advice.cli.conflict", string.Join("、", unsupported)));
-                if (!options.Ban && !options.Lead)
+                if (!options.Ban && !options.Lead && options.RulesetId == null)
                     throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
             }
             if (options.TournamentFile != null && !options.Help)

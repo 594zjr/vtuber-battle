@@ -197,7 +197,8 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null,
+            bool exportReport = true)
         {
             var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
@@ -220,7 +221,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options, mySide);
+                if (exportReport) SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {

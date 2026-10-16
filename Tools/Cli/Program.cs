@@ -49,6 +49,7 @@ namespace StreamDuel.Cli
                 if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
                 PrepareRandomTeams(db, options);
+                if (options.RulesetId != null) return PlayRuleset(db, options, imported);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
                 if (options.Hotseat) return PlayHotseat(db, preset, options);
@@ -64,121 +65,9 @@ namespace StreamDuel.Cli
                 Console.WriteLine(db.PackNotice);
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
-                PrintTeams(battle);
-                PrintMixedNotices(db, player.Concat(opponent));
-                if (!options.Auto) PrintTerminationCommands();
-                // 只读取原始公开六人阵容，必须早于任何禁用/首发确认，也不借用实战随机流。
-                if (options.Advice) PrintTeamAdvice(db, player, opponent);
-                int logIndex = 0;
-                PrintNewLog(battle, ref logIndex);
                 var clock = options.TurnSeconds.HasValue
                     ? new TurnClock(options.TurnSeconds.Value, options.BankSeconds.Value) : null;
-                var input = new ConsoleInput();
-
-                try
-                {
-                    while (battle.Phase != Phase.Over)
-                    {
-                        if (battle.Phase == Phase.Ban)
-                        {
-                            Console.WriteLine();
-                            Console.WriteLine("===== 开局禁用 =====");
-                            for (int side = 0; side < 2 && battle.Phase == Phase.Ban; side++)
-                            {
-                                if (battle.HasChosenBan(side)) continue;
-                                int to;
-                                if (side == 0 && !options.Auto)
-                                {
-                                    var choice = ReadBan(battle);
-                                    if (!choice.HasValue) return Quit();
-                                    to = choice.Value;
-                                }
-                                else to = Ai.ChooseBan(battle, side);
-                                battle.ChooseBan(side, to);
-                                PrintNewLog(battle, ref logIndex);
-                            }
-                            PrintTeams(battle);
-                            continue;
-                        }
-
-                        if (battle.Phase == Phase.Lead)
-                        {
-                            Console.WriteLine();
-                            Console.WriteLine("===== 选择首发 =====");
-                            for (int side = 0; side < 2 && battle.Phase == Phase.Lead; side++)
-                            {
-                                if (battle.HasChosenLead(side)) continue;
-                                int to;
-                                if (side == 0 && !options.Auto)
-                                {
-                                    var choice = ReadLead(battle);
-                                    if (!choice.HasValue) return Quit();
-                                    to = choice.Value;
-                                }
-                                else to = Ai.ChooseLead(battle, side);
-                                battle.ChooseLead(side, to);
-                                PrintNewLog(battle, ref logIndex);
-                            }
-                            PrintTeams(battle);
-                            continue;
-                        }
-
-                        Console.WriteLine();
-                        Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
-                        PrintFighter(battle, 1);
-                        PrintFighter(battle, 0);
-                        if (battle.Phase == Phase.Replace)
-                        {
-                            if (clock != null)
-                            {
-                                if (!ReadTimedReplacements(battle, options, clock, input)) return Quit();
-                                PrintNewLog(battle, ref logIndex);
-                                continue;
-                            }
-                            for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
-                            {
-                                if (!battle.Need[side]) continue;
-                                int to;
-                                if (side == 0 && !options.Auto)
-                                {
-                                    var choice = ReadReplacement(battle);
-                                    if (!choice.HasValue) return Quit();
-                                    to = choice.Value;
-                                }
-                                else to = Ai.ChooseReplacement(battle, side, options.Level);
-                                battle.Replace(side, to);
-                                PrintNewLog(battle, ref logIndex);
-                            }
-                            continue;
-                        }
-
-                        BattleAction action;
-                        BattleAction foeAction;
-                        if (clock != null)
-                        {
-                            if (!ReadTimedActions(battle, options, clock, input, out action, out foeAction)) return Quit();
-                        }
-                        else if (options.Auto)
-                        {
-                            action = Ai.Choose(battle, 0, options.Level);
-                            foeAction = Ai.Choose(battle, 1, options.Level);
-                        }
-                        else
-                        {
-                            var choice = ReadAction(battle);
-                            if (!choice.HasValue) return Quit();
-                            action = choice.Value;
-                            foeAction = Ai.Choose(battle, 1, options.Level);
-                        }
-                        int resolvedTurn = battle.Turn;
-                        battle.ResolveTurn(action, foeAction);
-                        PrintNewLog(battle, ref logIndex);
-                        if (options.Hash)
-                            Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-                    }
-                }
-                catch (BattleFinishedException) { }
-                PrintNewLog(battle, ref logIndex);
+                if (!PlayLocalBattle(battle, options, clock, new ConsoleInput())) return Quit();
                 return SaveCompletedBattle(battle, options, 0);
             }
             catch (Exception ex) when (ex is ArgumentException || ex is IOException
@@ -215,6 +104,10 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack/--packs 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
+            Console.WriteLine("  --ruleset 编号    本地赛制：casual（休闲一局）、ranked（禁用、首发、计时三局两胜）、chaos（双修饰器一局）。");
+            Console.WriteLine("                    每个完成局独立保存回放、录像库与战绩；仅整场完成时导出一份汇总 --report，提前退出保留已完成局。");
+            Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
+            Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
             Console.WriteLine("                    只可搭配 --format、--pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("  --format single|double  仅用于赛事：直接创建单败或双败淘汰赛；续赛时必须与已存赛制一致。");
@@ -386,8 +279,9 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadBan(Battle battle)
+        private static int? ReadBan(Battle battle, Func<string, int?> readNumber = null)
         {
+            if (readNumber == null) readNumber = prompt => ReadNumber(prompt, line => HandleLocalCommand(battle, 0, line));
             var foes = battle.Sides[1].Team;
             Console.WriteLine("对手完整阵容（选择一位禁用）：");
             for (int index = 0; index < foes.Count; index++)
@@ -401,15 +295,16 @@ namespace StreamDuel.Cli
             }
             while (true)
             {
-                var number = ReadNumber("请选择要禁用的对手号位（q 退出）> ", line => HandleLocalCommand(battle, 0, line));
+                var number = readNumber("请选择要禁用的对手号位（q 退出）> ");
                 if (!number.HasValue) return null;
                 if (number.Value >= 1 && number.Value <= foes.Count) return number.Value - 1;
                 Console.WriteLine("该号位不存在，请选择列表中的对手主播。");
             }
         }
 
-        private static int? ReadLead(Battle battle)
+        private static int? ReadLead(Battle battle, Func<string, int?> readNumber = null)
         {
+            if (readNumber == null) readNumber = prompt => ReadNumber(prompt, line => HandleLocalCommand(battle, 0, line));
             var team = battle.Sides[0].Team;
             Console.WriteLine("选择我方首发（按当前剩余队伍号位）：");
             for (int index = 0; index < team.Count; index++)
@@ -420,7 +315,7 @@ namespace StreamDuel.Cli
             }
             while (true)
             {
-                var number = ReadNumber("请选择首发号位（q 退出）> ", line => HandleLocalCommand(battle, 0, line));
+                var number = readNumber("请选择首发号位（q 退出）> ");
                 if (!number.HasValue) return null;
                 if (number.Value >= 1 && number.Value <= team.Count) return number.Value - 1;
                 Console.WriteLine("该号位不存在，请选择列表中的队友。");
