@@ -18,7 +18,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - run: dotnet test Engine.Tests --logger "console;verbosity=normal"
-      - name: Check content packs
+      - name: Check content packs and text
         run: dotnet run --project Tools/PackCheck
 
   build:

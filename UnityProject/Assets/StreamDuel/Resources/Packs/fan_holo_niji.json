@@ -1,7 +1,7 @@
 {
   "id": "fan_holo_niji",
   "name": "同人包：hololive × 彩虹社（占位）",
-  "notice": "非官方同人作品（二次创作），免费、非商业，与 COVER 株式会社、ANYCOLOR 株式会社及各位主播本人无关。只使用公开艺名和公开人设，形象为自制占位图形，不使用任何官方立绘、模型、音频或标志。依据 hololive 二次创作指南（含数字游戏指南）与 ANYCOLOR 二次创作指南。",
+  "notice": "非官方同人作品（二次创作），免费、非商业，与 COVER 株式会社、ANYCOLOR 株式会社及各位主播无关。只使用公开艺名和公开人设，形象为自制占位图形，不使用任何官方立绘、模型、音频或标志。依据 hololive 二次创作指南（含数字游戏指南）与 ANYCOLOR 二次创作指南。",
   "_readme": "名单是占位，用户给出想要的主播后替换。每位主播复用一套原创技能组；personaName/personaDesc 只改人设显示名和说明，不改机制（personaStatus 可替换人设施加的状态）。只写公开人设，不写现实事件、中之人或负面内容。",
   "skillNames": { "stir_drama": "热场", "rage_collab": "激情连麦", "delete_save": "全力一击", "dig_history": "回放轰炸", "thick_skin": "沉着应对", "yolo_rush": "全力冲锋", "pull_cable": "强制断线", "hex": "压迫感", "grudge_hit": "重击" },
   "fieldNames": { "blackhist": "循环回放" },

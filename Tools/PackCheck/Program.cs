@@ -36,6 +36,7 @@ namespace StreamDuel.PackCheck
                         case "-h":
                             Console.WriteLine("用法：dotnet run --project Tools/PackCheck -- [--pack <id>] [--pack-dir <文件夹>] [--list-packs] [--write-docs]");
                             Console.WriteLine("默认检查全部内容包；--pack 按包 id 选择，兼容内置文件名（不含 .json）。错误返回 1，提醒不影响退出码。");
+                            Console.WriteLine("文本检查逐条输出 Level、Where、Id、Message，并汇总 error/warn；任何文本 error 都会阻止名单生成。");
                             Console.WriteLine("--pack-dir 加载指定文件夹中的 JSON（不递归）；--list-packs 列出内置和外部包后退出，id 冲突时内置优先并提示。");
                             Console.WriteLine("--write-docs 在所选内容包全部通过检查后，更新对应 docs/roster/<packId>.md。");
                             return 0;
@@ -65,23 +66,29 @@ namespace StreamDuel.PackCheck
                 string rulesPath = Path.Combine(resources, "StreamDuelRules.json");
                 string rules = ReadJson(rulesPath);
                 string packsDirectory = Path.Combine(resources, "Packs");
+                var policy = PackPolicy.Load(Path.Combine(resources, "PackPolicy.json"));
+                Console.WriteLine("下架策略：" + policy.DisabledPacks.Count + " 个内容包，" + policy.DisabledStreamers.Count + " 位主播。");
+                foreach (string id in policy.DisabledPacks) Console.WriteLine("[下架] " + policy.PackReason(id));
+                foreach (string id in policy.DisabledStreamers) Console.WriteLine("[下架] " + policy.StreamerReason(id));
                 var documents = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 int errors = 0;
                 int warnings = 0;
+                int lintErrors = 0;
+                int lintWarnings = 0;
                 Action<bool, string, string> report = (error, location, message) =>
                 {
                     if (error) errors++; else warnings++;
                     Console.WriteLine((error ? "[错误] " : "[提醒] ") + location + "：" + message);
                 };
 
-                var entries = PackLoader.LoadDirectory(rules, packsDirectory)
+                var entries = LoadWithPolicyDiagnostics(rules, packsDirectory, policy)
                     .Select(result => new PackEntry { Result = result, Path = Path.Combine(packsDirectory, result.FileName), BuiltIn = true }).ToList();
                 var builtInIds = new HashSet<string>(entries.Where(entry => entry.Result.Db != null)
                     .Select(entry => entry.Result.Db.PackId), StringComparer.Ordinal);
                 if (packDirectory != null)
                 {
-                    foreach (var result in PackLoader.LoadDirectory(rules, packDirectory))
+                    foreach (var result in LoadWithPolicyDiagnostics(rules, packDirectory, policy))
                     {
                         string path = Path.Combine(packDirectory, result.FileName);
                         if (result.Db != null && builtInIds.Contains(result.Db.PackId))
@@ -91,7 +98,7 @@ namespace StreamDuel.PackCheck
                 }
                 if (packId != null && !listPacks)
                 {
-                    var matches = entries.Where(entry => entry.Result.Db != null && entry.Result.Db.PackId == packId).ToList();
+                    var matches = entries.Where(entry => entry.Result.PackId == packId).ToList();
                     if (matches.Count == 0)
                         matches = entries.Where(entry => entry.BuiltIn &&
                             string.Equals(Path.GetFileNameWithoutExtension(entry.Result.FileName), packId, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -121,7 +128,8 @@ namespace StreamDuel.PackCheck
                     foreach (var entry in entries)
                     {
                         var result = entry.Result;
-                        if (result.Db == null) report(true, entry.Path, result.Error);
+                        if (result.IsDisabled) Console.WriteLine("[下架] " + result.FileName + "：" + result.Error);
+                        else if (result.Db == null) report(true, entry.Path, result.Error);
                         else Console.WriteLine(result.Db.PackId + "：" + result.Db.PackName + "〔" + (entry.BuiltIn ? "内置" : "外部") + "〕（" + result.FileName + "），内容指纹：" + result.Db.ContentHash());
                     }
                     return errors == 0 ? 0 : 1;
@@ -130,9 +138,15 @@ namespace StreamDuel.PackCheck
                 string[] sensitiveWords = File.ReadAllLines(Path.Combine(root, "Tools", "PackCheck", "sensitive_words.txt"))
                     .Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith("#", StringComparison.Ordinal))
                     .Distinct(StringComparer.Ordinal).ToArray();
+                string[] bannedWords = File.ReadAllLines(Path.Combine(resources, "Lint", "banned.txt"));
                 foreach (var entry in entries)
                 {
                     string location = Path.GetRelativePath(root, Path.GetFullPath(entry.Path)).Replace('\\', '/');
+                    if (entry.Result.IsDisabled)
+                    {
+                        Console.WriteLine("[下架] " + location + "：" + entry.Result.Error);
+                        continue;
+                    }
                     var db = entry.Result.Db;
                     if (db == null)
                     {
@@ -147,6 +161,14 @@ namespace StreamDuel.PackCheck
                     else if (writeDocs && !seenIds.Add(db.PackId))
                         report(true, location + " $.id", "内容包 id 对应的名单文件重名（不区分大小写）：" + db.PackId);
                     PackValidator.Check(db, location, sensitiveWords, report);
+                    foreach (var issue in TextLint.Check(db, bannedWords))
+                    {
+                        if (issue.Level == "error") { errors++; lintErrors++; }
+                        else if (issue.Level == "warn") { warnings++; lintWarnings++; }
+                        else throw new ArgumentException("文本检查返回了未知级别：" + issue.Level);
+                        Console.WriteLine("[文本] Level=" + issue.Level + " Where=" + location + ":" + issue.Where
+                            + " Id=" + issue.Id + " Message=" + issue.Message);
+                    }
                     if (writeDocs && errors == packErrors)
                     {
                         try
@@ -172,7 +194,9 @@ namespace StreamDuel.PackCheck
                         Console.WriteLine("已生成：docs/roster/" + document.Key + ".md");
                     }
                 }
-                Console.WriteLine("检查完成：" + entries.Count + " 个内容包，" + errors + " 个错误，" + warnings + " 个提醒。");
+                Console.WriteLine("文本检查汇总：" + lintErrors + " 个 error，" + lintWarnings + " 个 warn。");
+                Console.WriteLine("检查完成：" + entries.Count + " 个内容包（其中 "
+                    + entries.Count(entry => entry.Result.IsDisabled) + " 个已下架），" + errors + " 个错误，" + warnings + " 个提醒。");
                 return errors == 0 ? 0 : 1;
             }
             catch (Exception ex) when (IsContentError(ex))
@@ -180,6 +204,24 @@ namespace StreamDuel.PackCheck
                 Console.Error.WriteLine("[错误] PackCheck：" + ex.Message);
                 return 1;
             }
+        }
+
+        private static List<PackLoadResult> LoadWithPolicyDiagnostics(string rules, string directory, PackPolicy policy)
+        {
+            // 普通列表省略下架包；检查工具补回诊断，但沿用目录加载器的重复 id 校验。
+            var results = PackLoader.LoadDirectory(rules, directory, policy);
+            if (!Directory.Exists(directory) || results.Any(result => result.FileName == directory)) return results;
+            var visibleFiles = new HashSet<string>(results.Select(result => result.FileName), StringComparer.Ordinal);
+            foreach (string path in Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                .Where(path => string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal))
+            {
+                string name = Path.GetFileName(path);
+                if (visibleFiles.Contains(name)) continue;
+                var result = PackLoader.LoadJson(rules, File.ReadAllText(path), name, policy);
+                results.Add(result);
+            }
+            return results.OrderBy(result => result.FileName, StringComparer.Ordinal).ToList();
         }
 
         private static bool SafeId(string id)
