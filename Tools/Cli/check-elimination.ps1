@@ -133,7 +133,15 @@ try {
         @('--tournament', $missing, '--format', 'single', '--seed', '5'),
         @('--tournament-report', $missing, '--format', 'single'),
         @('--tournament', $missing, '--format', 'double', '--replays'),
-        @('--tournament', $missing, '--format', 'single', '--json')
+        @('--tournament', $missing, '--format', 'single', '--json'),
+        @('--watch', '127.0.0.1:1', '--format', 'single'),
+        @('--format', 'single', '--watch', '127.0.0.1:1'),
+        @('--watch', '127.0.0.1:1', '--tournament', $missing, '--format', 'single'),
+        @('--tournament', $missing, '--format', 'single', '--watch', '127.0.0.1:1'),
+        @('--host', '0', '--spectate-port', '0', '--tournament', $missing, '--format', 'double'),
+        @('--tournament', $missing, '--format', 'double', '--host', '0', '--spectate-port', '0'),
+        @('--lan-host', '淘汰互斥验收', '--spectate-port', '0', '--tournament', $missing, '--format', 'double'),
+        @('--tournament', $missing, '--format', 'double', '--lan-host', '淘汰互斥验收', '--spectate-port', '0')
     )
     for ($i = 0; $i -lt $invalid.Count; $i++) {
         $result = Invoke-Cli "invalid-$i" $invalid[$i] @() 1

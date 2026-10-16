@@ -43,6 +43,7 @@ namespace StreamDuel.Cli
                 }
                 var db = LoadPack(content, options, policy);
                 if (options.ListPacks) return 0;
+                if (options.WatchHost != null) return WatchBattle(db, options);
                 if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
                 PrepareRandomTeams(db, options);
@@ -232,6 +233,8 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
             Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");
+            Console.WriteLine("  --spectate-port 端口  主机另开观战端口，固定延迟 2 回合；0 自动分配，可搭配 --host 或 --lan-host。");
+            Console.WriteLine("  --watch 地址:端口  只读观看，使用匹配的 --pack/--packs、--pack-dir，可用 --hash；收到结束标记后退出，不写存档。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
