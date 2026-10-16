@@ -68,6 +68,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadRatingOption(option)) continue;
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
                 {
@@ -323,6 +324,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
             if (!options.Help)

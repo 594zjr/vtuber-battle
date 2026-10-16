@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace StreamDuel.Core
 {
@@ -24,7 +25,9 @@ namespace StreamDuel.Core
             if (rating == null) return "";
             if (rating.Games < 0) throw new ArgumentOutOfRangeException(nameof(rating), "排位场数不能为负数。");
             // 分数由双方自报，仅用于本机显示，不防作弊，也不参与规则、随机流或状态哈希。
-            return ",\"rating\":" + rating.ToJson();
+            // 历史、峰值和本机赛季不属于握手元数据，保持原协议的两字段投影。
+            return ",\"rating\":{\"games\":" + rating.Games.ToString(CultureInfo.InvariantCulture)
+                + ",\"rating\":" + rating.Rating.ToString(CultureInfo.InvariantCulture) + "}";
         }
 
         private static PlayerRating ReadRatingHello(Dictionary<string, object> hello)

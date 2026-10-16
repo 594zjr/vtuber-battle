@@ -21,7 +21,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class FileSaveStore : ISaveStore
+    public sealed partial class FileSaveStore : ISaveStore
     {
         readonly string root;
         readonly string rootPrefix;
@@ -100,7 +100,7 @@ namespace StreamDuel.Core
                 {
                     PlayerRating current;
                     var own = profile.Ratings.TryGetValue(Profile.DefaultRatingFormat, out current)
-                        ? new PlayerRating { Rating = current.Rating, Games = current.Games } : new PlayerRating();
+                        ? current.Clone() : new PlayerRating();
                     // 双方自报分只用于本机显示，不防作弊；对方快照不能作为本方档案保存。
                     var opponent = new PlayerRating { Rating = opponentRating.Rating, Games = opponentRating.Games };
                     double score = battle.Winner < 0 ? 0.5 : battle.Winner == playerSide ? 1.0 : 0.0;
