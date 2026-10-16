@@ -16,6 +16,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
+    <!-- 资源文件检查属于制作工具，直接引用工具以免把文件系统逻辑移进 Core。 -->
+    <ProjectReference Include="../Tools/PackCheck/PackCheck.csproj" />
     <None Include="../UnityProject/Assets/StreamDuel/Resources/**/*.json" Exclude="../UnityProject/Assets/StreamDuel/Resources/PackPolicy.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Content" />
     <!-- 历史规则回归使用固定空政策；真实下架配置由 PackCheck 与独立部署烟测检查。 -->
     <None Update="Fixtures/PackPolicy.empty.json" CopyToOutputDirectory="PreserveNewest" TargetPath="Content/PackPolicy.json" />
