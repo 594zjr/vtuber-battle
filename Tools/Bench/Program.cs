@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -17,6 +18,7 @@ namespace StreamDuel.Bench
             Console.Out.NewLine = "\n";
             try
             {
+                if (args.Contains("--full-games")) return FullGameBenchmark.Run(args);
                 bool quick = false, help = false;
                 foreach (string argument in args)
                 {
@@ -31,6 +33,7 @@ namespace StreamDuel.Bench
                     Console.WriteLine("输出均值、95 分位、最大耗时及普通对普通完整对局吞吐，结果写入当前目录的 bench_out/bench.json。");
                     Console.WriteLine("专家追加默认预算/无预算对照，记录逐局面动作、节点数及截断状态，并验证重复选择一致。");
                     Console.WriteLine("计时结果受机器负载影响，请在相同环境下比较；参考上限见 docs/performance.md。");
+                    Console.WriteLine("四包整局基准使用独立模式：--full-games --help。");
                     return 0;
                 }
 #if DEBUG

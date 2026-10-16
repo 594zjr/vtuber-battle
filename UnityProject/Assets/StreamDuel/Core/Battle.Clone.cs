@@ -20,11 +20,19 @@ namespace StreamDuel.Core
         /// <summary>复制当前对战及历史，不触发开场、不推进随机数；规则和内容定义仍共享 Db。</summary>
         public Battle Clone()
         {
+            BattleDiagnostics.OnClone();
             return new Battle(this, CloneRecord(Record));
         }
 
-        // 携带完整历史，区别于困难 AI 只用于局部估值的复制构造。
-        Battle(Battle source, BattleRecord record)
+        // 搜索只读取结算状态；不先复制历史再清空，也不向公开调用方暴露无历史副本。
+        internal Battle CopyForSimulation()
+        {
+            BattleDiagnostics.OnSimulationClone();
+            return new Battle(this, CloneRecord(Record, false), false);
+        }
+
+        // 公开 Clone 携带完整历史，AI 内部搜索可省去历史复制。
+        Battle(Battle source, BattleRecord record, bool copyHistory = true)
         {
             Db = source.Db;
             Seed = source.Seed;
@@ -79,7 +87,7 @@ namespace StreamDuel.Core
             }
 
             // 首发重排会原地修改旧禁用日志的快照，所以连日志条目和内层数组也要独立。
-            foreach (var entry in source.Log)
+            if (copyHistory) foreach (var entry in source.Log)
             {
                 Log.Add(new LogEntry
                 {
@@ -92,13 +100,13 @@ namespace StreamDuel.Core
                     SnapHp = entry.SnapHp.Select(hp => (int[])hp.Clone()).ToArray()
                 });
             }
-            CopyEventsFrom(source);
+            if (copyHistory) CopyEventsFrom(source);
             Record = record;
         }
 
-        static Fighter CloneFighter(Fighter source)
+        static Fighter CloneFighter(Fighter source, bool preserveStageComparer = true)
         {
-            return new Fighter
+            var copy = new Fighter(false)
             {
                 Def = source.Def,
                 Slot = source.Slot,
@@ -110,23 +118,23 @@ namespace StreamDuel.Core
                 LastSkillIndex = source.LastSkillIndex,
                 FirstControlImmunityUsed = source.FirstControlImmunityUsed,
                 EndureUsed = source.EndureUsed,
-                Stages = new Dictionary<string, int>(source.Stages, source.Stages.Comparer),
-                Skills = source.Skills.Select(slot => new SkillSlot
-                {
-                    Id = slot.Id, Pp = slot.Pp, Max = slot.Max, Fifth = slot.Fifth
-                }).ToList(),
-                Statuses = source.Statuses.Select(status => new StatusInst
-                {
-                    Id = status.Id, Left = status.Left
-                }).ToList(),
-                Fields = source.Fields.Select(field => new FieldInst
-                {
-                    Id = field.Id, Turns = field.Turns, Stacks = field.Stacks
-                }).ToList()
+                Stages = preserveStageComparer
+                    ? new Dictionary<string, int>(source.Stages, source.Stages.Comparer)
+                    : new Dictionary<string, int>(source.Stages),
+                Skills = new List<SkillSlot>(source.Skills.Count),
+                Statuses = new List<StatusInst>(source.Statuses.Count),
+                Fields = new List<FieldInst>(source.Fields.Count)
             };
+            foreach (var slot in source.Skills)
+                copy.Skills.Add(new SkillSlot { Id = slot.Id, Pp = slot.Pp, Max = slot.Max, Fifth = slot.Fifth });
+            foreach (var status in source.Statuses)
+                copy.Statuses.Add(new StatusInst { Id = status.Id, Left = status.Left });
+            foreach (var field in source.Fields)
+                copy.Fields.Add(new FieldInst { Id = field.Id, Turns = field.Turns, Stacks = field.Stacks });
+            return copy;
         }
 
-        static BattleRecord CloneRecord(BattleRecord source)
+        static BattleRecord CloneRecord(BattleRecord source, bool copyHistory = true)
         {
             var copy = new BattleRecord
             {
@@ -140,7 +148,7 @@ namespace StreamDuel.Core
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
-            foreach (var entry in source.Events)
+            if (copyHistory) foreach (var entry in source.Events)
             {
                 copy.Events.Add(new BattleRecordEvent
                 {
