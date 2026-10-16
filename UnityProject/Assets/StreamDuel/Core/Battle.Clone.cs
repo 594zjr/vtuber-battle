@@ -3,7 +3,7 @@
 // leadChoices、banChoices、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
 // SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
-// SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
+// SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks、PendingDamage。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
 // BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
 // BattleRecordEvent：Type、A0、A1、Side、To、Accepted、RngState、Branch（不可变元数据共享）。
@@ -121,7 +121,7 @@ namespace StreamDuel.Core
                 }).ToList(),
                 Fields = source.Fields.Select(field => new FieldInst
                 {
-                    Id = field.Id, Turns = field.Turns, Stacks = field.Stacks
+                    Id = field.Id, Turns = field.Turns, Stacks = field.Stacks, PendingDamage = field.PendingDamage
                 }).ToList()
             };
         }
