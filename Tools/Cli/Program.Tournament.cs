@@ -33,6 +33,8 @@ namespace StreamDuel.Cli
                 tournament = Tournament.FromJson(db, saved);
                 if (options.TournamentFormat != null && options.TournamentFormat != tournament.Format)
                     throw new ArgumentException("--format 与已保存的赛事赛制不一致，不能更改续赛事制；原文件未修改。");
+                if (options.TournamentSeedByRating && tournament.SeedMode != TournamentSeedMode.ByRating)
+                    throw new ArgumentException("--seed-by rating 与已保存的排种子方式不一致，不能更改续赛方式；原文件未修改。");
             }
             else
             {
@@ -40,7 +42,8 @@ namespace StreamDuel.Cli
                 if (format == null) return 0;
                 int? rounds = format == "swiss" ? ReadTournamentRounds() : 0;
                 if (!rounds.HasValue) return 0;
-                tournament = new Tournament(db, format, rounds.Value);
+                tournament = new Tournament(db, format, rounds.Value, options.TournamentSeedByRating
+                    ? new TournamentOptions { SeedMode = TournamentSeedMode.ByRating } : null);
                 file.Save(tournament);
             }
 
@@ -56,6 +59,7 @@ namespace StreamDuel.Cli
             foreach (var player in tournament.Players) PrintTournamentNameHint(player.Id, player.Name);
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
                 return QuitTournament(file);
+            PrintTournamentRatingOrder(tournament);
 
             bool archiveFailed = false;
             while (!tournament.IsFinished)
@@ -165,7 +169,12 @@ namespace StreamDuel.Cli
                 if (code == null) return false;
                 try
                 {
-                    tournament.AddPlayer(name, code);
+                    if (tournament.SeedMode == TournamentSeedMode.ByRating)
+                    {
+                        if (!ReadTournamentRatingSource(out var profile, out var computerLevel)) return false;
+                        tournament.AddPlayer(name, code, profile, computerLevel);
+                    }
+                    else tournament.AddPlayer(name, code);
                 }
                 catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)
                 {
@@ -175,6 +184,7 @@ namespace StreamDuel.Cli
                 file.Save(tournament);
                 Console.WriteLine("已保存报名：" + TournamentPlayerName(tournament.Players[tournament.Players.Count - 1])
                     + "（共 " + tournament.Players.Count + " 人）");
+                PrintTournamentRatingSnapshot(tournament, tournament.Players.Count - 1);
             }
         }
 

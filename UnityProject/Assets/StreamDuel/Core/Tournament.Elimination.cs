@@ -9,6 +9,7 @@ namespace StreamDuel.Core
         public uint? Seed;
         public IList<int> SeedOrder;
         public bool ResetFinal = true;
+        public TournamentSeedMode SeedMode;
     }
 
     public sealed partial class Tournament
@@ -132,7 +133,8 @@ namespace StreamDuel.Core
         {
             if (!IsElimination)
             {
-                if (options != null) throw new ArgumentException("淘汰赛配置只能用于单败或双败淘汰赛。", nameof(options));
+                if (options != null && (SeedMode != TournamentSeedMode.ByRating || !options.ResetFinal))
+                    throw new ArgumentException("淘汰赛配置只能用于单败或双败淘汰赛。", nameof(options));
                 return;
             }
             if (options == null) return;
@@ -152,6 +154,7 @@ namespace StreamDuel.Core
 
         int[] EffectiveEliminationSeeds(bool requireComplete = true)
         {
+            if (SeedMode == TournamentSeedMode.ByRating) return RatingSeedOrder();
             if (SeedOrder != null)
             {
                 if (requireComplete && SeedOrder.Count != players.Count)

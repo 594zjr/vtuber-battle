@@ -72,6 +72,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadTournamentSeedOption(args, ref i)) continue;
                 if (options.ReadRatingOption(option)) continue;
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
@@ -362,6 +363,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateTournamentSeedOptions(options);
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
@@ -410,11 +412,11 @@ namespace StreamDuel.Cli
             }
             if (options.TournamentFile != null && !options.Help)
             {
-                var unsupported = provided.Where(option => option != "--tournament" && option != "--format" && option != "--pack"
+                var unsupported = provided.Where(option => option != "--tournament" && option != "--format" && option != "--seed-by" && option != "--pack"
                     && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h")
                     .Distinct().ToArray();
                 if (unsupported.Length > 0)
-                    throw new ArgumentException("赛事模式仅支持搭配 --format、--pack、--pack-dir、--auto；不能与 "
+                    throw new ArgumentException("赛事模式仅支持搭配 --format、--seed-by、--pack、--pack-dir、--auto；不能与 "
                         + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI，种子由对局编号决定。");
             }
             if (!options.Help)

@@ -216,9 +216,12 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
-            Console.WriteLine("                    只可搭配 --format、--pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
+            Console.WriteLine("                    只可搭配 --format、--seed-by、--pack、--pack-dir、--auto；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("  --format single|double  仅用于赛事：直接创建单败或双败淘汰赛；续赛时必须与已存赛制一致。");
-            Console.WriteLine("                    CLI 新建淘汰赛按报名顺序排种子，每场一局，双败默认开启总决赛重置；不接受 --seed。");
+            Console.WriteLine("  --seed-by rating  仅用于赛事：按当前季默认排位分、场数、报名顺序排种子，四种赛制均支持。");
+            Console.WriteLine("                    报名额外选择真人或普通/困难/专家电脑，可提供只读档案目录；无档案真人 1500，电脑 1400/1600/1800。");
+            Console.WriteLine("                    分数快照随赛事保存；续赛省略时保留原方式，显式 rating 不能改变旧赛事方式。坏档案拒绝报名。");
+            Console.WriteLine("                    CLI 默认新建淘汰赛按报名顺序排种子，每场一局，双败默认开启总决赛重置；不接受 --seed。");
             Console.WriteLine("                    淘汰赛不登记平局；自动平局保留待赛并退出，需重赛分出胜负后手动报分。");
             Console.WriteLine("                    报名时空姓名开始赛事；q 或输入结束保存退出。每次报名、排轮和报分立即保存。");
             Console.WriteLine("                    自动种子为 0x9E3779B9 加存档中的零起点对局编号（uint 回绕）；不接受 --seed。");

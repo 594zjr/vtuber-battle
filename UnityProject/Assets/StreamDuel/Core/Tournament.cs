@@ -123,10 +123,16 @@ namespace StreamDuel.Core
             packId = db.PackId;
             contentHash = db.ContentHash();
             Players = players.AsReadOnly();
+            InitializeRatingSeeding(options);
             InitializeElimination(options);
         }
 
         public void AddPlayer(string name, string teamCode)
+        {
+            AddPlayer(name, teamCode, null);
+        }
+
+        public void AddPlayer(string name, string teamCode, Profile profile, AiLevel? computerLevel = null)
         {
             if (Round != 0) throw new InvalidOperationException("赛事已开始，不能再报名。");
             if (string.IsNullOrWhiteSpace(name) || name.Any(char.IsControl))
@@ -137,7 +143,9 @@ namespace StreamDuel.Core
             catch (FormatException error) { throw new FormatException("报名队伍码无效：" + error.Message, error); }
             var errors = preset.Check(db, null);
             if (errors.Count > 0) throw new ArgumentException("报名队伍不合法：" + string.Join("；", errors), nameof(teamCode));
+            var rating = CaptureRating(profile, computerLevel);
             players.Add(new TournamentPlayer(players.Count, name.Trim(), StreamDuel.Core.TeamCode.Encode(preset), preset.Ids));
+            if (rating != null) ratingSeeds.Add(rating);
         }
 
         public List<Pairing> NextRound()
@@ -226,8 +234,14 @@ namespace StreamDuel.Core
                 if (pairing.WinnerSide.Value == -1) { direct[first]++; direct[second]++; }
                 else direct[pairing.WinnerSide.Value == 0 ? first : second] += 3;
             }
+            var tieOrder = Enumerable.Range(0, count).ToArray();
+            if (Format == "swiss" && SeedMode == TournamentSeedMode.ByRating)
+            {
+                var seeds = RatingSeedOrder();
+                for (int i = 0; i < seeds.Length; i++) tieOrder[seeds[i]] = i;
+            }
             var order = Enumerable.Range(0, count).OrderByDescending(id => points[id])
-                .ThenByDescending(id => opponents[id]).ThenByDescending(id => direct[id]).ThenBy(id => id).ToList();
+                .ThenByDescending(id => opponents[id]).ThenByDescending(id => direct[id]).ThenBy(id => tieOrder[id]).ToList();
             if (IsElimination) order = EliminationRankOrder().ToList();
             var result = new List<Standing>();
             foreach (int id in order)
@@ -238,7 +252,7 @@ namespace StreamDuel.Core
 
         List<int[]> RoundRobin()
         {
-            var order = Enumerable.Range(0, players.Count).ToList();
+            var order = SeedMode == TournamentSeedMode.ByRating ? RatingSeedOrder().ToList() : Enumerable.Range(0, players.Count).ToList();
             if (order.Count % 2 != 0) order.Add(-1);
             for (int round = 0; round < Round; round++)
             {
@@ -316,13 +330,15 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
-            var text = new StringBuilder(IsElimination ? "{\"version\":2,\"packId\":" : "{\"version\":1,\"packId\":");
+            var text = new StringBuilder(SeedMode == TournamentSeedMode.ByRating ? "{\"version\":4,\"packId\":"
+                : IsElimination ? "{\"version\":2,\"packId\":" : "{\"version\":1,\"packId\":");
             TeamPresetJson.WriteString(text, packId);
             text.Append(",\"contentHash\":");
             TeamPresetJson.WriteString(text, contentHash);
             text.Append(",\"format\":");
             TeamPresetJson.WriteString(text, Format);
             if (IsElimination) WriteEliminationConfiguration(text);
+            if (SeedMode == TournamentSeedMode.ByRating) WriteRatingConfiguration(text);
             text.Append(",\"rounds\":").Append(Number(requestedRounds)).Append(",\"players\":[");
             for (int i = 0; i < players.Count; i++)
             {
@@ -365,17 +381,32 @@ namespace StreamDuel.Core
                 var root = TournamentJson.Parse(json);
                 if (!root.ContainsKey("version")) throw new FormatException("赛事存档缺少版本。");
                 int version = TournamentJson.Integer(root, "version", 1, int.MaxValue);
-                if (version != 1 && version != 2)
+                if (version != 1 && version != 2 && version != 4)
                     throw new FormatException("不支持此赛事存档版本。");
                 if (version == 1) TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "rounds", "players", "roundsPlayed");
-                else TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "seed", "seedOrder", "resetFinal", "rounds", "players", "roundsPlayed");
+                else if (version == 2) TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "seed", "seedOrder", "resetFinal", "rounds", "players", "roundsPlayed");
+                else
+                {
+                    if (!root.TryGetValue("format", out var formatValue) || !(formatValue is string savedFormat))
+                        throw new FormatException("赛事赛制必须是字符串。");
+                    if (savedFormat == SingleElimination || savedFormat == DoubleElimination)
+                        TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "seed", "seedOrder", "resetFinal", "seedBy", "ratingSeeds", "rounds", "players", "roundsPlayed");
+                    else TournamentJson.Keys(root, "version", "packId", "contentHash", "format", "seedBy", "ratingSeeds", "rounds", "players", "roundsPlayed");
+                    if (TournamentJson.Text(root, "seedBy") != "rating") throw new FormatException("赛事排位种子模式无效。");
+                }
                 if (TournamentJson.Text(root, "packId") != db.PackId) throw new FormatException("赛事内容包不匹配。");
                 if (TournamentJson.Text(root, "contentHash") != db.ContentHash()) throw new FormatException("赛事内容不一致，请使用相同规则与内容包。");
                 string format = TournamentJson.Text(root, "format");
                 bool elimination = format == SingleElimination || format == DoubleElimination;
-                if (elimination != (version == 2)) throw new FormatException("赛事版本与赛制不匹配。");
+                if (version != 4 && elimination != (version == 2)) throw new FormatException("赛事版本与赛制不匹配。");
+                var options = elimination ? ReadEliminationConfiguration(root) : null;
+                if (version == 4)
+                {
+                    options = options ?? new TournamentOptions();
+                    options.SeedMode = TournamentSeedMode.ByRating;
+                }
                 var result = new Tournament(db, format, TournamentJson.Integer(root, "rounds", 0, int.MaxValue),
-                    elimination ? ReadEliminationConfiguration(root) : null);
+                    options);
                 foreach (var value in TournamentJson.Array(root, "players"))
                 {
                     var player = TournamentJson.Object(value);
@@ -384,6 +415,7 @@ namespace StreamDuel.Core
                         throw new FormatException("参赛报名编号顺序无效。");
                     result.AddPlayer(TournamentJson.Text(player, "name"), TournamentJson.Text(player, "teamCode"));
                 }
+                if (version == 4) result.RestoreRatingSeeds(root);
                 foreach (var value in TournamentJson.Array(root, "roundsPlayed"))
                 {
                     var savedRound = value as List<object> ?? throw new FormatException("每轮对阵必须是数组。");
