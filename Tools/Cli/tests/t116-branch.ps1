@@ -308,6 +308,35 @@ try {
         $result = Invoke-Cli $name @('--branch', $path, '--turn', '2', '--side', '0') @('/surrender') 1
         Check ($result.Out.Length -eq 0 -and $result.Err.Contains('索引') -and (Tree (Join-Path $work 'saves')) -ceq $before) '保留管理路径在开局前未拒绝，或源文件被修改。'
     }
+    if ($IsWindows) {
+        foreach ($prefix in '\\?\', '\\.\') {
+            $prefixName = if ($prefix.Contains('?')) { 'extended' } else { 'device' }
+            foreach ($direction in 'source', 'library') {
+                foreach ($reserved in 'index.json', '.library-write.tmp', '.library.lock') {
+                    $name = "alias-$prefixName-$direction-" + $reserved.Replace('.', '_')
+                    $work = Case-Directory $name
+                    $save = Join-Path $work 'saves'
+                    $libraryPath = Join-Path $save 'replay-library'
+                    [void][IO.Directory]::CreateDirectory($libraryPath)
+                    $path = Join-Path $libraryPath $reserved
+                    [IO.File]::WriteAllText($path, $sourceJson, $utf8)
+                    $before = Tree $save
+                    $readPath = if ($direction -eq 'source') { $prefix + $path } else { $path }
+                    $savePath = if ($direction -eq 'library') { $prefix + $save } else { $save }
+                    $result = Invoke-Cli $name @('--branch', $readPath, '--turn', '2', '--side', '0', '--save-dir', $savePath) @('/surrender') 1
+                    Check ($result.Out.Length -eq 0 -and $result.Err.Contains('索引') -and (Tree $save) -ceq $before) 'Windows 路径别名绕过保留文件保护，或改变了来源内容、mtime、目录。'
+                }
+            }
+            $before = Tree $fixtures
+            $result = Invoke-Cli "safe-$prefixName-source" @('--branch', ($prefix + $sourcePath), '--turn', '2', '--side', '0') @('/surrender')
+            $actual = Read-OnlyBranchRecord $result.Work
+            $expected = [StreamDuel.Core.ReplayBranch]::Start($db, $source, 2, 0, $normal)
+            $expected.Surrender(0)
+            Check ($actual.ToJson() -ceq $expected.Record.ToJson() -and [StreamDuel.Core.Replay]::Run($db, $actual).StateHash() -eq $expected.StateHash()) '安全的扩展来源路径不能完成独立接手和回放。'
+            Check ((Tree $fixtures) -ceq $before) '安全扩展来源的原文件被改动。'
+        }
+        $checks.Add('Windows 两种扩展前缀、来源/目标两方向、三个保留文件全部拒绝；安全扩展来源仍可完成且不改原文件')
+    }
     $junctionWork = Case-Directory 'junction-source'
     $junctionTarget = Join-Path $junctionWork 'saves/replay-library'
     [void][IO.Directory]::CreateDirectory($junctionTarget)
@@ -353,9 +382,14 @@ try {
         @('--save-dir', 'saves', '--save-dir', 'saves'), @('--pack-dir', $external, '--pack-dir', $external))) {
         $invalid += ,($baseArgs + $extra)
     }
+    foreach ($extra in @(@('--format', 'single'), @('--tournament', 'must-not-exist.json', '--format', 'double'))) {
+        $invalid += ,($baseArgs + $extra)
+        $invalid += ,($extra + $baseArgs)
+    }
     for ($i = 0; $i -lt $invalid.Count; $i++) {
         $result = Invoke-Cli "invalid-$i" $invalid[$i] @() 1
         Check ($result.Out.Length -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $result.Work 'saves'))) '参数错误仍开始了接手或创建了存档。'
+        Check (-not (Test-Path -LiteralPath (Join-Path $result.Work 'must-not-exist.json'))) '互斥参数创建了赛事文件。'
         if ($invalid[$i] -contains '--card' -or $invalid[$i] -contains '--cards') {
             Check ($result.Err.Contains('不能与') -and $result.Err.Contains('--branch')) '资料卡与接手组合未由独立模式互斥校验拒绝。'
         }

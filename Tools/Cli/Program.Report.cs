@@ -55,7 +55,7 @@ namespace StreamDuel.Cli
             return path;
         }
 
-        private static string ReportPath(string value)
+        private static string ReportPath(string value, string context = "战报")
         {
             string path = Path.GetFullPath(value);
             if (OperatingSystem.IsWindows())
@@ -67,7 +67,7 @@ namespace StreamDuel.Cli
                 {
                     path = path.Substring(4);
                     if (path.Length < 3 || !char.IsLetter(path[0]) || path[1] != ':' || path[2] != '\\')
-                        throw new ArgumentException("战报相关路径必须指向普通文件，不能使用设备路径。");
+                        throw new ArgumentException(context + "相关路径必须指向普通文件，不能使用设备路径。");
                 }
                 path = Path.GetFullPath(path);
                 // 普通 Windows 路径会忽略段末尾的点或空格，拒绝这种别名才能可靠保护存档目录。
@@ -75,7 +75,7 @@ namespace StreamDuel.Cli
                 foreach (string segment in path.Substring(root.Length).Split(Path.DirectorySeparatorChar))
                 {
                     if (segment.EndsWith(".", StringComparison.Ordinal) || segment.EndsWith(" ", StringComparison.Ordinal))
-                        throw new ArgumentException("战报相关路径的文件名或目录名不能以点或空格结尾。");
+                        throw new ArgumentException(context + "相关路径的文件名或目录名不能以点或空格结尾。");
                 }
             }
             return Path.TrimEndingDirectorySeparator(path);

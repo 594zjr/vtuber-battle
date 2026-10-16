@@ -14,9 +14,9 @@ namespace StreamDuel.Cli
             BattleRecord record;
             try
             {
-                ValidateBranchSourcePath(options);
-                record = IsReplayFile(options.BranchReplay)
-                    ? BattleRecord.FromJson(File.ReadAllText(options.BranchReplay, new UTF8Encoding(false, true)))
+                string source = ValidateBranchSourcePath(options);
+                record = source != null
+                    ? BattleRecord.FromJson(File.ReadAllText(source, new UTF8Encoding(false, true)))
                     : ReplayLibrary.OpenReadOnly(ReplayLibraryDirectory(options), policy).Load(options.BranchReplay);
             }
             catch (IndexOutOfRangeException ex)
@@ -108,10 +108,20 @@ namespace StreamDuel.Cli
             return SaveBranch(battle, options);
         }
 
-        private static void ValidateBranchSourcePath(CliOptions options)
+        private static string ValidateBranchSourcePath(CliOptions options)
         {
-            if (!IsReplayFile(options.BranchReplay)) return;
-            string source = Path.GetFullPath(options.BranchReplay);
+            if (!IsReplayFile(options.BranchReplay)) return null;
+            string source, library;
+            try
+            {
+                // 来源和目标库的扩展前缀都可能指向同一保留文件，比较与实际读取必须使用同一规范路径。
+                source = ReportPath(options.BranchReplay, "接手");
+                library = ReportPath(ReplayLibraryDirectory(options), "接手");
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                throw new ArgumentException("接手来源或录像库路径无效：" + ex.Message, ex);
+            }
             for (string current = source; !string.IsNullOrEmpty(Path.GetDirectoryName(current)); current = Path.GetDirectoryName(current))
             {
                 try
@@ -122,11 +132,11 @@ namespace StreamDuel.Cli
                 catch (FileNotFoundException) { }
                 catch (DirectoryNotFoundException) { }
             }
-            string library = Path.GetFullPath(ReplayLibraryDirectory(options));
             var comparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
             foreach (string name in new[] { "index.json", ".library-write.tmp", ".library.lock" })
                 if (string.Equals(source, Path.Combine(library, name), comparison))
                     throw new ArgumentException("接手来源不能使用目标录像库的索引、写入临时文件或锁文件路径；请先将录像复制到普通文件。");
+            return source;
         }
 
         private static bool HandleBranchCommand(Battle battle, int side, string line)

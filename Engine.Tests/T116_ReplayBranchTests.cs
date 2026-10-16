@@ -395,6 +395,7 @@ public class T116_ReplayBranchTests
 
     [Theory]
     [InlineData(1)]
+    [InlineData(2)]
     [InlineData(3)]
     public void ABranchCanBeTakenOverAgainBeforeOrAfterItsEarlierBoundary(int nextTurn)
     {

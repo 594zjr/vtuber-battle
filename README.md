@@ -111,11 +111,15 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 ```powershell
 dotnet run --project Tools/Cli -- --tournament ./tournaments/weekend.json
 dotnet run --project Tools/Cli -- --tournament ./tournaments/weekend.json --auto
+dotnet run --project Tools/Cli -- --tournament ./tournaments/knockout.json --format single --auto
+dotnet run --project Tools/Cli -- --tournament ./tournaments/double.json --format double
 ```
 
-文件不存在时，按提示选择循环赛或瑞士轮，并逐人录入姓名和 `SDT1-` 队伍码；至少两人后才能开始。已有文件会恢复报名或当前轮的未报对阵。手动模式录入对局结果；`--auto` 使用普通电脑完成未报结果的比赛，每场种子由对阵编号确定。报名、排轮和报分后自动保存，输入 `q` 或结束输入可退出，下次用同一命令继续。
+文件不存在时，按提示选择循环赛、瑞士轮、单败或双败，并逐人录入姓名和 `SDT1-` 队伍码；至少两人后才能开始。已有文件会恢复报名或当前轮的未报对阵。手动模式录入对局结果；`--auto` 使用普通电脑完成未报结果的比赛，每场种子由对阵编号确定。报名、排轮和报分后自动保存，输入 `q` 或结束输入可退出，下次用同一命令继续。
 
-循环赛每两人交手一次；瑞士轮默认进行 `ceil(log2(人数))` 轮，优先避免重复对手。奇数人数每轮一人轮空，计一胜且每人最多一次。胜、平、负分别得 3、1、0 分，排名依次比较积分、对手分、直接对话积分和报名顺序；直接对话只比较积分与对手分均相同的小组。已有赛事省略 `--pack` 时使用存档内容包；外部包仍需 `--pack-dir`。赛事模式只可搭配 `--auto`、`--pack` 和 `--pack-dir`，种子和难度由赛事模式固定。
+循环赛每两人交手一次；瑞士轮默认进行 `ceil(log2(人数))` 轮，优先避免重复对手。奇数人数每轮一人轮空，计一胜且每人最多一次。胜、平、负分别得 3、1、0 分，排名依次比较积分、对手分、直接对话积分和报名顺序；直接对话只比较积分与对手分均相同的小组。已有赛事省略 `--pack` 时使用存档内容包；外部包仍需 `--pack-dir`。赛事模式只可搭配 `--format`、`--auto`、`--pack` 和 `--pack-dir`，自动对局种子和难度由赛事模式固定。
+
+`--format single` 为单败，输一场淘汰；`--format double` 为双败，胜者组首次失利进入败者组，第二败出局。非二次幂人数按报名种子顺序让靠前选手首轮轮空。双败默认开启总决赛重置，败者组选手须连赢两场总决赛才能夺冠；Core 创建选项可以关闭重置。当前每场只支持一局。平局不决定晋级：手动模式须在重赛分出胜负后录入；自动模式遇平局会保存已有进度并退出，本场仍待赛。续赛不能用 `--format` 改变原赛制，战报会按晋级结果排序并标出组别和冠军。
 
 赛事文件必须与玩家档案、旧回放目录 `replays` 和新录像库 `replay-library` 分开保存；这些目录及其子目录不能作为赛事文件位置。
 
