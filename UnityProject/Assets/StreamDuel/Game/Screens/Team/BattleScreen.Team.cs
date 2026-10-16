@@ -26,6 +26,18 @@ namespace StreamDuel.Game
                 string name = teamSelections.TryGetValue(db.PackId, out var remembered) ? remembered.Name : "";
                 teamSelections[db.PackId] = new TeamPreset { Name = name, PackId = db.PackId, Ids = new List<string>(pick) };
             }
+            // 菜单跳转不会启用旧画面，须在这里取设置页刚保存的默认值。
+            settings = GameRuntimeSettings.Current;
+            fast = settings.FastPlay;
+            timerOn = settings.TurnTimer;
+            timerSeconds = settings.TurnSeconds;
+            var preferred = packs.FirstOrDefault(content => content.PackId == settings.DefaultPack);
+            if (preferred != null && !ReferenceEquals(preferred, db))
+            {
+                db = preferred;
+                pick = new List<string>(RestoreTeamSelection(db).Ids);
+                teamPolicyNotice = db.Policy.CheckTeam(db.PackId, pick);
+            }
             b = null;
             teamBattleRequest = null;
             view = View.Team;
@@ -77,7 +89,7 @@ namespace StreamDuel.Game
             next.DefaultPack = db.PackId;
             bool changed = settings == null || settings.ToJson() != next.ToJson();
             settings = next; fast = settings.FastPlay; timerOn = settings.TurnTimer;
-            if ((changed || !string.IsNullOrEmpty(settingsNotice)) && !SmokeRequested)
+            if (changed || !string.IsNullOrEmpty(settingsNotice))
             {
                 SaveSettingsSafely();
                 if (!string.IsNullOrEmpty(settingsNotice)) throw new IOException(settingsNotice);
@@ -111,7 +123,8 @@ namespace StreamDuel.Game
             lastTeams = teams;
             b = nextBattle;
             view = View.Battle;
-            shown = 0; logCountDrawn = 0; playing = false; timerLeft = 10f;
+            shown = 0; logCountDrawn = 0; playing = false; timerLeft = settings.TurnSeconds;
+            timerSeconds = settings.TurnSeconds;
             detailKind = "pet"; detailSide = 1; detailIdx = 0; detailScroll = Vector2.zero;
         }
 

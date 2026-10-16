@@ -14,7 +14,10 @@ namespace StreamDuel.Game
         public static IEnumerator RunRulesets(ScreenRouter router, BattleScreen legacy, Action<string> capture)
         {
             RulesetRequire(Environment.GetCommandLineArgs().Contains("--t66-smoke-test"), "赛制回归仅供隔离验收。");
-            RulesetRequire(RulesetField<object>(legacy, "saveStore") == null, "赛制回归不能接触玩家档案。");
+            var save = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
+            var memoryStoreType = typeof(GameRuntimeSettings).GetNestedType("MemorySaveStore", BindingFlags.NonPublic);
+            RulesetRequire(GameRuntimeSettings.IsSmokeTest && save != null && memoryStoreType != null
+                && save.GetValue(null)?.GetType() == memoryStoreType, "赛制回归必须使用隔离的内存设置仓库。");
             var db = legacy.MenuPacks.First(pack => pack.PackId == "original");
             string season = db.Seasons.Keys.OrderBy(id => id, StringComparer.Ordinal).FirstOrDefault();
             string[] defaults = Rulesets.All.Select(rule => rule.ToJson()).ToArray();

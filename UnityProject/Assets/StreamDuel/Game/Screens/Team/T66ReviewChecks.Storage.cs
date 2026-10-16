@@ -21,9 +21,11 @@ namespace StreamDuel.Game
             StorageRequire(router != null && legacy != null, "存储回归需要已启动的真实界面。");
             StorageRequire(Environment.GetCommandLineArgs().Contains("--t66-smoke-test"), "存储回归仅允许 T66 隔离验收模式。");
             var smoke = typeof(BattleScreen).GetProperty("SmokeRequested", BindingFlags.Static | BindingFlags.NonPublic);
-            var save = typeof(BattleScreen).GetField("saveStore", BindingFlags.Instance | BindingFlags.NonPublic);
+            var save = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
+            var memoryStoreType = typeof(GameRuntimeSettings).GetNestedType("MemorySaveStore", BindingFlags.NonPublic);
             StorageRequire(smoke != null && (bool)smoke.GetValue(null)
-                && save != null && save.GetValue(legacy) == null, "存储回归启动前必须已隔离玩家设置存档。");
+                && GameRuntimeSettings.IsSmokeTest && save != null && memoryStoreType != null
+                && save.GetValue(null)?.GetType() == memoryStoreType, "存储回归启动前必须使用隔离的内存设置仓库。");
             StorageCheckPath(outputDirectory);
             StorageRequire(Directory.Exists(outputDirectory), "存储回归输出父目录必须由 T66 验收创建。");
             string root = Path.Combine(Path.GetFullPath(outputDirectory), "storage-" + Guid.NewGuid().ToString("N"));

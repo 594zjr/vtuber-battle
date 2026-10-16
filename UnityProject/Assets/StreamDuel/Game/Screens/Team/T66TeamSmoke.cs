@@ -197,8 +197,11 @@ namespace StreamDuel.Game
             router = routers[0];
             legacy = router.GetComponent<BattleScreen>();
             Require(legacy != null && router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "默认入口没有进入正式主菜单。");
-            var saveField = typeof(BattleScreen).GetField("saveStore", BindingFlags.Instance | BindingFlags.NonPublic);
-            Require(saveField != null && saveField.GetValue(legacy) == null, "启动读取了玩家设置存档；SmokeRequested 必须在 Awake 之前生效。");
+            var saveField = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
+            var memoryStoreType = typeof(GameRuntimeSettings).GetNestedType("MemorySaveStore", BindingFlags.NonPublic);
+            Require(GameRuntimeSettings.IsSmokeTest && saveField != null && memoryStoreType != null
+                && saveField.GetValue(null)?.GetType() == memoryStoreType,
+                "启动必须使用隔离的内存设置仓库；冒烟模式必须在 Awake 之前生效。");
             Require(legacy.MenuPackErrors.Count == 0, "实际内容加载出现错误。");
             foreach (string id in RequiredPacks) Require(legacy.MenuPacks.Any(pack => pack.PackId == id), "缺少验收内容包：" + id);
             portraits = new PortraitProvider(router.Resources.RegularFont);
@@ -215,7 +218,8 @@ namespace StreamDuel.Game
                 yield return Settle();
                 Require(router.CurrentScreenId == ScreenIds.Team && !legacy.enabled, "真实菜单按钮未进入正式组队页。");
                 Require(Element<VisualElement>("team-screen") != null, "正式 Team 工厂仍为占位页面。");
-                Require(saveField.GetValue(legacy) == null, "进入组队页后访问了玩家设置存档。");
+                Require(saveField.GetValue(null)?.GetType() == memoryStoreType,
+                    "进入组队页后不再使用隔离的内存设置仓库。");
 
                 ShowContext(legacy.MenuPacks.First(pack => pack.PackId == "original"));
                 yield return Settle();
