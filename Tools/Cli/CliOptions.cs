@@ -74,6 +74,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadBranchCompareOption(args, ref i)) continue;
                 if (options.ReadTournamentSeedOption(args, ref i)) continue;
                 if (option == "--no-auto-tiebreak")
                 {
@@ -396,6 +397,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateBranchCompareOptions(options, provided);
             ValidateTournamentSeedOptions(options);
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
