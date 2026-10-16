@@ -17,6 +17,8 @@ namespace StreamDuel.Core
     public sealed class BattleSummary
     {
         public List<FighterStats>[] Sides;
+        public int Winner = -1;
+        public int Turns;
         readonly string[] sideNames = new string[2];
         readonly List<string>[] fighterNames = { new List<string>(), new List<string>() };
         readonly Dictionary<string, string> skillNames = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -26,7 +28,9 @@ namespace StreamDuel.Core
             if (b == null) throw new ArgumentNullException(nameof(b));
             var summary = new BattleSummary
             {
-                Sides = new[] { new List<FighterStats>(), new List<FighterStats>() }
+                Sides = new[] { new List<FighterStats>(), new List<FighterStats>() },
+                Winner = b.Winner,
+                Turns = b.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)
             };
             for (int side = 0; side < b.Sides.Length; side++)
             {
@@ -40,6 +44,36 @@ namespace StreamDuel.Core
             foreach (var pair in b.Db.Skills) summary.skillNames[pair.Key] = pair.Value.Name;
             summary.skillNames["struggle"] = b.Db.Struggle.Name;
             return summary;
+        }
+
+        public (int Side, int Slot)? Mvp()
+        {
+            // 开局直接终止没有结算行动；零伤害的辅助、换人或跳过回合仍可正常评选。
+            if (Turns <= 0 || Sides == null || Winner < -1 || Winner > 1) return null;
+            (int Side, int Slot)? selected = null;
+            FighterStats best = null;
+            long bestScore = 0;
+            for (int side = 0; side < Math.Min(2, Sides.Length); side++)
+            {
+                if (Winner >= 0 && side != Winner || Sides[side] == null) continue;
+                for (int slot = 0; slot < Sides[side].Count; slot++)
+                {
+                    var stats = Sides[side][slot];
+                    if (stats == null) continue;
+                    // 双倍整数分数保留半点承伤，不因累计值较大而溢出或丢失精度。
+                    long score = 2L * stats.DamageDealt + stats.DamageTaken + 200L * stats.Kos;
+                    if (best == null || score > bestScore
+                        || score == bestScore && (stats.Kos > best.Kos
+                            || stats.Kos == best.Kos && (stats.DamageDealt > best.DamageDealt
+                                || stats.DamageDealt == best.DamageDealt && slot < selected.Value.Slot)))
+                    {
+                        selected = (side, slot);
+                        best = stats;
+                        bestScore = score;
+                    }
+                }
+            }
+            return selected;
         }
 
         public string ToText()

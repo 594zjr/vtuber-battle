@@ -15,6 +15,10 @@ namespace StreamDuel.Ladder
         public AiLevel Level = AiLevel.Normal;
         public string Season = null;
         public string OutputDirectory = "./ladder_out";
+        public bool AiRegression;
+        public int Games = 100;
+        public string Baseline;
+        public string WriteBaseline;
         public bool Help;
 
         public static Options Parse(string[] args)
@@ -27,12 +31,18 @@ namespace StreamDuel.Ladder
             {
                 string option = args[i];
                 if (option != "--pack" && option != "--teams" && option != "--rounds" && option != "--seed"
-                    && option != "--level" && option != "--season" && option != "--out" && option != "--help")
+                    && option != "--level" && option != "--season" && option != "--out" && option != "--help"
+                    && option != "--ai-regression" && option != "--games" && option != "--baseline" && option != "--write-baseline")
                     throw new ArgumentException("未知参数：" + (string.IsNullOrEmpty(option) ? "空参数" : option) + "；使用 --help 查看用法。");
                 if (!seen.Add(option)) throw new ArgumentException("参数 " + option + " 不能重复指定。");
                 if (option == "--help")
                 {
                     options.Help = true;
+                    continue;
+                }
+                if (option == "--ai-regression")
+                {
+                    options.AiRegression = true;
                     continue;
                 }
 
@@ -72,8 +82,29 @@ namespace StreamDuel.Ladder
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--out 需要非空的输出文件夹路径。");
                         options.OutputDirectory = value;
                         break;
+                    case "--games":
+                        if (!IsDecimal(value) || !int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out options.Games)
+                            || options.Games < 2 || options.Games % 2 != 0)
+                            throw new ArgumentException("--games 必须是 2..2147483646 的偶数，每组阵容必须交换难度打两局。");
+                        break;
+                    case "--baseline":
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--baseline 需要非空的基准文件路径。");
+                        options.Baseline = value;
+                        break;
+                    case "--write-baseline":
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--write-baseline 需要非空的输出文件路径。");
+                        options.WriteBaseline = value;
+                        break;
                 }
             }
+
+            string[] ladderOnly = { "--teams", "--rounds", "--level", "--season", "--out" };
+            string[] regressionOnly = { "--games", "--baseline", "--write-baseline" };
+            foreach (string option in options.AiRegression ? ladderOnly : regressionOnly)
+                if (seen.Contains(option))
+                    throw new ArgumentException(option + (options.AiRegression ? " 不能与 --ai-regression 同时使用。" : " 只能与 --ai-regression 同时使用。"));
+            if (options.Baseline != null && options.WriteBaseline != null)
+                throw new ArgumentException("--baseline 和 --write-baseline 不能同时使用：一次只比较已有基准或生成候选基准。");
             return options;
         }
 

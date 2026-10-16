@@ -35,6 +35,7 @@ namespace StreamDuel.Core
                 hash.Text("StreamDuel.Content.AiStyles.v1");
                 hash.List(styled, s => { hash.Text(s.Id); hash.Text(s.AiStyle); });
             }
+            WriteMergeHash(hash);
             return hash.Value.ToString("x16", CultureInfo.InvariantCulture);
         }
 

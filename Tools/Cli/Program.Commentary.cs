@@ -11,12 +11,13 @@ namespace StreamDuel.Cli
             public int NextEvent;
         }
 
-        static readonly ConditionalWeakTable<Battle, CommentaryOutput> commentaryOutput
-            = new ConditionalWeakTable<Battle, CommentaryOutput>();
+        static readonly ConditionalWeakTable<object, CommentaryOutput> commentaryOutput
+            = new ConditionalWeakTable<object, CommentaryOutput>();
 
-        static void PrintCommentary(Battle battle, int throughTurn = int.MaxValue)
+        static void PrintCommentary(Battle battle, int throughTurn = int.MaxValue, object identity = null)
         {
-            var output = commentaryOutput.GetValue(battle, _ => new CommentaryOutput());
+            // 显示副本和观战帧会更换对象，游标必须跟随原对局或会话。
+            var output = commentaryOutput.GetValue(identity ?? battle, _ => new CommentaryOutput());
             int completedTurn = battle.Phase == Phase.Over ? battle.Turn : battle.Turn - 1;
             completedTurn = Math.Min(completedTurn, throughTurn);
             int end = output.NextEvent;
