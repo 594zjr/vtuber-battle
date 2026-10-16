@@ -12,6 +12,7 @@ namespace StreamDuel.Core
         Dictionary<string, string> mergeStatusAliases = new Dictionary<string, string>();
         Dictionary<string, string> mergedSources;
         Dictionary<string, string> mergedNotices;
+        Dictionary<string, KeyValuePair<string, string>> mergedStreamerPacks;
 
         public bool IsMixed { get { return mergedSources != null; } }
 
@@ -21,6 +22,18 @@ namespace StreamDuel.Core
             string notice;
             return mergedNotices != null && mergedNotices.TryGetValue(streamerId, out notice)
                 ? notice : PackNotice ?? "";
+        }
+
+        public string SourcePackIdFor(string streamerId) { return SourcePackFor(streamerId).Key; }
+        public string SourcePackNameFor(string streamerId) { return SourcePackFor(streamerId).Value; }
+
+        KeyValuePair<string, string> SourcePackFor(string streamerId)
+        {
+            Streamer(streamerId);
+            if (!IsMixed) return new KeyValuePair<string, string>(PackId, PackName ?? PackId);
+            KeyValuePair<string, string> source;
+            if (mergedStreamerPacks != null && mergedStreamerPacks.TryGetValue(streamerId, out source)) return source;
+            throw new KeyError("缺少主播的来源包信息：" + streamerId);
         }
 
         void RememberMergeRules()
@@ -68,6 +81,7 @@ namespace StreamDuel.Core
             var statusAliases = new Dictionary<string, string>();
             result.mergedSources = new Dictionary<string, string>();
             result.mergedNotices = new Dictionary<string, string>();
+            result.mergedStreamerPacks = new Dictionary<string, KeyValuePair<string, string>>(StringComparer.Ordinal);
             var streamerIds = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var source in ordered)
@@ -93,6 +107,9 @@ namespace StreamDuel.Core
                     if (!streamerIds.Add(streamer.Id)) throw new KeyError("主播 id 冲突：" + streamer.Id);
                     result.Streamers.Add(streamer);
                     result.mergedNotices.Add(streamer.Id, source.NoticeFor(streamer.Id));
+                    // 来源不可由编号或声明反推；字符串快照不随源包后续修改而变化。
+                    result.mergedStreamerPacks.Add(streamer.Id,
+                        new KeyValuePair<string, string>(source.PackId, source.PackName ?? source.PackId));
                 }
             }
             foreach (var alias in skillAliases) result.Skills[alias.Key].Name = alias.Value;
