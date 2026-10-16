@@ -33,20 +33,21 @@ namespace StreamDuel.Game
         readonly ScrollView[] statusLists = new ScrollView[2];
         readonly List<Label>[] statusChips = { new List<Label>(), new List<Label>() };
         readonly List<Label> nodes = new List<Label>();
-        readonly Label turnLabel, phaseLabel, timerLabel, noticeLabel, ownLabel, foeLabel, logLabel, outcomeLabel;
+        readonly Label turnLabel, phaseLabel, timerLabel, noticeLabel, ownLabel, foeLabel, logLabel, outcomeLabel, matchLabel;
         readonly VisualElement nodeStrip, skillRow, outcomePanel;
         readonly ScrollView logScroll;
-        readonly Button passButton, skipButton, menuButton, setupButton;
+        readonly Button passButton, skipButton, menuButton, setupButton, rematchButton, fastButton, timerButton;
         readonly Action<int> selectLog;
         IReadOnlyList<LogEntry> shownLogs;
         IVisualElementScheduledItem scrollRequest;
-        bool disposed;
+        bool disposed, stageAnimation;
 
         public VisualElement Root { get; }
         public BattleStage Stage { get; }
 
         public BattleHud(Action<int> skill, Action<int> ownSlot, Action<int> foeSlot, Action pass,
-            Action skip, Action rematch, Action setup, Action<int> selectLog, Action menu)
+            Action skip, Action rematch, Action setup, Action<int> selectLog, Action menu, Action result = null,
+            Action fast = null, Action timer = null)
         {
             this.selectLog = selectLog;
             Root = new VisualElement { name = "battle-hud" };
@@ -75,6 +76,11 @@ namespace StreamDuel.Game
             menuButton = Button("主菜单", "battle-menu", menu);
             header.Add(setupButton);
             header.Add(menuButton);
+
+            matchLabel = Label("", "battle-match-score", 20);
+            matchLabel.style.display = DisplayStyle.None;
+            matchLabel.style.flexShrink = 0;
+            Root.Add(matchLabel);
 
             noticeLabel = Label("", "battle-notice", 18);
             noticeLabel.style.color = Accent;
@@ -148,6 +154,12 @@ namespace StreamDuel.Game
             skipButton = Button("跳过播放", "battle-skip", skip);
             actions.Add(passButton);
             actions.Add(skipButton);
+            fastButton = Button("快速播放", "battle-fast", fast);
+            timerButton = Button("限时选择", "battle-timer-toggle", timer);
+            fastButton.style.display = fast == null ? DisplayStyle.None : DisplayStyle.Flex;
+            timerButton.style.display = timer == null ? DisplayStyle.None : DisplayStyle.Flex;
+            actions.Add(fastButton);
+            actions.Add(timerButton);
             main.Add(actions);
 
             var history = new VisualElement { name = "battle-history" };
@@ -190,7 +202,9 @@ namespace StreamDuel.Game
             dialog.Add(outcomeLabel);
             var resultActions = Row();
             resultActions.style.flexWrap = Wrap.Wrap;
-            resultActions.Add(Button("同样阵容再来", "battle-rematch", rematch));
+            if (result != null) resultActions.Add(Button("查看结算", "result-button", result));
+            rematchButton = Button("同样阵容再来", "battle-rematch", rematch);
+            resultActions.Add(rematchButton);
             resultActions.Add(Button("重新组队", "battle-return", setup));
             resultActions.Add(Button("主菜单", "battle-outcome-menu", menu));
             dialog.Add(resultActions);
@@ -200,14 +214,16 @@ namespace StreamDuel.Game
         }
 
         public void Render(BattleViewModel view, IReadOnlyList<LogEntry> logs, int revealed, int selectedLog,
-            bool busy, string timer, string outcome)
+            bool busy, string timer, string outcome, string settingsNotice = null)
         {
             if (disposed) return;
             if (view == null) throw new ArgumentNullException(nameof(view));
             turnLabel.text = "开播对决 · 第 " + view.Turn + " 回合";
             timerLabel.text = timer ?? "";
             noticeLabel.text = view.Notice ?? "";
-            noticeLabel.style.display = string.IsNullOrEmpty(view.Notice) ? DisplayStyle.None : DisplayStyle.Flex;
+            if (!string.IsNullOrEmpty(settingsNotice))
+                noticeLabel.text += (noticeLabel.text.Length == 0 ? "" : "\n") + settingsNotice;
+            noticeLabel.style.display = string.IsNullOrEmpty(noticeLabel.text) ? DisplayStyle.None : DisplayStyle.Flex;
             phaseLabel.text = busy ? "正在播放结算，播放结束后可操作。" : PhaseText(view);
             Stage.FieldBanner.text = busy ? "结算播放中" : view.Phase == Phase.Over ? "对局结束" : "";
             menuButton.SetEnabled(!busy);
@@ -217,7 +233,7 @@ namespace StreamDuel.Game
             for (int side = 0; side < 2; side++)
             {
                 var source = view.Sides != null && side < view.Sides.Length ? view.Sides[side] : null;
-                RenderFighter(side, source);
+                if (!stageAnimation) RenderFighter(side, source);
                 RenderTeam(side, source, view, busy);
             }
             ownLabel.text = view.Phase == Phase.Lead ? "选择我方首发" : view.Phase == Phase.Replace ? "选择我方补位" : "我方队伍 · 蓝边可换人";
@@ -233,6 +249,37 @@ namespace StreamDuel.Game
         {
             if (side < 0 || side > 1) throw new ArgumentOutOfRangeException(nameof(side));
             if (!disposed) portraits[side].image = texture;
+        }
+
+        public void SetMatch(string score, string rematchLabel)
+        {
+            if (disposed) return;
+            matchLabel.text = score ?? "";
+            matchLabel.style.display = string.IsNullOrEmpty(score) ? DisplayStyle.None : DisplayStyle.Flex;
+            rematchButton.text = rematchLabel ?? "同样阵容再来";
+        }
+
+        public void SetStageAnimation(bool playing)
+        {
+            if (disposed) return;
+            stageAnimation = playing;
+            // TimelineAnimator 拥有播放期间的状态节点，静态提示列表在结束后恢复。
+            foreach (var list in statusLists) list.style.display = playing ? DisplayStyle.None : DisplayStyle.Flex;
+            foreach (var bar in hpBars)
+            {
+                var title = bar.Q<VisualElement>(className: "unity-progress-bar__title-container");
+                if (title != null) title.style.display = playing ? DisplayStyle.None : DisplayStyle.Flex;
+            }
+        }
+
+        public void SetQuickSettings(GameSettings settings, bool canChangeTimer, bool busy)
+        {
+            if (disposed) return;
+            fastButton.text = settings.FastPlay ? "快速播放：开" : "快速播放：关";
+            timerButton.text = !canChangeTimer ? "赛制计时" : settings.TurnTimer ? "限时选择：开" : "限时选择：关";
+            fastButton.SetEnabled(!busy);
+            timerButton.SetEnabled(!busy && canChangeTimer);
+            timerButton.tooltip = canChangeTimer ? "使用本局设置的选择秒数；切换后重新计时。" : "本局按赛制计时，不能用快捷开关覆盖。";
         }
 
         void PrepareFighter(int side, VisualElement fighter)
@@ -345,7 +392,11 @@ namespace StreamDuel.Game
         {
             var fighter = source != null && source.Active >= 0 && source.Active < source.Team.Count ? source.Team[source.Active] : null;
             fighterNames[side].text = fighter == null ? "等待上场" : source.Name + " · " + fighter.Name;
-            fighterDetails[side].text = fighter == null ? "" : fighter.Tracks + " · 人设「" + fighter.PersonaName + "」";
+            fighterDetails[side].text = fighter == null ? "" : string.Join(" / ",
+                fighter.TrackViews.Select(track => track.Symbol + " " + track.Name)) + " · 人设「" + fighter.PersonaName + "」";
+            if (fighter != null && fighter.TrackViews.Count > 0
+                && ColorUtility.TryParseHtmlString(fighter.TrackViews[0].Color, out Color trackColor))
+                fighterDetails[side].style.color = trackColor;
             fighterDetails[side].tooltip = fighter == null ? "" : fighter.PersonaDescription;
             hpBars[side].value = fighter == null ? 0 : fighter.Pct;
             hpBars[side].title = fighter == null ? "" : "人气 " + fighter.Hp + " / " + fighter.MaxHp + "（" + fighter.Pct + "%）";
@@ -392,7 +443,7 @@ namespace StreamDuel.Game
                 var fighter = source.Team[index];
                 bool selectable = side == 0
                     ? view.Phase == Phase.Lead
-                        || view.Phase == Phase.Replace && !fighter.Fainted && index != source.Active
+                    || view.Phase == Phase.Replace && view.SwitchTargets.Contains(index)
                         || view.Phase == Phase.Choose && view.SwitchTargets.Contains(index)
                     : view.Phase == Phase.Ban;
                 string state = fighter.Fainted ? "已下播" : index == source.Active ? "在场" : "后排";
@@ -420,7 +471,7 @@ namespace StreamDuel.Game
                     ? view.ControlledReason : skill.Pp <= 0 ? "PP 已耗尽" : "当前不可用";
                 string damage = skill.DamageMin + "–" + skill.DamageMax;
                 button.text = (skill.Fifth ? "第五技能 · " : "") + skill.Name + "\n"
-                    + skill.Track + " · " + skill.Category + "\nPP " + skill.Pp + "/" + skill.MaxPp
+                    + skill.TrackSymbol + " " + skill.Track + " · " + skill.Category + "\nPP " + skill.Pp + "/" + skill.MaxPp
                     + (view.FreePp ? "（免消耗）" : "") + " · 先制 " + skill.Priority
                     + "\n伤害 " + damage + " · 克制 ×" + skill.Effectiveness.ToString("0.##", CultureInfo.InvariantCulture)
                     + (reason.Length == 0 ? "" : "\n" + reason);
@@ -430,6 +481,8 @@ namespace StreamDuel.Game
                     description.Append('\n').Append(effect.Timing).Append("：").Append(effect.Text).Append("；").Append(effect.Dispel);
                 button.tooltip = description.ToString();
                 button.style.color = skill.Fifth ? Accent : TextColor;
+                if (ColorUtility.TryParseHtmlString(skill.TrackColor, out Color trackColor))
+                    button.style.backgroundColor = Color.Lerp(Raised, trackColor, 0.23f);
                 Border(button, skill.Fifth ? Accent : Raised, skill.Fifth ? 2 : 1);
                 button.SetEnabled(!busy && view.Phase == Phase.Choose && skill.Usable);
             }
@@ -527,7 +580,7 @@ namespace StreamDuel.Game
             Padding(button, 8);
             Action handler = () =>
             {
-                if (disposed) return;
+                if (disposed || !button.enabledInHierarchy) return;
                 HideTooltip();
                 action?.Invoke();
             };

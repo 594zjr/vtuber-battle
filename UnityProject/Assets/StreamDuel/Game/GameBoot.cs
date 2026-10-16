@@ -23,7 +23,9 @@ namespace StreamDuel.Game
                 cam.backgroundColor = new Color32(12, 17, 36, 255);
                 cam.gameObject.AddComponent<AudioListener>();
             }
+            GameRuntimeSettings.ApplyDisplay();
             var go = new GameObject("StreamDuel");
+            go.AddComponent<LocalBattleSession>().enabled = false;
             go.AddComponent<UIDocument>();
             go.AddComponent<ScreenRouter>();
             go.AddComponent<GameBootRecovery>();
@@ -33,16 +35,32 @@ namespace StreamDuel.Game
         internal static void ConnectScreens(ScreenRouter router)
         {
             if (router.IsInitialized) return;
-            var document = router.GetComponent<UIDocument>();
-            router.Initialize(document, Resources.Load<ScreenResources>("StreamDuelUI"));
-            router.Register(ScreenIds.Menu, () => new MenuScreen());
-            router.Register(ScreenIds.Team, () => new TeamScreen());
+            var session = router.GetComponent<LocalBattleSession>();
+            if (session == null) session = router.gameObject.AddComponent<LocalBattleSession>();
+            session.enabled = false;
+            session.EnsureMenuContentLoaded();
+            router.Initialize(router.GetComponent<UIDocument>(), Resources.Load<ScreenResources>("StreamDuelUI"));
+            router.Register(ScreenIds.Menu, () => new MenuScreen(session));
+            router.Register(ScreenIds.About, () => new AboutScreen());
+            router.Register(ScreenIds.AnimationPreview, () => new AnimPreviewScreen());
+            router.Register(ScreenIds.EffectPreview, () => new MenuPreviewScreen(ScreenIds.EffectPreview, "特效预览"));
+            router.Register(ScreenIds.Team, () => new TeamScreen(session));
             router.Register(ScreenIds.Battle, () => new BattleScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());
-            router.Register(ScreenIds.Replay, () => new ReplayScreen());
+            router.Register(ScreenIds.Replay, () => new ReplayScreen(session.FindLoadedPack));
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
-            // 脚本重载不能恢复纯 C# 对战数据，回到菜单重新开局。
+            session.MainMenuRequested = () => router.Show(ScreenIds.Menu);
+            session.TeamScreenRequested = () => router.Show(ScreenIds.Team);
+            session.ResultRequested = battle => router.Show(ScreenIds.Result, new ResultScreenArgs
+            {
+                Battle = battle,
+                ResolvePack = session.FindLoadedPack,
+                RematchLabel = session.ResultRematchLabel,
+                Rematch = () => { session.RematchFromResult(); router.Show(ScreenIds.Battle, session.CreateBattleScreenArgs()); },
+                ReturnToTeam = session.ReturnToTeamFromResult
+            });
+            // 域重载不能恢复纯 C# 会话，重新接线后从菜单开始。
             router.Show(ScreenIds.Menu);
         }
     }

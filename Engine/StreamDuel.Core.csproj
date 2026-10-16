@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../UnityProject/Assets/StreamDuel/Core/**/*.cs" />
+    <EmbeddedResource Include="../UnityProject/Assets/StreamDuel/Resources/AiOpponents.json" LogicalName="StreamDuel.Core.AiOpponents.json" />
   </ItemGroup>
 </Project>

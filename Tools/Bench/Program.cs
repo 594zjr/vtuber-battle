@@ -29,6 +29,7 @@ namespace StreamDuel.Bench
                     Console.WriteLine("用法：dotnet run -c Release --project Tools/Bench -- [--quick]");
                     Console.WriteLine("固定种子，先预热再计时；--quick 使用较小的固定样本数。");
                     Console.WriteLine("输出均值、95 分位、最大耗时及普通对普通完整对局吞吐，结果写入当前目录的 bench_out/bench.json。");
+                    Console.WriteLine("专家追加默认预算/无预算对照，记录逐局面动作、节点数及截断状态，并验证重复选择一致。");
                     Console.WriteLine("计时结果受机器负载影响，请在相同环境下比较；参考上限见 docs/performance.md。");
                     return 0;
                 }
@@ -74,16 +75,34 @@ namespace StreamDuel.Bench
                         metric.OperationsPerSecond.HasValue ? metric.OperationsPerSecond.Value.ToString("F2", CultureInfo.InvariantCulture) : "—"));
                 }
                 Console.WriteLine();
+                Console.WriteLine("专家节点口径：" + result.Expert.NodeDefinition);
+                Console.WriteLine("| 局面 | 方 | 模式 / 节点预算 | 动作（零基索引） | 已模拟节点 | 截断 | 最大 ms |");
+                Console.WriteLine("|---|---:|---|---|---:|---|---:|");
+                foreach (var item in result.Expert.Cases)
+                {
+                    PrintExpertCase(item);
+                }
+                foreach (var item in result.Expert.Diagnostics) PrintExpertCase(item);
+                Console.WriteLine();
                 Console.WriteLine("含预热的总耗时：" + elapsed.Elapsed.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture) + " 秒");
                 Console.WriteLine("结果已保存：" + output);
                 return 0;
 #endif
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is StreamDuel.Core.KeyError)
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is FormatException || ex is StreamDuel.Core.KeyError)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
             }
+        }
+
+        static void PrintExpertCase(ExpertCaseResult item)
+        {
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "| {0} | {1} | {2} / {3} | {4} {5} | {6} | {7} | {8} |",
+                item.Snapshot, item.Side, item.Mode, item.MaxNodes, item.ActionType, item.ActionIndex,
+                item.SimulatedNodes, item.BudgetExhausted ? "是" : "否",
+                item.Timing == null ? "—" : item.Timing.MaxMs.ToString("F4", CultureInfo.InvariantCulture)));
         }
     }
 }

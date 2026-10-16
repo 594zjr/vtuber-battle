@@ -20,10 +20,11 @@ namespace StreamDuel.Bench
         public int CompletedGames { get; }
         public string TerminalChecksum { get; }
         public List<MetricResult> Metrics { get; }
+        public ExpertBenchmarkResult Expert { get; }
 
         internal BenchmarkResult(ContentDb db, uint seed, bool quick, string workload,
             IList<string>[] teams, List<SnapshotResult> snapshots, int completedGames,
-            ulong terminalChecksum, List<MetricResult> metrics)
+            ulong terminalChecksum, List<MetricResult> metrics, ExpertBenchmarkResult expert)
         {
             PackId = db.PackId;
             ContentHash = db.ContentHash();
@@ -35,6 +36,7 @@ namespace StreamDuel.Bench
             CompletedGames = completedGames;
             TerminalChecksum = terminalChecksum.ToString("x16", CultureInfo.InvariantCulture);
             Metrics = metrics;
+            Expert = expert;
         }
     }
 
@@ -96,12 +98,23 @@ namespace StreamDuel.Bench
         {
             string contentDirectory = Path.Combine(AppContext.BaseDirectory, "Content");
             string rules = File.ReadAllText(Path.Combine(contentDirectory, "StreamDuelRules.json"));
+            var policy = PackPolicy.LoadDefault();
             var sources = Directory.GetFiles(Path.Combine(contentDirectory, "Packs"), "*.json")
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .Select(path => File.ReadAllText(path)).ToList();
-            var databases = sources.Select(json => ContentDb.FromJson(rules, json)).ToList();
+            var databases = new List<ContentDb>();
+            var availableSources = new List<string>();
+            foreach (string source in sources)
+            {
+                var loaded = PackLoader.LoadJson(rules, source, "基准内容包", policy);
+                if (loaded.IsDisabled) continue;
+                if (loaded.Db == null) throw new InvalidOperationException(loaded.Error);
+                databases.Add(loaded.Db);
+                availableSources.Add(source);
+            }
+            sources = availableSources;
             var db = databases.SingleOrDefault(pack => pack.PackId == "original")
-                ?? throw new InvalidOperationException("性能基准缺少 original 内容包。");
+                ?? throw new InvalidOperationException(policy.PackReason("original") ?? "性能基准缺少可用的 original 内容包。");
             foreach (var team in Teams)
             {
                 var errors = TeamCheck.Validate(db, null, team);
@@ -149,6 +162,8 @@ namespace StreamDuel.Bench
                     input => Ai.Choose(input.Battle, input.Side, level)));
             }
 
+            var expert = ExpertBenchmark.Run(positions, metrics, quick);
+
             var middle = positions[1];
             metrics.Add(Measure("battle.clone", "中盘 Battle.Clone", 20, quick ? 200 : 2000,
                 index => middle, battle => battle.Clone()));
@@ -159,18 +174,19 @@ namespace StreamDuel.Bench
                 string json = sources[packIndex];
                 string packId = databases[packIndex].PackId;
                 metrics.Add(Measure("content.load." + packId, "加载 " + packId + "（内存 JSON）", 3, quick ? 24 : 240,
-                    index => json, packJson => ContentDb.FromJson(rules, packJson)));
+                    index => json, packJson => ContentDb.FromJson(rules, packJson, policy)));
             }
 
             string workload = "固定 original 六对六阵容，无禁用和首发选择；完整对局使用种子 52001 起连续递增，"
                 + "计时包含 Battle 构造、双方普通 AI 行动/补位与完整结算，保留所有日志和回放历史；吞吐为样本数除以累计计时。"
                 + "AI 局面由种子 52001 的普通对普通对局确定，取开局、行动回合数中点及四分之三处，轮换双方且等量采样；"
                 + "每次在计时外 Clone 恢复，仅计时 Ai.Choose。Clone 和 StateHash 使用中盘完整历史。"
+                + expert.Workload
                 + "所有内置内容包的 JSON 在计时外预读；加载仅计解析、合并和校验，不含磁盘 IO。"
                 + "每项先预热：对局 2 次、每种 AI 6 次、Clone/StateHash 各 20 次、每包加载 3 次；"
                 + "不主动触发 GC，不扣计时器开销；P95 为最近秩 ceil(0.95*n)。"
                 + "TerminalChecksum 为测量对局的 Seed/Winner/Turn/StateHash 按顺序各写 8 字节小端序计算的 FNV-1a 64 位摘要。";
-            return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics);
+            return new BenchmarkResult(db, Seed, quick, workload, Teams, snapshots, completedGames, terminalChecksum, metrics, expert);
         }
 
         static MetricResult Measure<TInput, TOutput>(string id, string label, int warmup, int count,

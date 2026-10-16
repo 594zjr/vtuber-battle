@@ -11,6 +11,8 @@ namespace StreamDuel.Game
 {
     public sealed class BattleScreenArgs
     {
+        public LocalBattleSession Session;
+        public TeamBattleRequest OriginalRequest;
         public Battle Battle;
         public ContentDb Db;
         public GameSettings Settings;
@@ -24,9 +26,14 @@ namespace StreamDuel.Game
         public bool Isolated;
         public float TimerRemaining = 10f;
         public List<string> Modifiers;
+        internal TurnClock Clock;
+        internal string SettingsNotice;
+        internal Battle PendingBattle;
+        internal BattleViewModel PendingBefore;
+        internal int PendingFromEvent = -1, PendingFromLog;
     }
 
-    // 在独立组队页面接入前保留旧版的完整开战入口；规则和建议阵容仍交给 Core。
+    // 独立参数入口保留的组队组件；正式导航使用 TeamScreen。
     public sealed class BattleSetupPanel : IDisposable
     {
         sealed class Pack

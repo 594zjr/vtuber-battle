@@ -9,7 +9,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    public sealed class BattleUiSmoke : MonoBehaviour
+    public sealed partial class BattleUiSmoke : MonoBehaviour
     {
         [Serializable]
         sealed class Report
@@ -19,7 +19,7 @@ namespace StreamDuel.Game
             public string logScope = "从 BeforeSceneLoad 收集全部警告和错误；更早的启动诊断另查完整 Editor 日志及退出后 Console 计数。";
             public string layoutScope = "检查渲染控件边界、文字测量和非祖先交叠；滚动行按视口裁剪，截图仍需人工复核。";
             public bool completed, timelineAvailable, timelineVerified;
-            public int warnings, errors, completedMatches, animationBatches, animationCues, timelineSpeedChecks;
+            public int warnings, errors, completedMatches, realCompletedMatches, animationBatches, animationCues, timelineSpeedChecks;
             public List<string> steps = new List<string>();
             public List<string> screenshots = new List<string>();
             public List<string> logs = new List<string>();
@@ -81,10 +81,17 @@ namespace StreamDuel.Game
             {
                 Require(index + 1 < args.Length && Path.IsPathFullyQualified(args[index + 1]), "对战验收参数后必须提供绝对输出目录。");
                 string output = Path.GetFullPath(args[index + 1]);
-                string logs = Path.GetFullPath(Path.Combine(Application.dataPath, "../Logs"));
-                Require(output.Equals(logs, StringComparison.OrdinalIgnoreCase)
-                    || output.StartsWith(logs + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
-                    "验收产物必须位于本工程忽略的 Logs 目录。");
+                string project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+                string[] allowed = { Path.Combine(project, "Logs", "T67"), Path.Combine(project, "Logs", "T-67") };
+                Require(allowed.Any(root => output.Equals(root, StringComparison.OrdinalIgnoreCase)
+                    || output.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
+                    "验收产物必须位于本工程 Logs/T67 或 Logs/T-67。");
+                for (var current = new DirectoryInfo(output); current != null; current = current.Parent)
+                {
+                    Require(!current.Exists || (current.Attributes & FileAttributes.ReparsePoint) == 0,
+                        "T67 验收目录不能经过重解析点。");
+                    if (string.Equals(current.FullName, project, StringComparison.OrdinalIgnoreCase)) break;
+                }
                 report.outputDirectory = Path.Combine(output, "run-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(report.outputDirectory);
                 ReportPath = Path.Combine(report.outputDirectory, "result.json");
@@ -140,21 +147,23 @@ namespace StreamDuel.Game
             document = documents[0];
             Require(router.CurrentScreenId == ScreenIds.Menu && document.rootVisualElement.panel != null,
                 "默认菜单没有连接到运行时面板。");
-            Require(BattleSetupPanel.IsolatedRequested, "验收没有启用隔离设置模式。");
+            Require(GameRuntimeSettings.IsSmokeTest, "验收没有启用隔离设置模式。");
             int[] widths = { 1280, 1920 }, heights = { 720, 1080 };
             for (int resolution = 0; resolution < widths.Length; resolution++)
             {
                 yield return Resize(widths[resolution], heights[resolution]);
                 router.Show(ScreenIds.Menu);
                 yield return null;
-                Submit("open-battle");
+                Submit("open-team");
                 yield return null;
                 yield return new WaitForEndOfFrame();
-                Require(document.rootVisualElement.Q("battle-setup") != null, "菜单没有打开组队配置。");
+                Require(router.CurrentScreenId == ScreenIds.Team && document.rootVisualElement.Q("team-screen") != null, "菜单没有打开正式组队。");
                 Capture("setup");
-                Submit("setup-start");
+                Submit("team-auto");
+                Submit("team-start");
                 yield return null;
                 Require(Current != null && Current.CurrentBattle != null, "配置页开播按钮没有创建对局。");
+                yield return WaitRealPlayback(Current);
                 yield return CheckSetupSelection();
                 Submit("battle-menu");
                 yield return null;
@@ -165,8 +174,11 @@ namespace StreamDuel.Game
                 yield return CheckRuntimeTooltips();
                 yield return CheckRematchAndTimer();
                 yield return CheckTimelineSpeeds();
+                yield return CheckRealPresentationAndVersions();
+                yield return CheckQuickSettingsIsolation();
             }
             Require(report.completedMatches == 2, "没有在两个分辨率分别完成真实对局。");
+            Require(report.realCompletedMatches == 2, "没有在两个分辨率分别用真实时间线播放完整对局。");
             Require(report.animationCues > 0 && report.timelineSpeedChecks == 6,
                 "真实 Core 动画提示或两个分辨率的三种速度验收没有完成。");
             report.timelineVerified = true;
@@ -185,43 +197,45 @@ namespace StreamDuel.Game
 
             Submit("battle-setup");
             yield return null;
-            Require(Current.CurrentBattle == null && document.rootVisualElement.Q("setup-slots") != null,
+            Require(Current == null && router.CurrentScreenId == ScreenIds.Team && document.rootVisualElement.Q("team-slots") != null,
                 "对战没有返回组队配置。");
-            Submit("setup-slot-1");
+            Submit("team-slot-1");
             yield return null;
-            Require(!Button("setup-start").enabledInHierarchy, "移出一位主播后仍允许六人开播。");
-            var candidate = Button("setup-pick-" + added);
-            var roster = document.rootVisualElement.Q<ScrollView>("setup-roster-scroll");
+            Require(!Button("team-start").enabledInHierarchy, "移出一位主播后仍允许六人开播。");
+            var candidate = Button("team-pick-" + added);
+            var roster = document.rootVisualElement.Q<ScrollView>("team-roster");
             Require(roster != null, "组队候选列表没有滚动容器。");
             roster.ScrollTo(candidate);
             yield return null;
             Require(Overlaps(roster.contentViewport.worldBound, candidate.worldBound), "原未选主播的加入按钮没有滚动到可见区域。");
             Submit(candidate.name);
             yield return null;
-            Require(Button("setup-start").enabledInHierarchy, "补入一位主播后阵容仍不可开播。");
-            Submit("setup-start");
+            Require(Button("team-start").enabledInHierarchy, "补入一位主播后阵容仍不可开播。");
+            Submit("team-start");
             yield return null;
             Require(Current.CurrentBattle != original && Current.Args.Isolated
                 && Current.CurrentBattle.Sides[0].Team.Select(fighter => fighter.Def.Id).SequenceEqual(expected),
                 "手动修改的六人 ID 或顺序没有用于实际对战。");
+            yield return WaitRealPlayback(Current);
 
             Submit("battle-setup");
             yield return null;
-            Require(Current.CurrentBattle == null, "保存检查没有回到组队页。");
+            Require(Current == null && router.CurrentScreenId == ScreenIds.Team, "保存检查没有回到正式组队页。");
             for (int index = 0; index < expected.Length; index++)
             {
-                var slot = Button("setup-slot-" + index);
+                var slot = Button("team-slot-" + index);
                 Require(slot.enabledInHierarchy && slot.userData as string == expected[index]
-                    && slot.text == (index + 1) + " · " + db.Streamer(expected[index]).Name + " ×",
+                    && slot.text == (index + 1) + "  " + db.Streamer(expected[index]).Name,
                     "返回组队后第 " + (index + 1) + " 槽的 ID、成员或顺序没有保留。");
             }
             yield return new WaitForEndOfFrame();
             Capture("setup-preserved");
-            Submit("setup-start");
+            Submit("team-start");
             yield return null;
             Require(Current.CurrentBattle != null && Current.Args.Isolated
                 && Current.CurrentBattle.Sides[0].Team.Select(fighter => fighter.Def.Id).SequenceEqual(expected),
                 "返回组队后重新开播使用了不同的六人 ID 或顺序。");
+            yield return WaitRealPlayback(Current);
             report.steps.Add(Size + "：真实按钮移出第 2 槽并加入原未选主播，开播→重新组队→再开播的六人 ID 与顺序保留："
                 + string.Join(",", expected) + "（隔离同会话）。");
         }
@@ -340,17 +354,20 @@ namespace StreamDuel.Game
             yield return null;
             Require(Current.CurrentBattle != battle && Current.CurrentBattle.Phase == Phase.Ban,
                 "重来没有创建新的禁用对局。");
+            recordedBattle = Current.CurrentBattle;
+            lastEvent = 0;
+            yield return DrainPlayback();
             yield return new WaitForEndOfFrame();
             Capture("rematch");
             Submit("battle-setup");
             yield return null;
-            Require(document.rootVisualElement.Q("battle-setup") != null && Current.CurrentBattle == null,
+            Require(router.CurrentScreenId == ScreenIds.Team && document.rootVisualElement.Q("team-screen") != null && Current == null,
                 "重新组队没有回到配置页。");
             router.Show(ScreenIds.Battle, new BattleScreenArgs { Battle = battle, Isolated = true });
             yield return null;
             Submit("battle-return");
             yield return null;
-            Require(Current.CurrentBattle == null && document.rootVisualElement.Q<Button>("setup-start") != null,
+            Require(Current == null && router.CurrentScreenId == ScreenIds.Team && document.rootVisualElement.Q<Button>("team-start") != null,
                 "结算弹窗的重新组队按钮没有回到配置。");
             Submit("back-button");
             yield return null;
@@ -373,7 +390,8 @@ namespace StreamDuel.Game
                     Require(recording.Calls.Count == checkedCalls + 1, "同一帧未检查就派发了多批动画。");
                     Require(screen.PlaybackFromEvent == lastEvent && screen.PlaybackToEvent > lastEvent
                         && screen.PlaybackToEvent <= battle.Events.Count, "动画事件范围重复、跳过或越界。");
-                    double speed = !screen.Args.Settings.Animations ? 0 : screen.Args.Settings.FastPlay ? 2 : 1;
+                    double speed = !screen.Args.Settings.Animations ? 0
+                        : screen.Args.Settings.FastPlay && screen.Args.Settings.AnimationSpeed == 1 ? 2 : screen.Args.Settings.AnimationSpeed;
                     var expected = BattleTimeline.Build(battle.Events, lastEvent, screen.PlaybackToEvent, speed);
                     var actual = recording.Calls[checkedCalls];
                     Require(actual.Count == expected.Count, "动画提示数量与本批 Core 时间线不同。");
@@ -620,7 +638,7 @@ namespace StreamDuel.Game
             var root = document.rootVisualElement.Q("battle-hud");
             var target = root?.Q(targetName);
             Require(target != null && Shown(target), "悬停目标不存在或不可见：" + targetName);
-            for (var parent = target.parent; parent != null; parent = parent.parent)
+            for (var parent = target.hierarchy.parent; parent != null; parent = parent.hierarchy.parent)
                 if (parent is ScrollView scroll) { scroll.ScrollTo(target); break; }
             yield return null;
             SendPointerMove(root, new Vector2(root.worldBound.xMin + 1, root.worldBound.yMin + 1));
@@ -700,7 +718,7 @@ namespace StreamDuel.Game
             var timed = new Battle(db, Teams(db), new[] { "你", "电脑" }, 72);
             router.Show(ScreenIds.Battle, new BattleScreenArgs
             {
-                Battle = timed, Isolated = true,
+                Battle = timed, Isolated = true, Animator = new NullAnimator(),
                 Settings = new GameSettings { TurnTimer = true, DefaultPack = "original" }
             });
             int events = timed.Record.Events.Count;
@@ -709,7 +727,7 @@ namespace StreamDuel.Game
             Submit("battle-menu");
             yield return null;
             Require(router.CurrentScreenId == ScreenIds.Menu, "计时对局未进入菜单。");
-            Submit("back-button");
+            Submit("resume-battle");
             yield return null;
             Require(ReferenceEquals(Current.CurrentBattle, timed), "菜单返回没有恢复同一场对局。");
             Current.Tick(2);
@@ -764,7 +782,7 @@ namespace StreamDuel.Game
         static bool Shown(VisualElement element)
         {
             if (element == null) return false;
-            for (var item = element; item != null; item = item.parent)
+            for (var item = element; item != null; item = item.hierarchy.parent)
                 if (!item.visible || item.resolvedStyle.display == DisplayStyle.None) return false;
             return true;
         }
@@ -800,7 +818,7 @@ namespace StreamDuel.Game
                 Require(Finite(bounds.x) && Finite(bounds.y) && Finite(bounds.width) && Finite(bounds.height)
                     && bounds.width > 0 && bounds.height > 0, "布局无效：" + element.name);
                 bool scrolling = false;
-                for (var parent = element.parent; parent != null; parent = parent.parent)
+                for (var parent = element.hierarchy.parent; parent != null; parent = parent.hierarchy.parent)
                     if (parent is ScrollView) scrolling = true;
                 if (!scrolling) Require(Contains(screen, bounds), "控件超出屏幕：" + element.name);
                 if (element is TextElement text && !string.IsNullOrEmpty(text.text))
@@ -837,7 +855,7 @@ namespace StreamDuel.Game
         static Rect VisibleBounds(VisualElement element)
         {
             Rect result = element.worldBound;
-            for (var parent = element.parent; parent != null; parent = parent.parent)
+            for (var parent = element.hierarchy.parent; parent != null; parent = parent.hierarchy.parent)
             {
                 if (!(parent is ScrollView scroll)) continue;
                 Rect clip = scroll.contentViewport.worldBound;
