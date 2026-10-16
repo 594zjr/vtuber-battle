@@ -1,0 +1,72 @@
+:root {
+    --sd-background: #0c1124;
+    --sd-panel: #151c38;
+    --sd-panel-raised: #1c2549;
+    --sd-accent: #ffb547;
+    --sd-text: #e8ebfa;
+    --sd-muted: #98a1c8;
+    --sd-font-small: 20px;
+    --sd-font-body: 26px;
+    --sd-font-title: 42px;
+}
+
+#screen-router {
+    flex-grow: 1;
+    color: var(--sd-text);
+    font-size: var(--sd-font-body);
+}
+
+.screen {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--sd-background);
+    padding: 36px;
+}
+
+.screen-panel {
+    width: 86%;
+    max-width: 1600px;
+    max-height: 100%;
+    padding: 36px;
+    background-color: var(--sd-panel);
+    border-radius: 20px;
+    border-width: 1px;
+    border-color: #2b3666;
+}
+
+.screen-title {
+    font-size: var(--sd-font-title);
+    color: var(--sd-accent);
+    margin-bottom: 24px;
+    white-space: normal;
+}
+
+.screen-content { flex-grow: 1; white-space: normal; }
+.screen-actions { flex-direction: row; flex-wrap: wrap; margin-top: 24px; }
+.menu-grid { flex-direction: row; flex-wrap: wrap; }
+.screen-button {
+    min-width: 280px;
+    min-height: 68px;
+    padding: 12px 24px;
+    margin: 8px;
+    background-color: var(--sd-panel-raised);
+    color: var(--sd-text);
+    font-size: var(--sd-font-body);
+    border-radius: 10px;
+    border-color: #2b3666;
+    white-space: normal;
+}
+.screen-button:hover { background-color: #2b3666; border-color: var(--sd-accent); }
+.screen-button:focus { border-color: var(--sd-accent); }
+.screen-note { font-size: var(--sd-font-small); color: var(--sd-muted); white-space: normal; }
+.type-chip { padding: 6px 16px; margin: 6px; border-radius: 8px; color: #0c1124; font-size: var(--sd-font-small); }
+
+.battle-stage { min-height: 400px; flex-grow: 1; margin-top: 12px; }
+.battle-stage__fighters { justify-content: space-around; align-items: center; flex-grow: 1; }
+.battle-stage__fighter { width: 36%; align-items: stretch; padding: 20px; background-color: var(--sd-panel-raised); border-radius: 12px; }
+.battle-stage__portrait { height: 200px; width: 100%; background-color: #26335c; }
+.battle-stage__hp-bar { height: 32px; margin-top: 14px; }
+.battle-stage__status-row { min-height: 40px; flex-direction: row; flex-wrap: wrap; }
+.battle-stage__field-banner { margin-top: 16px; color: var(--sd-muted); font-size: var(--sd-font-small); -unity-text-align: middle-center; }
+.status-icon { padding: 4px 10px; margin: 4px; background-color: #2b3666; border-radius: 6px; font-size: var(--sd-font-small); }

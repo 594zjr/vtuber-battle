@@ -167,7 +167,8 @@ public class T42_LocalizationEdgeTests
             using var sha = SHA256.Create();
             string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
             // 在 9fb5e12 的独立 Core 源码副本上采集；覆盖所有内置包的效果、人设、赛道及代表错误分支。
-            Assert.Equal("474298CBC608EDACA215EAFC4ED2DBDD28CB79B948B74A4157F0367C8F9C9CC7", actual);
+            // T-82 用 32f190e 资源复现旧摘要后逐项核对：467 项中仅 14 项含已批准的中性显示名替换。
+            Assert.Equal("60A4A611E213D0878A9357738C4E381302A73FA3864B6EB8B2C0B24A8EF12B88", actual);
         }
         finally
         {

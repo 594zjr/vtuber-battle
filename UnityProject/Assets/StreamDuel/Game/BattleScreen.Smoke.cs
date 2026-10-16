@@ -11,7 +11,23 @@ namespace StreamDuel.Game
     public sealed partial class BattleScreen
     {
         // Awake 会先加载内容包；在 Start 前就识别验收模式，避免覆盖玩家偏好。
-        static bool SmokeRequested => Array.IndexOf(Environment.GetCommandLineArgs(), "--smoke-test") >= 0;
+        static bool SmokeRequested => Array.IndexOf(Environment.GetCommandLineArgs(), "--smoke-test") >= 0
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--ui-smoke-test") >= 0
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--menu-smoke-test") >= 0
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--anim-smoke-test") >= 0;
+
+        public static bool SmokeCompleted { get; private set; }
+        public static int SmokeExitCode { get; private set; }
+        public static string SmokeReportPath { get; private set; }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void ResetSmokeRun()
+        {
+            // 禁用域重载时也不能让本轮编辑器验收复用上一轮完成状态。
+            SmokeCompleted = false;
+            SmokeExitCode = 1;
+            SmokeReportPath = null;
+        }
 
         [Serializable]
         sealed class SmokeResult
@@ -45,6 +61,7 @@ namespace StreamDuel.Game
                 // 每轮独立目录避免把上轮截图误认成本轮证据；目录编号不参与战斗。
                 smokeDirectory = Path.Combine(Path.GetFullPath(args[index + 1]), "run-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(smokeDirectory);
+                SmokeReportPath = Path.Combine(smokeDirectory, "result.json");
                 Debug.Log("冒烟验收输出：" + smokeDirectory);
                 StartCoroutine(GuardSmoke(RunSmoke()));
             }
@@ -174,15 +191,17 @@ namespace StreamDuel.Game
                     smokeResult.stateHash = b.StateHash().ToString("x16");
                 }
                 smokeResult.screenshots = smokeScreenshots.ToArray();
-                if (smokeDirectory != null)
-                    File.WriteAllText(Path.Combine(smokeDirectory, "result.json"), JsonUtility.ToJson(smokeResult, true));
-                passed = smokeResult.completed && smokeResult.errors == 0 && smokeResult.warnings == 0;
+                if (SmokeReportPath != null)
+                    File.WriteAllText(SmokeReportPath, JsonUtility.ToJson(smokeResult, true));
+                passed = SmokeReportPath != null && smokeResult.completed && smokeResult.errors == 0 && smokeResult.warnings == 0;
             }
             catch (Exception ex) { Debug.LogError("无法写入冒烟验收报告：" + ex); }
             finally
             {
                 Application.logMessageReceived -= CollectSmokeLog;
-                Application.Quit(passed ? 0 : 1);
+                SmokeExitCode = passed ? 0 : 1;
+                SmokeCompleted = true;
+                if (!Application.isEditor) Application.Quit(SmokeExitCode);
             }
         }
     }

@@ -28,7 +28,7 @@ public class T33_AiWeightsEdgeTests
         return new Battle(db, new IList<string>[] { own, rotated.Skip(6).Take(6).ToList() }, new[] { "A", "B" }, seed);
     }
 
-    static string Play(uint seed, AiLevel level, Func<Battle, int, BattleAction> choose)
+    static string Play(uint seed, AiLevel level, Func<Battle, int, BattleAction> choose, bool legacy = false)
     {
         var previousCulture = CultureInfo.CurrentCulture;
         try
@@ -41,7 +41,9 @@ public class T33_AiWeightsEdgeTests
             {
                 if (battle.Phase == Phase.Choose) battle.ResolveTurn(choose(battle, 0), choose(battle, 1));
                 else for (int side = 0; side < 2; side++)
-                    if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, level));
+                    if (battle.Need[side]) battle.Replace(side, legacy
+                        ? Ai.ChooseReplacementWithWeights(battle, side, level, AiWeights.Legacy)
+                        : Ai.ChooseReplacement(battle, side, level));
             }
             Assert.Equal(Phase.Over, battle.Phase);
             return JsonSerializer.Serialize(new
@@ -67,19 +69,23 @@ public class T33_AiWeightsEdgeTests
     }
 
     [Theory]
-    [InlineData(0u, AiLevel.Normal, "D317EC96EDFE3119B102C05D84653280338DA786B1C52440B9AFDFE36F92D933")]
+    [InlineData(0u, AiLevel.Normal, "266CE337B4C00F9D15C8E45FD2DD4255A2BCB9A2AE61931D52881A017BB555AC")]
     [InlineData(7u, AiLevel.Normal, "1B9D2B717949A2416D66CE8F8B76A89C26FECCE22CBD84A94568527631C5E1E0")]
-    [InlineData(42u, AiLevel.Normal, "F1052240844C716A31EE59D3A343197C9DE04B75E838C64154D6CC3FE2FF26AC")]
-    [InlineData(7u, AiLevel.Easy, "0F82CF4201298E014127680246FE45B5DE437A9C6453429882D6BA5B095C8FD0")]
-    [InlineData(7u, AiLevel.Hard, "F66ABD5D889CE8906B62071ED3BEE1EDA5995E8FACD8FE0AD9B9AD7724C5F329")]
+    [InlineData(42u, AiLevel.Normal, "0222E7E8E66064D294EE330D5641D7E5DCFA1315F25A907634908B771C15C137")]
+    [InlineData(7u, AiLevel.Easy, "AD0C8A37E9E78DA384301C971AF0FA7860A23F35B0C9BC1A5B4BA0A665462681")]
+    [InlineData(7u, AiLevel.Hard, "FA0B2FA1E4486551B9DFA8A88FBEB4C2791936C6128429C358F407E402986A44")]
     public void ExistingStrategiesMatchTheirPreRefactorCompleteBattleBaselines(uint seed, AiLevel level, string expected)
     {
         // 在改动前的 e692be0c 采集，防止旧重载和 Default 一起漂移却互相比对通过。
         // 仅固定战斗行为，允许后续任务给回放或状态哈希增加元数据。
         // 当时 Ai.cs SHA256: FA1FFCE0785CA4CF02B381CAECD9F8134D512BE0D5FACF1D335F1A555A191FA3。
-        string actual = Play(seed, level, (battle, side) => Ai.Choose(battle, side, level));
+        // T-82 先用 32f190e 资源重现全部五个旧摘要，再同步三项显示名替换影响的四个摘要。
+        // 胜方、回合、下一次随机数及所有日志非 Text 字段逐项相同；本地证据：bin/t82-ai-audit/audit.json。
+        // T-95 明确区分冻结的旧策略回归与新默认重载一致性，保留所有历史摘要。
+        string actual = Play(seed, level, (battle, side) => Ai.ChooseWithWeights(battle, side, level, AiWeights.Legacy), true);
         output.WriteLine("{0}/{1}: {2}", level, seed, Hash(actual));
         Assert.Equal(expected, Hash(actual));
+        actual = Play(seed, level, (battle, side) => Ai.Choose(battle, side, level));
         Assert.Equal(actual, Play(seed, level, (battle, side) => Ai.Choose(battle, side, level, AiWeights.Default)));
         if (level == AiLevel.Normal)
             Assert.Equal(actual, Play(seed, level, (battle, side) => Ai.Choose(battle, side)));

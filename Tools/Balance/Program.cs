@@ -36,13 +36,14 @@ namespace StreamDuel.Balance
                 }
 
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
+                var policy = PackPolicy.Load(Path.Combine(content, "PackPolicy.json"));
                 string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"), Encoding.UTF8);
                 var packs = options.Pack == null ? BuiltInPacks : new[] { options.Pack };
                 var csv = new StringBuilder("pack_id,content_hash,streamer_id,name,games_per_streamer,seed,level,win_rate\n");
                 foreach (string pack in packs)
                 {
                     string json = File.ReadAllText(Path.Combine(content, "Packs", pack + ".json"), Encoding.UTF8);
-                    var db = ContentDb.FromJson(rules, json);
+                    var db = ContentDb.FromJson(rules, json, policy);
                     string contentHash = db.ContentHash();
                     var rates = BalanceCheck.WinRates(db, options.GamesPerStreamer, options.Seed, options.Level);
                     foreach (var streamer in db.Streamers.OrderBy(item => item.Id, StringComparer.Ordinal))
