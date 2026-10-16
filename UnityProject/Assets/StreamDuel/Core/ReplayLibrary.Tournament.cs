@@ -61,6 +61,8 @@ namespace StreamDuel.Core
                 || !record.Teams[1].SequenceEqual(second.Team, StringComparer.Ordinal)
                 || record.Names == null || record.Names.Length != 2 || record.Names[0] != first.Name || record.Names[1] != second.Name)
                 throw new InvalidOperationException("录像的原始队伍、顺序或选手姓名与本场对阵不一致。");
+            if (!tournament.MatchesBanRecord(pairing, record))
+                throw new InvalidOperationException("录像的禁用人数、顺序或选择与本场保存的禁用记录不一致。");
 
             var archive = new TournamentArchiveTag { Key = tournament.ReportKey, PairingId = pairing.Id };
             string note = "赛事录像：第 " + pairing.Round.ToString(CultureInfo.InvariantCulture)

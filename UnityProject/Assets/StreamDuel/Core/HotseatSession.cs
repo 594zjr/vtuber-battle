@@ -49,8 +49,11 @@ namespace StreamDuel.Core
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             if (opt == null) throw new ArgumentNullException(nameof(opt));
-            ValidateTeam(teamA, nameof(teamA), opt.BanOne);
-            ValidateTeam(teamB, nameof(teamB), opt.BanOne);
+            int banCount = opt.EffectiveBanCount();
+            if (banCount == 2)
+                throw new ArgumentException("同屏对战暂不支持每方禁用两人，请通过本地赛事使用。", nameof(opt));
+            ValidateTeam(teamA, nameof(teamA), banCount > 0);
+            ValidateTeam(teamB, nameof(teamB), banCount > 0);
             if (string.IsNullOrWhiteSpace(nameA)) throw new ArgumentException("玩家名称不能为空", nameof(nameA));
             if (string.IsNullOrWhiteSpace(nameB)) throw new ArgumentException("玩家名称不能为空", nameof(nameB));
             battle = new Battle(db, new[] { teamA, teamB }, new[] { nameA, nameB }, opt);

@@ -113,7 +113,7 @@ namespace StreamDuel.Core
             var foes = b.Sides[1 - s].Team;
             var best = new List<int>();
             double bestScore = double.NegativeInfinity;
-            for (int i = 0; i < foes.Count; i++)
+            foreach (int i in b.LegalBanTargets(s))
             {
                 double score = team.Average(ally => Matchup(b, foes[i], ally));
                 if (score > bestScore + 1e-9)

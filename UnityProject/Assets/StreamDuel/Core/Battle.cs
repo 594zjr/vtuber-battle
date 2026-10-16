@@ -111,6 +111,10 @@ namespace StreamDuel.Core
         public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
         {
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            banCount = opt.EffectiveBanCount();
+            if (banCount == 2 && (teams == null || teams.Length != 2
+                || teams.Any(team => team == null || team.Count <= banCount)))
+                throw new ArgumentException("每方禁用两人时，两支队伍都必须至少有三位主播", nameof(teams));
             modifiers = BattleModifiers.Normalize(opt.Modifiers);
             Db = db;
             Seed = opt.Seed ?? (uint)Environment.TickCount;
@@ -118,11 +122,13 @@ namespace StreamDuel.Core
             leadPickAfterBan = opt.LeadPick;
             Record = new BattleRecord
             {
+                Version = banCount == 2 ? BattleRecord.MultiBanVersion : BattleRecord.DefaultVersion,
                 ContentHash = db.ContentHash(),
                 Seed = Seed,
                 PackId = db.PackId,
                 LeadPick = opt.LeadPick,
-                BanOne = opt.BanOne,
+                BanOne = banCount == 1,
+                BanCount = banCount == 2 ? 2 : 0,
                 Modifiers = new List<string>(modifiers),
                 Names = names.ToArray(),
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
@@ -132,7 +138,7 @@ namespace StreamDuel.Core
                 Sides[s] = new SideState { Name = names[s] };
                 for (int i = 0; i < teams[s].Count; i++) Sides[s].Team.Add(MakeFighter(teams[s][i], i + 1, s));
             }
-            if (opt.BanOne) Phase = Phase.Ban;
+            if (banCount > 0) Phase = Phase.Ban;
             else if (opt.LeadPick) Phase = Phase.Lead;
             else StartBattle();
         }

@@ -76,6 +76,13 @@ namespace StreamDuel.Core
                 foreach (string id in modifiers) hash.Text(id);
             }
             HashTermination(hash);
+            // 两人禁用增加独立域；旧零人或一人禁用不增加任何输入字节。
+            if (banCount == 2)
+            {
+                hash.Text("StreamDuel.MultiBan.v1");
+                hash.Int(banCount);
+                foreach (int choice in secondBanChoices) hash.Int(choice);
+            }
             return hash.Value;
         }
 

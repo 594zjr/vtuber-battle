@@ -423,12 +423,14 @@ namespace StreamDuel.Core
             Winner = source.Winner;
             CopyTerminationFrom(source);
             leadPickAfterBan = source.leadPickAfterBan;
+            banCount = source.banCount;
             modifiers = new List<string>(source.modifiers).AsReadOnly();
             Record = new BattleRecord
             {
                 Version = source.Record.Version, ContentHash = source.Record.ContentHash,
                 Seed = source.Record.Seed, PackId = source.Record.PackId, LeadPick = source.Record.LeadPick,
                 BanOne = source.Record.BanOne,
+                BanCount = source.Record.BanCount,
                 Modifiers = source.Record.Modifiers == null ? null : new List<string>(source.Record.Modifiers),
                 Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
                 Teams = source.Record.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
@@ -439,6 +441,7 @@ namespace StreamDuel.Core
                 ActedFirst[s] = source.ActedFirst[s];
                 leadChoices[s] = source.leadChoices[s];
                 banChoices[s] = source.banChoices[s];
+                secondBanChoices[s] = source.secondBanChoices[s];
                 Sides[s] = new SideState { Name = source.Sides[s].Name, Active = source.Sides[s].Active };
                 foreach (var fighter in source.Sides[s].Team)
                 {
