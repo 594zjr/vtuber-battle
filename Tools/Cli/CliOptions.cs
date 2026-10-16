@@ -32,6 +32,8 @@ namespace StreamDuel.Cli
         public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
+        public uint? TournamentSeed;
+        public bool NoAutoTiebreak;
         public string TournamentFormat;
         public string TournamentReportFile;
         public bool Json;
@@ -72,6 +74,12 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (option == "--no-auto-tiebreak")
+                {
+                    if (options.NoAutoTiebreak) throw new ArgumentException("--no-auto-tiebreak 不能重复指定。");
+                    options.NoAutoTiebreak = true;
+                    continue;
+                }
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
                 {
@@ -191,7 +199,7 @@ namespace StreamDuel.Cli
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
                     && option != "--branch" && option != "--turn" && option != "--side" && option != "--ai"
-                    && option != "--spectate-port" && option != "--watch")
+                    && option != "--spectate-port" && option != "--watch" && option != "--tournament-seed")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -231,6 +239,14 @@ namespace StreamDuel.Cli
                             else if (value == "expert") options.BranchAi = AiLevel.Expert;
                             else throw new ArgumentException("--ai 只能是 normal（普通）、hard（困难）或 expert（专家）。");
                         }
+                        break;
+                    case "--tournament-seed":
+                        if (options.TournamentSeed.HasValue) throw new ArgumentException("--tournament-seed 不能重复指定。");
+                        uint tournamentSeed;
+                        if (value.Length == 0 || !value.All(c => c >= '0' && c <= '9')
+                            || !uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out tournamentSeed))
+                            throw new ArgumentException("--tournament-seed 必须是 0..4294967295 的十进制整数，只允许数字。");
+                        options.TournamentSeed = tournamentSeed;
                         break;
                     case "--format":
                         if (options.TournamentFormat != null) throw new ArgumentException("--format 不能重复指定。");
@@ -382,6 +398,8 @@ namespace StreamDuel.Cli
                 }
                 if (options.TournamentFormat != null && options.TournamentFile == null)
                     throw new ArgumentException("--format 只能与 --tournament 同用。");
+                if ((options.TournamentSeed.HasValue || options.NoAutoTiebreak) && options.TournamentFile == null)
+                    throw new ArgumentException("--tournament-seed 与 --no-auto-tiebreak 只能与 --tournament 的淘汰赛同用。");
                 if (options.Json && options.TournamentReportFile == null)
                     throw new ArgumentException("--json 只能与 --tournament-report 同用。");
                 if (options.TournamentReportFile != null)
@@ -409,11 +427,12 @@ namespace StreamDuel.Cli
             if (options.TournamentFile != null && !options.Help)
             {
                 var unsupported = provided.Where(option => option != "--tournament" && option != "--format" && option != "--pack"
-                    && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h")
+                    && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h"
+                    && option != "--tournament-seed" && option != "--no-auto-tiebreak")
                     .Distinct().ToArray();
                 if (unsupported.Length > 0)
-                    throw new ArgumentException("赛事模式仅支持搭配 --format、--pack、--pack-dir、--auto；不能与 "
-                        + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI，种子由对局编号决定。");
+                    throw new ArgumentException("赛事模式仅支持搭配 --format、--pack、--pack-dir、--auto、--tournament-seed、--no-auto-tiebreak；不能与 "
+                        + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI；--seed 不用于赛事。");
             }
             if (!options.Help)
             {

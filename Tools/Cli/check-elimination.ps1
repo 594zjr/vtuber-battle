@@ -171,7 +171,7 @@ try {
     $checks.Add('PASS single_manual_draw_rejection_and_resume')
 
     $autoPath = Join-Path $run 'single-auto-five.json'
-    $auto = Invoke-Cli 'single-five-auto' @('--tournament', $autoPath, '--format', 'single', '--auto') (Registration 5 $codeA $codeB)
+    $auto = Invoke-Cli 'single-five-auto' @('--tournament', $autoPath, '--format', 'single', '--auto', '--no-auto-tiebreak') (Registration 5 $codeA $codeB)
     $automatic = Read-Tournament $autoPath
     $autoReport = Report 'single-five-report' $autoPath
     $allMatches = Matches $autoReport
@@ -238,7 +238,7 @@ try {
     $drawCode = New-Code $drawDb.PackId @($streamers | ForEach-Object { $_.id })
     foreach ($format in @('single', 'double')) {
         $drawPath = Join-Path $run "auto-draw-$format.json"
-        $drawRun = Invoke-Cli "forced-draw-$format" @('--tournament', $drawPath, '--format', $format, '--auto', '--pack', 't115_draw', '--pack-dir', $external) (Registration 2 $drawCode $drawCode) 1
+        $drawRun = Invoke-Cli "forced-draw-$format" @('--tournament', $drawPath, '--format', $format, '--auto', '--no-auto-tiebreak', '--pack', 't115_draw', '--pack-dir', $external) (Registration 2 $drawCode $drawCode) 1
         $drawTournament = Read-Tournament $drawPath $drawDb
         $drawMatches = @($drawTournament.NextRound())
         Check (-not $drawTournament.IsFinished -and $drawTournament.Round -eq 1 -and $null -eq $drawMatches[0].WinnerSide) '自动平局被任意判胜或推进了赛程。'
