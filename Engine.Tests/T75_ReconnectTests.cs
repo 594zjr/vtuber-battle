@@ -10,6 +10,7 @@ using System.Threading;
 using StreamDuel.Core;
 using Xunit;
 
+[Collection("TCP loopback")]
 public class T75_ReconnectTests
 {
     static readonly string[] HostTeam = { "bell", "enka", "shiori", "lumi", "hane", "momo" };
