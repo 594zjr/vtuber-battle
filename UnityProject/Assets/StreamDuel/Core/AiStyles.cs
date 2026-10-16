@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public static class AiStyles
+    public static partial class AiStyles
     {
         public static AiWeights Get(string name)
         {
@@ -40,7 +40,7 @@ namespace StreamDuel.Core
                         TrapAfflictedScore = 0.75, TrapScore = 0.45,
                         PpReduceScore = 1.2
                     };
-                default: return null;
+                default: return Wave3(name);
             }
         }
     }

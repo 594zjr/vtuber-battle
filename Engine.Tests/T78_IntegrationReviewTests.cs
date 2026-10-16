@@ -243,6 +243,132 @@ public sealed class T78_IntegrationReviewTests
     }
 
     [Fact]
+    public void NullOpponentStylePreservesAllRealWave3NativeDefinitionsAndChoices()
+    {
+        var db = BattleTests.LoadPack("original_wave3");
+        var opponent = Opponent(db, db.Streamers.Skip(6).Take(6).Select(streamer => streamer.Id), null);
+        var battle = BattleFor(db, opponent);
+        var reference = battle.Clone();
+        string contentHash = db.ContentHash(), record = battle.Record.ToJson();
+        ulong stateHash = battle.StateHash();
+        double next = reference.Clone().Random();
+        Assert.All(db.Streamers, streamer => Assert.Equal(streamer.Id, streamer.AiStyle));
+
+        AiOpponents.ApplyStyle(battle, 1, opponent);
+
+        foreach (var side in battle.Sides)
+        foreach (var fighter in side.Team)
+        {
+            Assert.Same(db.Streamer(fighter.Def.Id), fighter.Def);
+            Assert.Equal(fighter.Def.Id, fighter.Def.AiStyle);
+        }
+        Assert.Equal(contentHash, db.ContentHash());
+        Assert.Equal(record, battle.Record.ToJson());
+        Assert.Equal(stateHash, battle.StateHash());
+        Assert.Equal(next, battle.Clone().Random());
+        Assert.Equal(Ai.Choose(reference, 1, AiLevel.Normal).ToString(), Ai.Choose(battle, 1, AiLevel.Normal).ToString());
+        Assert.Equal(reference.Clone().Random(), battle.Clone().Random());
+    }
+
+    [Fact]
+    public void GenericOpponentStylesOverrideOnlyTheComputerSideOfRealWave3MirrorTeams()
+    {
+        var db = BattleTests.LoadPack("original_wave3");
+        string contentHash = db.ContentHash();
+        foreach (string style in new[] { "aggressive", "defensive", "tricky" })
+        {
+            var opponent = Opponent(db, db.Streamers.Take(6).Select(streamer => streamer.Id), style);
+            var battle = BattleFor(db, opponent, mirror: true);
+            var untouched = battle.Clone();
+            string record = battle.Record.ToJson();
+            ulong stateHash = battle.StateHash();
+
+            AiOpponents.ApplyStyle(battle, 1, opponent);
+
+            for (int index = 0; index < 6; index++)
+            {
+                var player = battle.Sides[0].Team[index].Def;
+                var computer = battle.Sides[1].Team[index].Def;
+                Assert.Same(db.Streamer(player.Id), player);
+                Assert.Equal(player.Id, player.AiStyle);
+                Assert.Equal(style, computer.AiStyle);
+                Assert.NotSame(player, computer);
+                Assert.NotSame(player.Stats, computer.Stats);
+                Assert.NotSame(player.Skills, computer.Skills);
+                Assert.Equal(untouched.Sides[1].Team[index].Def.Id, untouched.Sides[1].Team[index].Def.AiStyle);
+            }
+            Assert.Equal(contentHash, db.ContentHash());
+            Assert.Equal(record, battle.Record.ToJson());
+            Assert.Equal(stateHash, battle.StateHash());
+            Assert.Equal(untouched.Clone().Random(), battle.Clone().Random());
+            Assert.Equal(Ai.Choose(untouched, 0, AiLevel.Normal).ToString(), Ai.Choose(battle, 0, AiLevel.Normal).ToString());
+            Assert.Equal(untouched.Clone().Random(), battle.Clone().Random());
+        }
+    }
+
+    [Fact]
+    public void EveryRegisteredWave3StyleCanBeParsedAndAppliedWithoutChangingNativePlayerStyles()
+    {
+        var db = BattleTests.LoadPack("original_wave3");
+        string contentHash = db.ContentHash();
+        foreach (string style in db.Streamers.Select(streamer => streamer.AiStyle))
+        {
+            Assert.NotNull(AiStyles.Get(style));
+            var rows = Rows(db);
+            rows[0]["style"] = style;
+            var opponent = AiOpponents.FromJson(db, Json(rows, db.PackId))[0];
+            var battle = BattleFor(db, opponent, mirror: true);
+            var reference = battle.Clone();
+            string record = battle.Record.ToJson();
+            ulong stateHash = battle.StateHash();
+
+            AiOpponents.ApplyStyle(battle, 1, opponent);
+
+            Assert.Equal(style, opponent.Style);
+            Assert.All(battle.Sides[1].Team, fighter => Assert.Equal(style, fighter.Def.AiStyle));
+            Assert.All(battle.Sides[0].Team, fighter =>
+            {
+                Assert.Same(db.Streamer(fighter.Def.Id), fighter.Def);
+                Assert.Equal(fighter.Def.Id, fighter.Def.AiStyle);
+            });
+            Assert.Equal(contentHash, db.ContentHash());
+            Assert.Equal(record, battle.Record.ToJson());
+            Assert.Equal(stateHash, battle.StateHash());
+            Assert.Equal(reference.Clone().Random(), battle.Clone().Random());
+        }
+    }
+
+    [Fact]
+    public void UnknownOrNonExactWave3StyleNamesAreRejectedWithoutReplacingNativeDefinitions()
+    {
+        var db = BattleTests.LoadPack("original_wave3");
+        foreach (string style in new[] { "og3_unknown", "OG3_LILING", "og3_liling " })
+        {
+            var rows = Rows(db);
+            rows[0]["style"] = style;
+            Assert.Throws<FormatException>(() => AiOpponents.FromJson(db, Json(rows, db.PackId)));
+            var opponent = Opponent(db, db.Streamers.Take(6).Select(streamer => streamer.Id), style);
+            var battle = BattleFor(db, opponent, mirror: true);
+            string contentHash = db.ContentHash(), record = battle.Record.ToJson();
+            ulong stateHash = battle.StateHash();
+            double next = battle.Clone().Random();
+
+            Assert.Throws<FormatException>(() => AiOpponents.ApplyStyle(battle, 1, opponent));
+
+            foreach (var side in battle.Sides)
+            foreach (var fighter in side.Team)
+            {
+                Assert.Same(db.Streamer(fighter.Def.Id), fighter.Def);
+                Assert.Equal(fighter.Def.Id, fighter.Def.AiStyle);
+            }
+            Assert.Equal(contentHash, db.ContentHash());
+            Assert.Equal(record, battle.Record.ToJson());
+            Assert.Equal(stateHash, battle.StateHash());
+            Assert.Equal(next, battle.Clone().Random());
+        }
+    }
+
+    [Fact]
     public void PolicyFiltersOnlyUnavailableOpponentsAndCannotHideUnknownMembers()
     {
         var plain = BattleTests.LoadPack("original");

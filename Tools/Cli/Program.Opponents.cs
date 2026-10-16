@@ -57,7 +57,8 @@ namespace StreamDuel.Cli
                 case "aggressive": return "猛攻";
                 case "defensive": return "稳守";
                 case "tricky": return "花招";
-                default: return "沿用主播风格";
+                case null: return "沿用主播风格";
+                default: return "专属风格（" + style + "）";
             }
         }
     }

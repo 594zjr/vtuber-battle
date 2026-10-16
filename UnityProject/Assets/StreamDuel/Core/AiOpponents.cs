@@ -115,7 +115,7 @@ namespace StreamDuel.Core
         static void ValidateStyle(string style)
         {
             if (style != null && AiStyles.Get(style) == null)
-                throw new FormatException("电脑对手 style 只能是 null、aggressive、defensive 或 tricky。");
+                throw new FormatException("电脑对手 style 必须为 null 或已注册的出招风格名称。");
         }
 
         static string ReadEmbeddedJson()
