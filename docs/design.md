@@ -1197,3 +1197,19 @@ CLI 的 `--new-season` 与 `--rating-history` 是互斥独立入口，仅可搭�
 任一方先达到 `BestOf / 2 + 1` 胜，或成功上报局数达到 BestOf，Over 即为 true，之后不能再开局。因平局而打满局数时可能无人达到胜场门槛，以最终 Wins / Draws 呈现比分；不改动任何单局胜负。Wins 返回长度为 2 的副本，调用方修改副本不会改变比赛计分。每局 BattleRecord 已包含实际种子、名单、禁用、首发和修饰器，继续按单局保存、回放，无需引入新的回放格式。
 
 命令行通过 `--ruleset casual|ranked|chaos` 选择预设，`--auto`、`--hash` 仍按各局工作；不传该参数保持原单局行为。显式赛制不能与 `--ban`、`--lead`、`--timer`、联网、同屏、赛事、回放或其他独立查询入口同用，以免静默覆盖配置或假定现有协议支持多局赛制。帮助和列包仍是只读入口。赛制可搭配队伍码、混合包、随机队伍及既有导出选项；`--advice` 要求赛制包含禁用或首发选择。每个完成局独立保存回放、录像库索引并累计普通战绩，本地赛制不累计联网排位分，最后显示比分；`--report` 在整场比赛完成后生成一份包含比分及各局战报的 Markdown，并沿用显示层文字清理。提前退出不导出该汇总，已完成局的存档仍保留。
+
+### 14.1 对战房间流程
+
+`MatchRoom(db, ruleset, hostName)` 只组织房间状态，不收发网络、不驱动时间或电脑行动。房主固定为 side 0，对手固定为 side 1；房主和对手名字须非 null，原始名字保留，显示层仍使用 8.7 的清理接口。构造时校验并复制赛制，`Join(guestName)` 只允许在 Setup 加入唯一一位对手。`State` 依次使用 Setup、Ready、InGame、BetweenGames、Finished。
+
+Setup 中可提交队伍或修改赛制。`SetRuleset(r)` 是房主控制入口，带 side 的 `SetRuleset(side, r)` 明确拒绝 side 1；外部传输层仍须确认调用者身份，不能把客户端自报的 side 当作鉴权。有效赛制替换后保留双方名单、清空双方准备；规则改变后队伍须重新通过准备校验。`SubmitTeam(side, team)` 复制名单后调用 `Ruleset.CheckTeam`，返回中文错误列表；无效提交不改变原队伍及准备状态，有效提交只撤回提交方的准备。side 1 尚未加入时不可提交或准备。
+
+`SetReady(side, ready)` 仅在 Setup/Ready 可用，准备前检查当前赛制与本方队伍。双方都准备后进入 Ready，任一方撤回即回到 Setup；Ready 中不能直接换队伍或规则。`Start(seed)` 仅在 Ready 可用，再次校验双方队伍，成功创建内部 Match 和首局 Battle 后进入 InGame。`CurrentBattle` 是实际操作的对局实例；内部 Match 不公开，避免绕过房间状态直接上报比分。`Teams`、`Ready`、`Wins` 和 `Ruleset` 均返回独立副本，`Draws` 返回当前平局数。
+
+`ReportGame(battle)` 只在 InGame 调用，交给 Match 校验同一实例、终局和重复报分；成功后按 Match.Over 进入 BetweenGames 或 Finished，保留上一局 Battle/Clock 供查看。`NextGame()` 仅在 BetweenGames 开局，沿用 Match 的原始六人队伍、每局重新禁用/选首发及种子递增规则，不提供局间换队伍接口。失败的开局或报分不改变房间状态、当前对局、计分或时钟。`Rematch()` 仅在 Finished 调用，返回 Setup，保留人名、双方原始队伍和赛制，清空准备、比分、CurrentBattle 和 Clock；下次比赛使用新传入的 seed。
+
+赛制时间为 0/0 时 `Clock` 为 null；任一时间为正则在每次成功 Start/NextGame 时创建新的 TurnClock，重新获得本局时间池。房间不自动 Tick，不把禁用、首发或局间等待计入时间；调用层在 Choose/Replace 阶段按 10.3 驱动 StartTurn、Tick、Submit 和超时默认行动。这里只组合既有计时规则，不引入额外时钟或自动结算。
+
+`MatchRoom.VsAi(db, r, playerName, level, seed)` 使用 TeamBuilder.Suggest 按赛季和给定 seed 生成 side 1 队伍，加入“电脑”并自动准备。`ComputerLevel` 保存已校验的四档难度供调用层传给 Ai；玩家交队不会撤回电脑的初始准备，随后玩家准备即可进入 Ready。此 factory 不自动开局、不消耗 Battle 随机流；重赛及改赛制仍清空双方准备，调用层须重新准备电脑方。
+
+当前 NetSession 在握手后自行创建 Battle，且尚不协商完整赛制、禁用/首发和多局序号，不能直接接入本房间或把其另一 Battle 实例交给 ReportGame。后续接入需统一使用房间 Start/NextGame 返回的同一实例，协商赛制及局号，并在终局同步确认后报分；计时只由一个调用层驱动，避免重复扣时。本任务不改动既有联网单局协议。
