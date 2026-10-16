@@ -68,7 +68,7 @@ namespace StreamDuel.Game
             var style = Resources.Load<StyleSheet>("T66Team");
             if (style == null) throw new InvalidOperationException("缺少组队页样式 T66Team。");
             root.styleSheets.Add(style);
-            BuildHeader(args); BuildSelectors(); BuildSlots(); BuildBody(); BuildLibrary(); BuildFooter();
+            BuildHeader(args); BuildSelectors(); BuildRulesets(); BuildSlots(); BuildBody(); BuildLibrary(); BuildFooter();
             if (db != null)
             {
                 var initial = options.Selection != null && options.Selection.PackId == db.PackId
@@ -105,7 +105,7 @@ namespace StreamDuel.Game
         void BuildSelectors()
         {
             var row = Element(root, "team-selectors", "sd-team__row");
-            packField = Dropdown(row, "team-pack", "内容包", packs.Select(pack => (pack.PackName ?? pack.PackId) + "〔" + pack.PackId + "〕").ToList());
+            packField = Dropdown(row, "team-pack", "内容包", UniqueChoiceLabels(packs.Select(pack => (pack.PackName ?? pack.PackId) + "〔" + pack.PackId + "〕")));
             packField.style.flexGrow = 2;
             seasonField = Dropdown(row, "team-season", "赛季", new List<string> { "不限赛季" });
             levelField = Dropdown(row, "team-level", "电脑", new List<string> { "简单", "普通", "困难", "专家" });
@@ -202,6 +202,7 @@ namespace StreamDuel.Game
             {
                 seasonIds.Add(season.Key); choices.Add(season.Value.Name + "〔" + season.Key + "〕");
             }
+            choices = UniqueChoiceLabels(choices);
             seasonField.choices = choices;
             if (!seasonIds.Contains(seasonId)) seasonId = null;
             seasonField.SetValueWithoutNotify(choices[Math.Max(0, seasonIds.IndexOf(seasonId))]);
@@ -261,6 +262,7 @@ namespace StreamDuel.Game
 
         void Refresh()
         {
+            RefreshRulesetHelp();
             var issues = db == null ? new List<string> { "没有可用内容包。" } : CurrentPreset().Check(db, seasonId);
             errors.text = issues.Count == 0 ? "六人队伍符合当前赛季规则。" : string.Join("\n", issues);
             start.SetEnabled(issues.Count == 0 && options.StartBattle != null);
@@ -281,6 +283,28 @@ namespace StreamDuel.Game
                 item.Value.text = picked ? "移出队伍" : "选入队伍";
                 item.Value.EnableInClassList("sd-team__pick--selected", picked);
             }
+        }
+
+        static List<string> UniqueChoiceLabels(IEnumerable<string> labels)
+        {
+            // 下拉框按显示值定位；合法名称与编号中的分隔符也可能组合成同一标签。
+            var originals = labels.ToList();
+            var reserved = new HashSet<string>(originals, StringComparer.Ordinal);
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<string>(originals.Count);
+            foreach (string label in originals)
+            {
+                string choice = label;
+                int suffix = 2;
+                if (used.Contains(choice))
+                {
+                    do { choice = label + "（" + suffix.ToString(CultureInfo.InvariantCulture) + "）"; suffix++; }
+                    while (reserved.Contains(choice) || used.Contains(choice));
+                }
+                used.Add(choice);
+                result.Add(choice);
+            }
+            return result;
         }
 
         static VisualElement Element(VisualElement parent, string name, string style)

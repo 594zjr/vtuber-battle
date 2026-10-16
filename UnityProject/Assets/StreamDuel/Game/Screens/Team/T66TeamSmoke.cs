@@ -18,7 +18,7 @@ namespace StreamDuel.Game
         {
             public string unityVersion, outputDirectory, failure, finalHash;
             public string inputScope = "DropdownField / TextField 变更与 NavigationSubmitEvent 驱动真实 UI 回调；不是人工鼠标验收。完整对局从组队按钮交接后经 BattleScreen 的公开验收桥推进。";
-            public string storageScope = "最早 SmokeRequested 分支禁止读取和写入玩家设置；预设和剪贴板均为内存注入，证据只写本工程 Logs/T-66。";
+            public string storageScope = "最早 SmokeRequested 分支禁止读取和写入玩家设置；常规预设和剪贴板为内存注入；坏档回归仅使用本工程 Logs/T-66 下独占文件，证据也只写此目录。";
             public string layoutScope = "两种分辨率检查文字测量、控件边界、滚动裁切和非祖先文字重叠；长队伍码允许在输入框内横向滚动。截图需独立视觉复核。";
             public bool completed;
             public int warnings, errors, turns, winner;
@@ -257,9 +257,18 @@ namespace StreamDuel.Game
                 yield return Settle();
                 yield return CheckSeasonAndPersistence();
                 yield return CheckInvalidSelection();
+                yield return T66ReviewChecks.RunRulesets(router, legacy, Capture);
+                report.checks.Add(Size + "：三个显式赛制经真实组队按钮交接；原六人、赛季、禁用、首发、修饰器、种子、多局比分、出招和补位超时及逐局回放通过；默认旧单局断言保留。");
+                yield return T66ReviewChecks.RunLabels(router, legacy);
+                yield return Settle();
+                ValidateLayout();
+                Capture("review-label-selection");
+                report.checks.Add(Size + "：最终显示标签冲突的第二包、第二赛季均经真实 UI 正确选中，Core 校验与开战参数一致。");
             }
             yield return CheckPolicy();
             yield return CheckStorageFailures();
+            yield return T66ReviewChecks.RunStorage(router, legacy, report.outputDirectory);
+            report.checks.Add("真实预设文件：坏 JSON/坏 UTF-8 禁写且原字节和 mtime 保留；修复并显式刷新后恢复；UTF-8 BOM 兼容。");
             yield return CheckRememberFailureRefreshesSelection();
             yield return CheckReturnPreservesSettingsAndSeason();
             yield return CompleteBattle();
@@ -697,7 +706,7 @@ namespace StreamDuel.Game
                     Require(overlap.width <= 1 || overlap.height <= 1,
                         "可见文字重叠：" + visible[i].name + " / " + visible[j].name + " " + visible[i].text + " / " + visible[j].text);
                 }
-            foreach (string name in new[] { "team-pack", "team-season", "team-level", "team-preset-name", "team-code", "team-presets" })
+            foreach (string name in new[] { "team-pack", "team-season", "team-level", "team-ruleset", "team-preset-name", "team-code", "team-presets" })
             {
                 var field = Element<VisualElement>(name);
                 Require(field.worldBound.width > 8 && field.worldBound.height > 8, "输入控件没有可用宽高：" + name);

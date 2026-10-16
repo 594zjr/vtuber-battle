@@ -178,6 +178,7 @@ namespace StreamDuel.Game
             var request = new TeamBattleRequest
             {
                 Content = db, Team = CurrentPreset(), SeasonId = seasonId,
+                Ruleset = SelectedRuleset(),
                 Settings = GameSettings.FromJson(settings.ToJson()), Seed = options.Seed
             };
             var callback = options.StartBattle;

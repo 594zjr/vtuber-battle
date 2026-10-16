@@ -29,6 +29,7 @@ namespace StreamDuel.Game
             b = null;
             teamBattleRequest = null;
             view = View.Team;
+            ClearTeamMatch();
             playing = false;
             pending = null;
             if (teamPresetStore == null) teamPresetStore = SmokeRequested
@@ -37,6 +38,7 @@ namespace StreamDuel.Game
             {
                 Packs = MenuPacks, Content = db, Policy = teamPolicySnapshot, Selection = db == null ? null : RestoreTeamSelection(db),
                 Settings = GameSettings.FromJson((settings ?? new GameSettings()).ToJson()),
+                RulesetId = teamSelectedRulesetId, RememberRuleset = id => teamSelectedRulesetId = id,
                 Presets = teamPresetStore, StartBattle = StartTeamBattle, NavigateToBattle = true, LoadSelection = RestoreTeamSelection,
                 LoadSeason = content => teamSeasons.TryGetValue(content.PackId, out string savedSeason) ? savedSeason : null,
                 Remember = RememberTeamSelection, RememberView = RememberTeamView,
@@ -86,6 +88,7 @@ namespace StreamDuel.Game
         {
             if (request == null || request.Content == null || request.Team == null)
                 throw new ArgumentException("开局需要内容包和六人队伍。");
+            if (request.Ruleset != null) { StartTeamRulesetBattle(request); return; }
             var errors = request.Team.Check(request.Content, request.SeasonId);
             if (errors.Count > 0) throw new ArgumentException(string.Join("；", errors));
             var opponent = TeamBuilder.Suggest(request.Content, request.SeasonId, Array.Empty<string>(), request.Seed ^ 0x66A50001u);
@@ -94,6 +97,7 @@ namespace StreamDuel.Game
             var nextBattle = new Battle(request.Content, new IList<string>[] { teams[0], teams[1] }, new[] { "你", "电脑" },
                 request.Seed, leadPick: true);
             nextBattle.ChooseLead(1, Ai.ChooseLead(nextBattle, 1));
+            ClearTeamMatch(); teamSelectedRulesetId = null;
             db = request.Content;
             pick = new List<string>(request.Team.Ids);
             settings = selectedSettings;
@@ -123,6 +127,7 @@ namespace StreamDuel.Game
         {
             b = null;
             teamBattleRequest = null;
+            ClearTeamMatch();
             view = View.Team;
             playing = false;
             pending = null;
@@ -135,7 +140,8 @@ namespace StreamDuel.Game
             if (b == null) return false;
             if (playing) { SkipPlayback(); return b.Phase != Phase.Over; }
             if (b.Phase == Phase.Over) return false;
-            if (b.Phase == Phase.Lead) SubmitLead(Ai.ChooseLead(b, 0));
+            if (b.Phase == Phase.Ban) SubmitTeamBan(Ai.ChooseBan(b, 0));
+            else if (b.Phase == Phase.Lead) SubmitLead(Ai.ChooseLead(b, 0));
             else if (b.Phase == Phase.Replace)
             {
                 if (b.Need[0]) DoReplace(Ai.ChooseReplacement(b, 0, settings.AiLevel));

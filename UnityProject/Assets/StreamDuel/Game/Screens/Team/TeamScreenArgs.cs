@@ -11,6 +11,8 @@ namespace StreamDuel.Game
         public PackPolicy Policy;
         public TeamPreset Selection;
         public string SeasonId;
+        public string RulesetId;
+        public Action<string> RememberRuleset;
         public GameSettings Settings;
         public ITeamPresetStore Presets;
         public IPortraitProvider Portraits;
@@ -32,6 +34,7 @@ namespace StreamDuel.Game
         public ContentDb Content;
         public TeamPreset Team;
         public string SeasonId;
+        public Ruleset Ruleset;
         public GameSettings Settings;
         public uint Seed;
     }
