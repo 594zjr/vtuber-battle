@@ -46,6 +46,11 @@ namespace StreamDuel.Cli
                 }
                 var db = LoadPack(content, options, policy);
                 if (options.ListPacks) return 0;
+                if (options.ListOpponents)
+                {
+                    PrintOpponents(db);
+                    return 0;
+                }
                 if (options.WatchHost != null) return WatchBattle(db, options);
                 if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
@@ -56,16 +61,20 @@ namespace StreamDuel.Cli
                 if (options.Hotseat) return PlayHotseat(db, preset, options);
                 if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
                 if (options.Network) return PlayNetwork(db, player, options);
+                var selectedOpponent = SelectOpponent(db, options);
                 // 固定名单顺序无需额外随机源，小内容包先选未入队者再补齐。
-                var opponent = PrepareOpponent(db, player, options);
-                var battle = new Battle(db, new IList<string>[] { player, opponent }, new[] { "你", "电脑" },
+                var opponent = selectedOpponent != null ? selectedOpponent.Team.ToArray() : PrepareOpponent(db, player, options);
+                var battle = new Battle(db, new IList<string>[] { player, opponent },
+                    new[] { "你", selectedOpponent != null ? selectedOpponent.Name : "电脑" },
                     new BattleOptions { Seed = options.Seed, BanOne = options.Ban, LeadPick = options.Lead });
+                if (selectedOpponent != null) AiOpponents.ApplyStyle(battle, 1, selectedOpponent);
 
                 Console.WriteLine("开播对决 · 命令行对战");
                 Console.WriteLine("内容包：" + db.PackName);
                 Console.WriteLine(db.PackNotice);
                 Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                     + "；模式：" + (options.Auto ? "双方自动" : "手动"));
+                if (selectedOpponent != null) PrintOpponent(selectedOpponent);
                 var clock = options.TurnSeconds.HasValue
                     ? new TurnClock(options.TurnSeconds.Value, options.BankSeconds.Value) : null;
                 if (!PlayLocalBattle(battle, options, clock, new ConsoleInput())) return Quit();
@@ -96,9 +105,12 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    资料卡只读内容包，不开局或保存文件；两种资料卡入口互斥，不能与对战、回看或其他模式同用。");
             Console.WriteLine("  --calc 攻击方id 技能序号 防守方id  预览两位主播首发时的伤害；序号 1～5，5 为第五技能。");
             Console.WriteLine("  --matchup 六个id vs 六个id        输出 A 队攻击 B 队的 6×6 对位表；每队 id 可用空格或逗号分隔。");
-            Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；默认 normal。");
+            Console.WriteLine("  --level 难度      easy（简单）/ normal（普通）/ hard（困难）/ expert（专家）；未选 --vs 时默认 normal。");
+            Console.WriteLine("  --vs 对手id       选择当前包的固定陪练阵容、难度和风格；显式 --level 必须与其一致。");
+            Console.WriteLine("                    用于本地单局，可搭配我方队伍码、禁用、首发、建议、计时和保存选项；与多局赛制、同屏、联网、赛事及查询入口互斥。");
+            Console.WriteLine("  --vs list         列出当前包的对手 id、名字、难度、风格、简介和阵容后退出；仅搭配 --pack、--pack-dir。");
             Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
-            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，电脑先选剩余再补齐。");
+            Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，未选 --vs 时电脑先选剩余再补齐。");
             Console.WriteLine("  --hotseat         同屏双人轮流手动操作；交接时清屏并按回车确认，私密选择输入不回显。");
             Console.WriteLine("  --team-b 六个编号 同屏 B 方或混合包本地电脑队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
             Console.WriteLine("  --name-a 名称 / --name-b 名称  同屏双方显示名，默认玩家 A / 玩家 B；仅与 --hotseat 同用。");

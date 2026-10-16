@@ -1,7 +1,7 @@
 // 为避免模拟局修改真实对战，新增下列类型的字段时必须同步本文件的复制逻辑：
 // Battle：Db（共享）、Seed、Sides、Log、Turn、Phase、Winner、Need、ActedFirst、rng、
 // leadChoices、banChoices、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
-// SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
+// SideState：Name、Active、Team；Fighter：Def（只读共享定义，也可为本局陪练风格副本）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks、PendingDamage。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。

@@ -14,6 +14,8 @@ namespace StreamDuel.Cli
         public bool PackSpecified;
         public string PackDirectory;
         public AiLevel Level = AiLevel.Normal;
+        public bool LevelSpecified;
+        public string OpponentId;
         public uint Seed = 1;
         public string[] Team = null;
         public string[] TeamB;
@@ -62,6 +64,7 @@ namespace StreamDuel.Cli
         public string[] MatchupTeamB;
         public bool Network { get { return HostPort.HasValue || JoinHost != null; } }
         public bool ReplayMode { get { return ReplayFile != null || ReplayCode != null; } }
+        public bool ListOpponents { get { return OpponentId == "list"; } }
         public bool AnalysisMode { get { return CalcAttacker != null || MatchupTeamA != null; } }
 
         public static CliOptions Parse(string[] args)
@@ -205,7 +208,7 @@ namespace StreamDuel.Cli
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
                     && option != "--branch" && option != "--turn" && option != "--side" && option != "--ai"
                     && option != "--spectate-port" && option != "--watch" && option != "--spectator-chat" && option != "--watch-name"
-                    && option != "--tournament-seed")
+                    && option != "--tournament-seed" && option != "--vs")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
                 if (++i >= args.Length || args[i] == null || args[i].StartsWith("--", StringComparison.Ordinal) || args[i] == "-h")
@@ -213,6 +216,12 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--vs":
+                        if (options.OpponentId != null) throw new ArgumentException("--vs 不能重复指定。");
+                        if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
+                            throw new ArgumentException("--vs 需要非空且不含控制字符的对手 id；使用 --vs list 查看当前包名单。");
+                        options.OpponentId = value;
+                        break;
                     case "--ruleset":
                         if (options.RulesetId != null) throw new ArgumentException("--ruleset 不能重复指定。");
                         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空赛制编号。");
@@ -374,6 +383,7 @@ namespace StreamDuel.Cli
                         else if (value == "hard") options.Level = AiLevel.Hard;
                         else if (value == "expert") options.Level = AiLevel.Expert;
                         else throw new ArgumentException("--level 只能是 easy（简单）、normal（普通）、hard（困难）或 expert（专家）。");
+                        options.LevelSpecified = true;
                         break;
                     case "--seed":
                         options.SeedSpecified = true;
@@ -398,6 +408,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateOpponentOptions(options, provided);
             ValidateBranchCompareOptions(options, provided);
             ValidateTournamentSeedOptions(options);
             ValidateRatingOptions(options, provided);
@@ -442,7 +453,7 @@ namespace StreamDuel.Cli
                 var compatible = new HashSet<string>(StringComparer.Ordinal)
                 {
                     "--advice", "--ban", "--lead", "--ruleset", "--packs", "--random-teams", "--team-b", "--pack", "--pack-dir", "--level", "--seed", "--team",
-                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report"
+                    "--team-code", "--export-team", "--save-dir", "--auto", "--timer", "--hash", "--share", "--report", "--vs"
                 };
                 var unsupported = provided.Where(option => !compatible.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
