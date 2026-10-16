@@ -45,6 +45,8 @@ namespace StreamDuel.Core
             if (pairing.IsBye) throw new InvalidOperationException("轮空没有实际对战，不能归档录像。");
             if (battle.Phase != Phase.Over || battle.Winner < -1 || battle.Winner > 1)
                 throw new InvalidOperationException("只有已结束且结果有效的对战才能归档赛事录像。");
+            if (tournament.IsElimination && battle.Winner == -1)
+                throw new InvalidOperationException("淘汰赛平局不能作为决胜录像归档；本场仍需明确胜负。");
             if (pairing.WinnerSide.HasValue && pairing.WinnerSide.Value != battle.Winner)
                 throw new InvalidOperationException("录像胜负与已登记的赛事结果不一致。");
 

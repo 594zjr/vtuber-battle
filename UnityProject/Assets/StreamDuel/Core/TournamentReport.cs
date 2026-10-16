@@ -207,10 +207,23 @@ namespace StreamDuel.Core
         {
             var output = new StringBuilder("本地赛事战报\n");
             output.Append("内容包：").Append(tournament.ReportPackId).Append("；赛制：")
-                .Append(tournament.Format == "swiss" ? "瑞士轮" : "循环赛").Append("；已排轮数：")
+                .Append(tournament.FormatName).Append("；已排轮数：")
                 .Append(Number(tournament.Round)).Append('/').Append(Number(tournament.Rounds))
-                .Append("；状态：").Append(tournament.IsFinished ? "已结束" : "进行中").Append("。\n\n")
-                .Append("积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
+                .Append(tournament.IsElimination && !tournament.IsFinished ? "（后者为轮数上限）" : "")
+                .Append("；状态：").Append(tournament.IsFinished ? "已结束" : "进行中").Append("。\n");
+            if (tournament.IsElimination)
+            {
+                output.Append("每场一局；重置总决赛：").Append(tournament.Format == Tournament.DoubleElimination
+                    ? tournament.ResetFinal ? "开启" : "关闭" : "不适用").Append("；冠军：");
+                if (tournament.Champion.HasValue)
+                    output.Append(PlayerName(tournament.Players[tournament.Champion.Value].Name))
+                        .Append("（报名 #").Append(Number(tournament.Champion.Value + 1)).Append('）');
+                else output.Append("尚未产生");
+                output.Append("。\n");
+            }
+            output.Append(tournament.IsElimination
+                ? "\n晋级排名（冠军 → 仍在赛 → 较晚淘汰；同阶段按种子顺序）\n"
+                : "\n积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
             if (standings.Count == 0) output.Append("暂无报名。\n");
             foreach (var row in standings)
                 output.Append(Number(row.Rank)).Append(" · 报名 #").Append(Number(row.Player + 1)).Append(' ').Append(row.Name)
@@ -223,6 +236,8 @@ namespace StreamDuel.Core
                 output.Append("\n第 ").Append(Number(round.Key)).Append(" 轮\n");
                 foreach (var match in round)
                 {
+                    if (tournament.IsElimination) output.Append(BracketName(match.Pairing.Bracket)).Append(" 第 ")
+                        .Append(Number(match.Pairing.BracketRound)).Append(" 轮 · ");
                     output.Append("对局 #").Append(Number(match.Pairing.Id + 1)).Append("：报名 #")
                         .Append(Number(match.Pairing.Player0 + 1)).Append(' ').Append(match.Name0);
                     if (!match.Pairing.IsBye) output.Append(" 对 报名 #").Append(Number(match.Pairing.Player1 + 1)).Append(' ').Append(match.Name1);
@@ -254,7 +269,11 @@ namespace StreamDuel.Core
             String(output, tournament.ReportPackId);
             output.Append(",\"format\":"); String(output, tournament.Format);
             output.Append(",\"roundCount\":").Append(Number(tournament.Rounds)).Append(",\"playedRounds\":").Append(Number(tournament.Round))
-                .Append(",\"isFinished\":").Append(tournament.IsFinished ? "true" : "false").Append(",\"standings\":[");
+                .Append(",\"isFinished\":").Append(tournament.IsFinished ? "true" : "false");
+            if (tournament.IsElimination)
+                output.Append(",\"resetFinal\":").Append(tournament.ResetFinal ? "true" : "false")
+                    .Append(",\"bestOf\":1,\"champion\":").Append(tournament.Champion.HasValue ? Number(tournament.Champion.Value) : "null");
+            output.Append(",\"standings\":[");
             for (int i = 0; i < standings.Count; i++)
             {
                 if (i > 0) output.Append(',');
@@ -281,6 +300,11 @@ namespace StreamDuel.Core
                     output.Append("{\"pairingId\":").Append(Number(pairing.Id)).Append(",\"player0\":").Append(Number(pairing.Player0))
                         .Append(",\"player1\":").Append(pairing.IsBye ? "null" : Number(pairing.Player1)).Append(",\"name0\":"); String(output, match.Name0);
                     output.Append(",\"name1\":"); String(output, match.Name1);
+                    if (tournament.IsElimination)
+                    {
+                        output.Append(",\"bracket\":"); String(output, pairing.Bracket);
+                        output.Append(",\"bracketRound\":").Append(Number(pairing.BracketRound));
+                    }
                     output.Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append(",\"result\":"); String(output, Result(pairing));
                     output.Append(",\"replay\":{\"status\":"); String(output, match.Status);
                     output.Append(",\"id\":"); String(output, match.ReplayId);
@@ -310,6 +334,16 @@ namespace StreamDuel.Core
         {
             if (value == null) output.Append("null");
             else TeamPresetJson.WriteString(output, value);
+        }
+
+        static string BracketName(string bracket)
+        {
+            if (bracket == "single") return "单败组";
+            if (bracket == "winners") return "胜者组";
+            if (bracket == "losers") return "败者组";
+            if (bracket == "final") return "总决赛";
+            if (bracket == "reset") return "重置总决赛";
+            return "未分组";
         }
         static void WriteLeader(StringBuilder output, StreamerTotal row, long count)
         {

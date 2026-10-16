@@ -28,6 +28,7 @@ namespace StreamDuel.Cli
         public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
+        public string TournamentFormat;
         public string TournamentReportFile;
         public bool Json;
         public int? HostPort;
@@ -182,7 +183,7 @@ namespace StreamDuel.Cli
                 }
                 if (option != "--packs" && option != "--pack" && option != "--level" && option != "--seed" && option != "--team" && option != "--team-code"
                     && option != "--team-b" && option != "--name-a" && option != "--name-b"
-                    && option != "--report" && option != "--tournament" && option != "--tournament-report"
+                    && option != "--report" && option != "--tournament" && option != "--tournament-report" && option != "--format"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
                     && option != "--spectate-port" && option != "--watch" && option != "--spectator-chat" && option != "--watch-name")
@@ -193,6 +194,20 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--format":
+                        if (options.TournamentFormat != null) throw new ArgumentException("--format 不能重复指定。");
+                        if (value != "single" && value != "double")
+                            throw new ArgumentException("--format 只接受 single（单败淘汰）或 double（双败淘汰）。");
+                        options.TournamentFormat = value;
+                        break;
+                    case "--spectate-port":
+                        if (options.SpectatePort.HasValue) throw new ArgumentException("--spectate-port 不能重复指定。");
+                        options.SpectatePort = ParsePort(value, 0, "--spectate-port");
+                        break;
+                    case "--watch":
+                        if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
+                        ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
+                        break;
                     case "--watch-name":
                         if (provided.Count(item => item == option) > 1) throw new ArgumentException("--watch-name 不能重复指定。");
                         if (value.Length > 4096) throw new ArgumentException("--watch-name 输入过长，请缩短后重试。");
@@ -202,14 +217,6 @@ namespace StreamDuel.Cli
                         if (provided.Count(item => item == option) > 1) throw new ArgumentException("--spectator-chat 不能重复指定。");
                         if (value != "on" && value != "off") throw new ArgumentException("--spectator-chat 只能是 on 或 off。");
                         options.SpectatorChat = value == "on";
-                        break;
-                    case "--spectate-port":
-                        if (options.SpectatePort.HasValue) throw new ArgumentException("--spectate-port 不能重复指定。");
-                        options.SpectatePort = ParsePort(value, 0, "--spectate-port");
-                        break;
-                    case "--watch":
-                        if (options.WatchHost != null) throw new ArgumentException("--watch 不能重复指定。");
-                        ParseEndpoint(value, "--watch", out options.WatchHost, out options.WatchPort);
                         break;
                     case "--tournament-report":
                         if (options.TournamentReportFile != null) throw new ArgumentException("--tournament-report 不能重复指定。");
@@ -330,6 +337,8 @@ namespace StreamDuel.Cli
             ValidateCardOptions(options, provided);
             if (!options.Help)
             {
+                if (options.TournamentFormat != null && options.TournamentFile == null)
+                    throw new ArgumentException("--format 只能与 --tournament 同用。");
                 if (options.Json && options.TournamentReportFile == null)
                     throw new ArgumentException("--json 只能与 --tournament-report 同用。");
                 if (options.TournamentReportFile != null)
@@ -356,11 +365,11 @@ namespace StreamDuel.Cli
             }
             if (options.TournamentFile != null && !options.Help)
             {
-                var unsupported = provided.Where(option => option != "--tournament" && option != "--pack"
+                var unsupported = provided.Where(option => option != "--tournament" && option != "--format" && option != "--pack"
                     && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h")
                     .Distinct().ToArray();
                 if (unsupported.Length > 0)
-                    throw new ArgumentException("赛事模式仅支持搭配 --pack、--pack-dir、--auto；不能与 "
+                    throw new ArgumentException("赛事模式仅支持搭配 --format、--pack、--pack-dir、--auto；不能与 "
                         + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI，种子由对局编号决定。");
             }
             if (!options.Help)
