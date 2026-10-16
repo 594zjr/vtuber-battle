@@ -14,7 +14,8 @@ namespace StreamDuel.Game
         static bool SmokeRequested => Array.IndexOf(Environment.GetCommandLineArgs(), "--smoke-test") >= 0
             || Array.IndexOf(Environment.GetCommandLineArgs(), "--ui-smoke-test") >= 0
             || Array.IndexOf(Environment.GetCommandLineArgs(), "--menu-smoke-test") >= 0
-            || Array.IndexOf(Environment.GetCommandLineArgs(), "--anim-smoke-test") >= 0;
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--anim-smoke-test") >= 0
+            || Array.IndexOf(Environment.GetCommandLineArgs(), "--t66-smoke-test") >= 0;
 
         public static bool SmokeCompleted { get; private set; }
         public static int SmokeExitCode { get; private set; }

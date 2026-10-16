@@ -27,7 +27,7 @@ $original = [IO.File]::ReadAllText((Join-Path $packDirectory 'original.json'))
 $sourcePolicyPath = Join-Path (Split-Path $packDirectory) 'PackPolicy.json'
 $sourcePolicyHash = (Get-FileHash -LiteralPath $sourcePolicyPath -Algorithm SHA256).Hash
 $sourceHashes = @{}
-$builtIns = @('original', 'original_wave2', 'fan_asoul_vr', 'fan_holo_niji')
+$builtIns = @('original', 'original_wave2', 'fan_asoul_vr', 'fan_holo_niji', 'original_wave3')
 foreach ($id in $builtIns) {
     $path = Join-Path $packDirectory "$id.json"
     $sourceHashes[$id] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
@@ -123,9 +123,9 @@ foreach ($id in $builtIns) {
     Assert-Check (-not $source.Contains('art')) "$id 不应为本任务补写 art，现有包须保持默认资源行为。"
 }
 $baseline = Invoke-PackCheck '01-builtins' @() 0
-Assert-Summary $baseline.Out 4 0
+Assert-Summary $baseline.Out $builtIns.Count 0
 foreach ($id in $builtIns) { Assert-Check ($baseline.Out.Contains('内容包 ' + $id + ' 内容指纹：')) "内置包 $id 未被检查。" }
-$checks.Add('四个现有内容包均无 art，全部通过，来源文件不改动')
+$checks.Add('全部已声明内置内容包均无 art，全部通过，来源文件不改动')
 
 $validDirectory = Join-Path $runDirectory 'valid-packs'
 $validArt = @{

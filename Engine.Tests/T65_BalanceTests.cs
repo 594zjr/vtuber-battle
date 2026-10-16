@@ -20,6 +20,7 @@ public class T65_BalanceTests
     [InlineData("original_wave2")]
     [InlineData("fan_asoul_vr")]
     [InlineData("fan_holo_niji")]
+    [InlineData("original_wave3")]
     public void EveryStreamerIsWithinRange(string pack)
     {
         var db = BattleTests.LoadPack(pack);

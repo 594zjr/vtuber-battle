@@ -313,6 +313,59 @@ try {
     $actual = Invoke-Cli 'disabled-original' $baseArgs 1 (Join-Path $policyBinary 'Cli.dll')
     Check ($actual.Err.Contains('已下架')) '对照绕过了下架政策。'
     $checks.Add('PASS_disabled_pack_no_input_or_profile_writes')
+
+    # 新主线参数必须已被识别，然后由独立对照入口拒绝，不能退化成未知参数。
+    $integrationExisting = Join-Path $fixtures 'existing-integration-tournament.json'
+    [IO.File]::WriteAllText($integrationExisting, '{"t126":"既有赛事哨兵，参数拒绝前不得读取或改写"}', $utf8)
+    $integrationFresh = Join-Path $work 't126-must-not-create/event.json'
+    $integrationSeedExtras = @(@('--tournament-seed', '126'), @('--no-auto-tiebreak'), @('--seed-by', 'rating'))
+    foreach ($target in @($integrationExisting, $integrationFresh)) {
+        for ($i = 0; $i -lt $integrationSeedExtras.Count; $i++) {
+            $extra = @('--tournament', $target) + $integrationSeedExtras[$i]
+            foreach ($reverse in @($false, $true)) {
+                $parameters = if ($reverse) { $extra + $baseArgs } else { $baseArgs + $extra }
+                $actual = Invoke-Cli ("integration-tournament-" + $calls.Count) $parameters 1
+                Check ($actual.Err.Contains('--branch-compare') -and $actual.Err.Contains($integrationSeedExtras[$i][0]) -and
+                    $actual.Err -notmatch '未知参数|不认识的参数|unknown') 'T118/T124 参数未被识别并由接手对照互斥校验明确拒绝。'
+                Check (-not (Test-Path -LiteralPath (Split-Path $integrationFresh -Parent))) '参数互斥创建了新赛事目录。'
+            }
+        }
+    }
+    $checks.Add('PASS_t118_t124_both_orders_reject_before_new_or_existing_tournament_io')
+
+    foreach ($ruleset in @('casual', 'ranked', 'chaos')) {
+        $extra = @('--ruleset', $ruleset)
+        foreach ($reverse in @($false, $true)) {
+            $parameters = if ($reverse) { $extra + $baseArgs } else { $baseArgs + $extra }
+            $actual = Invoke-Cli "integration-ruleset-$ruleset-$reverse" $parameters 1
+            Check ($actual.Err.Contains('--branch-compare') -and $actual.Err.Contains('--ruleset') -and
+                $actual.Err -notmatch '未知参数|不认识的参数|unknown') 'T54 赛制参数未被识别并由接手对照互斥校验明确拒绝。'
+        }
+    }
+    $checks.Add('PASS_t54_all_rulesets_both_orders_reject_before_io')
+
+    # 第二文件也必须严格解码；替换解码仍能形成合法 JSON，不能靠来源不符掩盖编码错误。
+    $branchJson = $same.Record.ToJson()
+    $branchNameIndex = $branchJson.IndexOf('原始乙', [StringComparison]::Ordinal)
+    Check ($branchNameIndex -ge 0 -and $branchNameIndex -eq $branchJson.LastIndexOf('原始乙', [StringComparison]::Ordinal)) '第二文件坏字节夹具中的名称标记不唯一。'
+    [byte[]]$branchBadBytes = $utf8.GetBytes($branchJson)
+    $branchBadBytes[$utf8.GetByteCount($branchJson.Substring(0, $branchNameIndex))] = 255
+    $replacementDecoder = [Text.UTF8Encoding]::new($false, $false)
+    $tolerantBranch = [StreamDuel.Core.BattleRecord]::FromJson($replacementDecoder.GetString($branchBadBytes))
+    Check ($tolerantBranch.Names[1].Contains([string][char]0xFFFD)) '第二文件夹具没有证明替换解码仍会得到合法录像 JSON。'
+    $branchBadUtf8 = Join-Path $fixtures 'branch-invalid-utf8-in-json-string.json'
+    [IO.File]::WriteAllBytes($branchBadUtf8, $branchBadBytes)
+    $branchUtf16 = Join-Path $fixtures 'branch-utf16-bom.json'
+    [IO.File]::WriteAllText($branchUtf16, $branchJson, [Text.Encoding]::Unicode)
+    foreach ($path in @($branchBadUtf8, $branchUtf16)) {
+        $actual = Invoke-Cli ("branch-strict-utf8-" + $calls.Count) @('--branch-compare', $sourcePath, $path) 1
+        Check ($actual.Err.Contains('接手录像不是有效的 UTF-8')) '第二文件没有明确按严格 UTF-8 拒绝，或把编码失败误报为来源不符。'
+    }
+    $branchBomPath = Join-Path $fixtures 'branch-valid-utf8-bom.json'
+    [IO.File]::WriteAllText($branchBomPath, $branchJson, [Text.UTF8Encoding]::new($true, $true))
+    $branchBom = Invoke-Cli 'branch-valid-utf8-bom' @('--branch-compare', $sourcePath, $branchBomPath)
+    Check ($branchBom.Out -ceq $first.Out) '第二文件合法 UTF-8 BOM 改变了对照输出。'
+    $checks.Add('PASS_second_file_strict_utf8_rejects_bad_bytes_and_utf16_accepts_utf8_bom')
 }
 catch { $failure = $_.ToString() + "`n" + $_.ScriptStackTrace }
 finally {
