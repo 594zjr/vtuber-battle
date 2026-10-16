@@ -58,7 +58,7 @@ namespace StreamDuel.Ladder
                         cells.AddRange(teams[0]);
                         cells.AddRange(teams[1]);
                         cells.AddRange(new[] { bans[0], bans[1], leads[0], leads[1], Number(battle.Winner), result,
-                            Number(battle.Turn), battle.StateHash().ToString("x16", CultureInfo.InvariantCulture) });
+                            Number(battle.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)), battle.StateHash().ToString("x16", CultureInfo.InvariantCulture) });
                         games.WriteLine(string.Join(",", cells.Select(Csv)));
                         records.WriteLine(record);
                         sides[newSide].Add(battle.Winner, newSide);
@@ -166,6 +166,7 @@ namespace StreamDuel.Ladder
                 orientations = new[] { "A:new / B:old", "B:old / A:new", "A:old / B:new", "B:new / A:old" },
                 random_policy = "Only existing TeamGenerator and Battle.Rng; no resets; side 0 chooses before side 1",
                 replay_verified_games = total.Games,
+                turns_definition = "Number of recorded Turn events; replacement-only phases do not add a completed turn",
                 win_rate_definition = "wins / games; draws stay in denominator; score_rate=(wins+0.5*draws)/games",
                 results = new[] { Summary("0", sides[0]), Summary("1", sides[1]), Summary("all", total) }
             };

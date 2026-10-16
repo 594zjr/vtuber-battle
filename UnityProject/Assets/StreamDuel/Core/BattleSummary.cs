@@ -46,6 +46,36 @@ namespace StreamDuel.Core
             return summary;
         }
 
+        public (int Side, int Slot)? Mvp()
+        {
+            // 开局直接终止没有结算行动；零伤害的辅助、换人或跳过回合仍可正常评选。
+            if (Turns <= 0 || Sides == null || Winner < -1 || Winner > 1) return null;
+            (int Side, int Slot)? selected = null;
+            FighterStats best = null;
+            long bestScore = 0;
+            for (int side = 0; side < Math.Min(2, Sides.Length); side++)
+            {
+                if (Winner >= 0 && side != Winner || Sides[side] == null) continue;
+                for (int slot = 0; slot < Sides[side].Count; slot++)
+                {
+                    var stats = Sides[side][slot];
+                    if (stats == null) continue;
+                    // 双倍整数分数保留半点承伤，不因累计值较大而溢出或丢失精度。
+                    long score = 2L * stats.DamageDealt + stats.DamageTaken + 200L * stats.Kos;
+                    if (best == null || score > bestScore
+                        || score == bestScore && (stats.Kos > best.Kos
+                            || stats.Kos == best.Kos && (stats.DamageDealt > best.DamageDealt
+                                || stats.DamageDealt == best.DamageDealt && slot < selected.Value.Slot)))
+                    {
+                        selected = (side, slot);
+                        best = stats;
+                        bestScore = score;
+                    }
+                }
+            }
+            return selected;
+        }
+
         public string ToText()
         {
             var text = new StringBuilder("对战统计\n");

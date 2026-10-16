@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "samplingVersion": 1,
+  "packId": "original",
+  "contentHash": "336820d77647481b",
+  "gamesPerPair": 100,
+  "seed": 1,
+  "maxTurns": 120,
+  "allowedDrop": 0.05,
+  "matchups": [
+    {"lower": "Easy", "higher": "Normal", "lowerWins": 10, "higherWins": 90, "draws": 0, "truncated": 0},
+    {"lower": "Easy", "higher": "Hard", "lowerWins": 5, "higherWins": 95, "draws": 0, "truncated": 0},
+    {"lower": "Easy", "higher": "Expert", "lowerWins": 13, "higherWins": 87, "draws": 0, "truncated": 0},
+    {"lower": "Normal", "higher": "Hard", "lowerWins": 42, "higherWins": 58, "draws": 0, "truncated": 0},
+    {"lower": "Normal", "higher": "Expert", "lowerWins": 43, "higherWins": 57, "draws": 0, "truncated": 0},
+    {"lower": "Hard", "higher": "Expert", "lowerWins": 5, "higherWins": 95, "draws": 0, "truncated": 0}
+  ]
+}

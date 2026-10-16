@@ -15,6 +15,7 @@ namespace StreamDuel.Cli
         {
             private Task<string> pending;
             private bool stopped;
+            private bool endOfInput;
 
             public void Start()
             {
@@ -29,26 +30,34 @@ namespace StreamDuel.Cli
                     if (pending != null && pending.IsCompleted)
                     {
                         string line = pending.GetAwaiter().GetResult();
+                        if (line == null) endOfInput = true;
                         if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) stopped = true;
                     }
                     return stopped;
                 }
             }
 
+            public bool EndOfInput { get { bool ignored = EndRequested; return endOfInput; } }
+
             public bool TryTake(out string line)
             {
                 line = null;
                 if (pending == null || !pending.IsCompleted) return false;
                 line = pending.GetAwaiter().GetResult();
+                if (line == null) endOfInput = true;
                 pending = null;
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) stopped = true;
                 return true;
             }
 
-            public void DiscardCompleted()
+            public void DiscardCompleted(bool preserveCommands = false)
             {
                 // 已完成的旧选择不跨阶段提交；EOF 和退出请求仍然有效。
-                if (!EndRequested && pending != null && pending.IsCompleted) pending = null;
+                if (!EndRequested && pending != null && pending.IsCompleted)
+                {
+                    if (preserveCommands && pending.GetAwaiter().GetResult().TrimStart().StartsWith("/", StringComparison.Ordinal)) return;
+                    pending = null;
+                }
             }
         }
 
@@ -124,13 +133,15 @@ namespace StreamDuel.Cli
         private sealed class NetworkPump
         {
             private readonly NetSession session;
+            private readonly Action poll;
             private readonly Stopwatch elapsed = Stopwatch.StartNew();
             private readonly ClockDisplay display = new ClockDisplay();
             private long observedTimerRevision;
 
-            public NetworkPump(NetSession session)
+            public NetworkPump(NetSession session, Action poll = null)
             {
                 this.session = session;
+                this.poll = poll ?? (() => session.Poll());
                 observedTimerRevision = session.TimerRevision;
             }
 
@@ -140,17 +151,20 @@ namespace StreamDuel.Cli
                 elapsed.Restart();
                 var beforePoll = new ChoiceStamp(session.Battle);
                 NetState oldState = session.State;
+                bool wasDisconnected = session.IsDisconnected;
                 long timerRevision = session.TimerRevision;
-                session.Poll();
+                poll();
                 CheckNetwork(session);
                 // 刚通过哈希确认开放的新阶段，不承担前一阶段等待所花的时间。
-                if (observedTimerRevision != timerRevision || timerRevision != session.TimerRevision || !beforePoll.Matches(session.Battle)
+                if (wasDisconnected || session.IsDisconnected || observedTimerRevision != timerRevision
+                    || timerRevision != session.TimerRevision || !beforePoll.Matches(session.Battle)
                     || oldState == NetState.Waiting && session.State != oldState)
                 {
                     seconds = 0;
                     elapsed.Restart();
                 }
-                bool choosing = !session.HasSubmitted && (session.State == NetState.Choose || session.State == NetState.Replace);
+                bool choosing = !session.IsDisconnected && !session.HasSubmitted
+                    && (session.State == NetState.Choose || session.State == NetState.Replace);
                 Phase phase = session.Battle.Phase;
                 var beforeTick = new ChoiceStamp(session.Battle);
                 timerRevision = session.TimerRevision;
@@ -160,11 +174,12 @@ namespace StreamDuel.Cli
                 observedTimerRevision = session.TimerRevision;
                 if (choosing && (session.HasSubmitted || !beforeTick.Matches(session.Battle)))
                     PrintTimeout(session.Battle, session.MySide, phase == Phase.Replace);
-                display.Show(session.Clock, session.Battle, session.MySide);
+                if (!session.IsDisconnected) display.Show(session.Clock, session.Battle, session.MySide);
             }
         }
 
-        private static int? ReadPumpedNumber(ConsoleInput input, string prompt, Action pump, Func<bool> expired)
+        private static int? ReadPumpedNumber(ConsoleInput input, string prompt, Action pump, Func<bool> expired,
+            Func<string, bool> command = null)
         {
             while (true)
             {
@@ -178,6 +193,11 @@ namespace StreamDuel.Cli
                     if (input.TryTake(out string line))
                     {
                         if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
+                        if (command != null && command(line))
+                        {
+                            if (expired()) throw new ChoiceExpiredException();
+                            break;
+                        }
                         if (int.TryParse(line.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value)) return value;
                         Console.WriteLine("请输入数字，或输入 q 退出。");
                         break;
@@ -189,7 +209,7 @@ namespace StreamDuel.Cli
 
         private static void PrintTimeout(Battle battle, int side, bool replacement)
         {
-            Console.WriteLine(battle.Sides[side].Name + (replacement
+            Console.WriteLine(TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text + (replacement
                 ? "：补位超时，提交编号最小的可上场队友。"
                 : "：超时，提交默认跳过（按当前状态结算）。"));
         }
@@ -217,7 +237,8 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadAction(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side)));
+                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                    line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             actions[side] = selected.Value;
                         }
@@ -260,7 +281,8 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadReplacement(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side)));
+                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                    line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             choices[side] = selected.Value;
                         }

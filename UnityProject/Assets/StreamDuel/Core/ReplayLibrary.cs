@@ -19,6 +19,22 @@ namespace StreamDuel.Core
         public string Note;
         public bool IsCorrupt;
         public string Error;
+        public bool IsUnavailable;
+        public string UnavailableReason;
+        internal TournamentArchiveTag TournamentArchive;
+
+        // 原始名字和备注保留旧录像的往返契约，界面不直接使用这些存储字段。
+        public TextInputResult[] NameInputs
+        {
+            get
+            {
+                return (Names ?? Array.Empty<string>())
+                    .Select(name => TextInput.Clean(name, TextInputKind.PlayerName)).ToArray();
+            }
+        }
+        public string[] DisplayNames { get { return NameInputs.Select(input => input.Text).ToArray(); } }
+        public TextInputResult NoteInput { get { return TextInput.Clean(Note, TextInputKind.Note); } }
+        public string DisplayNote { get { return NoteInput.Text; } }
     }
 
     public sealed class ReplayFilter
@@ -41,16 +57,23 @@ namespace StreamDuel.Core
         }
     }
 
-    public sealed class ReplayLibrary
+    public sealed partial class ReplayLibrary
     {
         readonly string directory;
         readonly string prefix;
         readonly int maxCount;
         readonly Func<DateTimeOffset> clock;
+        readonly PackPolicy policy;
+        readonly bool readOnly;
         readonly StringComparison pathComparison;
         static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
 
-        public ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null)
+        public ReplayLibrary(string directory, int maxCount = 200, Func<DateTimeOffset> clock = null, PackPolicy policy = null)
+            : this(directory, maxCount, clock, policy, false)
+        {
+        }
+
+        ReplayLibrary(string directory, int maxCount, Func<DateTimeOffset> clock, PackPolicy policy, bool readOnly)
         {
             if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("录像目录不能为空。", nameof(directory));
             if (maxCount < 1) throw new ArgumentOutOfRangeException(nameof(maxCount), "录像上限必须至少为 1。");
@@ -59,14 +82,26 @@ namespace StreamDuel.Core
             this.maxCount = maxCount;
             // 时钟仅用于本地录像命名与筛选，不参与战斗或随机流。
             this.clock = clock ?? (() => DateTimeOffset.UtcNow);
+            this.policy = policy ?? PackPolicy.LoadDefault();
+            this.readOnly = readOnly;
             pathComparison = Path.DirectorySeparatorChar == '\\' ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            EnsureDirectory();
+            if (readOnly) CheckAncestors();
+            else EnsureDirectory();
         }
 
         public string Save(BattleRecord r, BattleSummary s, string note = null)
         {
+            return SaveCore(r, s, note, null, null);
+        }
+
+        string SaveCore(BattleRecord r, BattleSummary s, string note, TournamentArchiveTag archive, Tournament tournament)
+        {
+            RequireWritable();
             if (r == null) throw new ArgumentNullException(nameof(r));
             if (s == null) throw new ArgumentNullException(nameof(s));
+            RejectUnavailable(Replay.PolicyError(policy, r));
+            if (r.Version > BattleRecord.CurrentVersion)
+                throw new FormatException(Replay.Check(null, r).Reason);
             if (r.Teams == null || r.Teams.Length != 2 || r.Teams.Any(team => team == null))
                 throw new ArgumentException("录像必须包含两支队伍。", nameof(r));
             string recordJson = r.ToJson();
@@ -76,13 +111,28 @@ namespace StreamDuel.Core
                 throw new ArgumentException("录像统计的胜方或回合数无效。", nameof(s));
             using (OpenLock())
             {
+                if (archive != null)
+                {
+                    string existing = ExistingTournamentReplay(tournament, archive, recordJson, s);
+                    if (existing != null)
+                    {
+                        // 逐局归档后、赛事存档前中断时，重试也补齐可能尚未写成的索引。
+                        if (archive.Attempt.HasValue) WriteIndex(Scan());
+                        return existing;
+                    }
+                }
                 DateTimeOffset date = clock().ToUniversalTime();
                 string stem = date.ToString("yyyyMMdd_HHmmss_fffffff", CultureInfo.InvariantCulture)
                     + "_" + record.Seed.ToString(CultureInfo.InvariantCulture);
                 string id = NextId(stem);
                 var entry = Entry(record, id, date, s.Winner, s.Turns, NormalizeNote(note));
+                entry.TournamentArchive = archive;
                 WriteAtomic(id + ".json", WithMetadata(recordJson, entry));
-                try { RefreshAndPrune(); }
+                try
+                {
+                    if (archive != null && archive.Attempt.HasValue) WriteIndex(Scan());
+                    else RefreshAndPrune();
+                }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
                     throw new ReplayLibraryMaintenanceException(id, ex);
@@ -93,6 +143,7 @@ namespace StreamDuel.Core
 
         public List<ReplayEntry> List(ReplayFilter f = null)
         {
+            RequireWritable();
             if (f != null && (f.Winner < -1 || f.Winner > 1 || f.From > f.To))
                 throw new ArgumentException("录像筛选的胜方或日期范围无效。", nameof(f));
             using (OpenLock())
@@ -107,15 +158,18 @@ namespace StreamDuel.Core
         public BattleRecord Load(string id)
         {
             ValidateId(id);
+            if (readOnly) return LoadReadOnly(id);
             using (OpenLock())
             {
-                ReadEntry(id, out var record);
+                var entry = ReadEntry(id, out var record);
+                RejectUnavailable(entry.UnavailableReason);
                 return record;
             }
         }
 
         public void Delete(string id)
         {
+            RequireWritable();
             ValidateId(id);
             using (OpenLock())
             {
@@ -126,10 +180,12 @@ namespace StreamDuel.Core
 
         public void SetNote(string id, string note)
         {
+            RequireWritable();
             ValidateId(id);
             using (OpenLock())
             {
                 var entry = ReadEntry(id, out var record);
+                RejectUnavailable(entry.UnavailableReason);
                 entry.Note = NormalizeNote(note);
                 WriteAtomic(id + ".json", WithMetadata(record.ToJson(), entry));
                 RefreshAndPrune();
@@ -137,6 +193,11 @@ namespace StreamDuel.Core
         }
 
         static string NormalizeNote(string note) { return string.IsNullOrWhiteSpace(note) ? null : note; }
+
+        static void RejectUnavailable(string reason)
+        {
+            if (reason != null) throw new InvalidOperationException(reason);
+        }
 
         string NextId(string stem)
         {
@@ -167,8 +228,10 @@ namespace StreamDuel.Core
         void RefreshAndPrune()
         {
             var entries = Scan();
-            int count = entries.Count(entry => !entry.IsCorrupt);
-            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && entry.Note == null)
+            // 下架不代表文件损坏，也不能成为自动删除用户原始录像的理由。
+            int count = entries.Count(entry => !entry.IsCorrupt && !entry.IsUnavailable);
+            foreach (var entry in entries.Where(entry => !entry.IsCorrupt && !entry.IsUnavailable && entry.Note == null
+                && !(entry.TournamentArchive?.Attempt.HasValue ?? false))
                 .OrderBy(entry => entry.Date).ThenBy(entry => entry.Id, StringComparer.Ordinal).ToList())
             {
                 if (count <= maxCount) break;
@@ -195,7 +258,9 @@ namespace StreamDuel.Core
                     {
                         Id = id, Date = DateTimeOffset.MinValue, Winner = -1,
                         Names = new[] { "未知", "未知" }, Teams = new IList<string>[] { new List<string>(), new List<string>() },
-                        IsCorrupt = true, Error = "录像文件损坏或无法读取，已跳过。"
+                        IsCorrupt = true,
+                        Error = ex is FormatException && ex.Message.StartsWith("录像来自更新的版本：", StringComparison.Ordinal)
+                            ? ex.Message : "录像文件损坏或无法读取，已跳过。"
                     });
                 }
             }
@@ -207,6 +272,11 @@ namespace StreamDuel.Core
             string json;
             try { json = File.ReadAllText(CheckedPath(id + ".json"), Utf8); }
             catch (DecoderFallbackException ex) { throw new FormatException("录像不是有效的 UTF-8 文本：" + id, ex); }
+            return ParseEntry(id, json, out record);
+        }
+
+        ReplayEntry ParseEntry(string id, string json, out BattleRecord record)
+        {
             var root = MiniJson.Parse(json) as Dictionary<string, object>;
             if (root == null || !root.TryGetValue("library", out var value) || !(value is Dictionary<string, object> metadata))
                 throw new FormatException("录像缺少本地录像库元数据：" + id);
@@ -218,17 +288,24 @@ namespace StreamDuel.Core
             if (!metadata.TryGetValue("note", out var note) || (note != null && !(note is string)))
                 throw new FormatException("录像备注无效：" + id);
             record = BattleRecord.FromJson(json);
+            // 解析保留旧接口的宽容行为，库层禁止重写或清理尚不支持的录像。
+            if (record.Version > BattleRecord.CurrentVersion)
+                throw new FormatException(Replay.Check(null, record).Reason);
             if (turns != record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn))
                 throw new FormatException("录像回合数与记录不一致：" + id);
-            return Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            var entry = Entry(record, id, date.ToUniversalTime(), winner, turns, NormalizeNote((string)note));
+            entry.TournamentArchive = ReadTournamentTag(metadata);
+            return entry;
         }
 
-        static ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
+        ReplayEntry Entry(BattleRecord record, string id, DateTimeOffset date, int winner, int turns, string note)
         {
+            string reason = Replay.PolicyError(policy, record);
             return new ReplayEntry
             {
                 Id = id, Date = date, PackId = record.PackId, Names = record.Names ?? new[] { "你", "对手" },
-                Teams = record.Teams, Winner = winner, Turns = turns, Note = note
+                Teams = record.Teams, Winner = winner, Turns = turns, Note = note,
+                IsUnavailable = reason != null, UnavailableReason = reason
             };
         }
 
@@ -252,7 +329,8 @@ namespace StreamDuel.Core
             return "{\"version\":1,\"id\":" + Quote(entry.Id) + ",\"date\":"
                 + Quote(entry.Date.ToString("O", CultureInfo.InvariantCulture)) + ",\"winner\":"
                 + entry.Winner.ToString(CultureInfo.InvariantCulture) + ",\"turns\":"
-                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note) + "}";
+                + entry.Turns.ToString(CultureInfo.InvariantCulture) + ",\"note\":" + Quote(entry.Note)
+                + TournamentMetadata(entry.TournamentArchive) + "}";
         }
 
         static string WithMetadata(string recordJson, ReplayEntry entry)
@@ -272,7 +350,9 @@ namespace StreamDuel.Core
                 json.Append(",\"names\":[").Append(string.Join(",", entry.Names.Select(Quote))).Append(']');
                 json.Append(",\"teams\":[").Append(string.Join(",", entry.Teams.Select(team => "[" + string.Join(",", team.Select(Quote)) + "]"))).Append(']');
                 json.Append(",\"isCorrupt\":").Append(entry.IsCorrupt ? "true" : "false");
-                json.Append(",\"error\":").Append(Quote(entry.Error)).Append('}');
+                json.Append(",\"error\":").Append(Quote(entry.Error));
+                json.Append(",\"isUnavailable\":").Append(entry.IsUnavailable ? "true" : "false");
+                json.Append(",\"unavailableReason\":").Append(Quote(entry.UnavailableReason)).Append('}');
             }
             WriteAtomic("index.json", json.Append("]}").ToString());
         }

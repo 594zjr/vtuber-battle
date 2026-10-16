@@ -1,0 +1,1 @@
+{"type":"packet","sessionId":"f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff","side":1,"sequence":2,"payload":"{\"type\":\"reveal\",\"turn\":1,\"kind\":\"action\",\"action\":\"S0\",\"nonce\":\"000102030405060708090a0b0c0d0e0f\"}"}

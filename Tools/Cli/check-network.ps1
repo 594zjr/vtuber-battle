@@ -33,10 +33,11 @@ $guestTeam = @('kei', 'yuan', 'nyako', 'buck', 'kasumi', 'bee')
 $children = [Collections.Generic.List[object]]::new()
 $checks = [Collections.Generic.List[string]]::new()
 $finalHash = $null
+$fairSeed = $null
 $winner = $null
 $mismatchEvidence = $null
 $reportHashes = [ordered]@{ ipv4 = $null; ipv6 = $null }
-$ipv6Evidence = [ordered]@{ supported = [Net.Sockets.Socket]::OSSupportsIPv6; status = 'NOT_RUN'; final_hash = $null }
+$ipv6Evidence = [ordered]@{ supported = [Net.Sockets.Socket]::OSSupportsIPv6; status = 'NOT_RUN'; final_hash = $null; seed = $null; winner = $null }
 $failure = $null
 
 function Assert-Check([bool]$Condition, [string]$Message) {
@@ -139,6 +140,12 @@ function Final-Hash([string]$Output) {
     return $matches[0].Groups[1].Value.ToLowerInvariant()
 }
 
+function Fair-Seed([string]$Output) {
+    $matches = [regex]::Matches($Output, '(?m)^连接成功；本方：[^\r\n]+；公平种子：([0-9]+)\r?$')
+    Assert-Check ($matches.Count -eq 1) '每端应恰好输出一次协商后的公平种子。'
+    return [uint32]::Parse($matches[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
+}
+
 function Replay-Files([string]$SaveDirectory) {
     $directory = Join-Path $SaveDirectory 'replays'
     if (Test-Path -LiteralPath $directory -PathType Container) {
@@ -149,6 +156,7 @@ function Replay-Files([string]$SaveDirectory) {
 function Assert-NoSave([string]$SaveDirectory) {
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $SaveDirectory 'profile.json'))) '未完成对局产生了胜负档案。'
     Assert-Check (@(Replay-Files $SaveDirectory).Count -eq 0) '未完成对局产生了回放。'
+    Assert-Check (-not (Test-Path -LiteralPath (Join-Path $SaveDirectory 'replay-library'))) '未完成对局产生了录像库。'
 }
 
 function Save-Fingerprint([string]$SaveDirectory) {
@@ -248,14 +256,15 @@ try {
     $hostResult = Wait-Cli $pair.Host 0
     $guestResult = Wait-Cli $pair.Guest 0
     $finalHash = Final-Hash $hostResult.Out
+    $fairSeed = Fair-Seed $hostResult.Out
     Assert-Check ($finalHash -ceq (Final-Hash $guestResult.Out)) '双进程的最终状态哈希不同。'
     foreach ($result in @($hostResult, $guestResult)) {
         Assert-Check ($result.Err.Length -eq 0) '正常联网对局产生了标准错误。'
-        Assert-Check ($result.Out.Contains('房主种子：7')) '客机没有使用主机种子 7。'
+        Assert-Check ((Fair-Seed $result.Out) -eq $fairSeed) '双方没有使用同一协商种子。'
         Assert-Check ($result.Out.Contains('对局结束：') -and $result.Out.Contains('等待对手……')) '正常对局未显示等待对手或结束信息。'
         Assert-Check ($result.Out.Contains('战报已保存：')) '完成的联网对局未报告战报保存成功。'
     }
-    $checks.Add('双进程自动对战：动态端口、双方 exit 0、主机种子 7 覆盖客机 99、最终哈希一致')
+    $checks.Add('双进程自动对战：动态端口、双方 exit 0、旧 --seed 参数不指定联网种子、双方公平种子及最终哈希一致')
 
     # 回看 CLI 不接受 --hash；使用同一构建的公开 Replay API 重新结算后核对哈希。
     [void][Reflection.Assembly]::LoadFrom($coreDll)
@@ -268,7 +277,7 @@ try {
         Assert-Check ($files.Count -eq 1) '每端完成对局应恰好保存一份回放。'
         $replayPaths.Add($files[0].FullName)
         $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
-        Assert-Check ($record.Seed -eq 7 -and $record.PackId -ceq 'original') '回放种子或内容包不正确。'
+        Assert-Check ($record.Seed -eq $fairSeed -and $record.PackId -ceq 'original') '回放没有保存最终公平种子或内容包不正确。'
         Assert-Check (-not $record.BanOne -and -not $record.LeadPick) '基础联网回放意外启用了禁用或首发。'
         Assert-Check (($record.Teams[0] -join ',') -ceq ($hostTeam -join ',') -and
             ($record.Teams[1] -join ',') -ceq ($guestTeam -join ',')) '回放的主客队伍或顺序不正确。'
@@ -381,6 +390,37 @@ try {
     Assert-NoSave $mismatchGuestSave
     $checks.Add('专属同包 id 的实际数值差异：预检指纹不同，两端中文报错并 exit 1，未开局且不保存')
 
+    foreach ($phase in @('commit', 'reveal')) {
+        $phaseSave = Join-Path $runDirectory "04-seed-$phase-save"
+        $phaseReport = Join-Path $runDirectory "04-seed-$phase-report.md"
+        $child = Start-Cli "04-seed-$phase" @('--host', '0', '--auto', '--team', ($hostTeam -join ','),
+            '--save-dir', $phaseSave, '--report', $phaseReport, '--share')
+        $port = [int](Wait-Output $child '(?m)^监听端口：([0-9]+)\r?$').Groups[1].Value
+        $peer = [StreamDuel.Core.TcpTransport]::Connect('127.0.0.1', $port, 5000)
+        try {
+            [void](Wait-Output $child '等待对手握手')
+            if ($phase -eq 'reveal') {
+                # 晚到的真实 hello 开启独立公开窗口；对端不 Poll，故不会公开自己的原值。
+                Start-Sleep -Milliseconds 6000
+                Assert-Check (-not $child.Process.HasExited) '承诺窗口未满 10 秒就提前退出。'
+                $silentSession = [StreamDuel.Core.NetSession]::new($db, $peer, $false, [string[]]$guestTeam,
+                    '客机', $null, $null, $null, $true, [StreamDuel.Core.PlayerRating]::new(), $true, [byte[]](32..63))
+                Start-Sleep -Milliseconds 5000
+                Assert-Check (-not $child.Process.HasExited) '公开窗口复用了握手整体 10 秒期限，没有获得独立预算。'
+            }
+            $result = Wait-Cli $child 1 15000
+            $expected = if ($phase -eq 'commit') { '等待对方种子承诺已达 10 秒' } else { '等待对方公开种子已达 10 秒' }
+            Assert-Check ($result.Err.Contains($expected)) '未启用回合计时时，种子握手没有按对应阶段超时。'
+            foreach ($text in @('连接成功；', '对局结束：', '最终状态哈希：', '分享码：', '战报已保存：')) {
+                Assert-Check (-not $result.Out.Contains($text)) "未完成的种子握手意外输出 $text。"
+            }
+            Assert-NoSave $phaseSave
+            Assert-Check (-not (Test-Path -LiteralPath $phaseReport)) '未完成的种子握手保存了战报。'
+        }
+        finally { $peer.Dispose() }
+    }
+    $checks.Add('真实 TCP 无回合计时：承诺/公开独立 10 秒超时，迟到承诺不截短公开窗口；未开局且档案/排位/录像/战报/分享均不产生')
+
     $invalidCases = @(
         @{ Name = 'host-range'; Parameters = @('--host', '65536') },
         @{ Name = 'join-zero'; Parameters = @('--join', 'localhost:0') },
@@ -412,23 +452,37 @@ try {
             -HostExtra @('--report', $ipv6HostReport) -GuestExtra @('--report', $ipv6GuestReport)
         $ipv6HostResult = Wait-Cli $ipv6.Host 0
         $ipv6GuestResult = Wait-Cli $ipv6.Guest 0
+        $ipv6Seed = Fair-Seed $ipv6HostResult.Out
+        $ipv6Hash = Final-Hash $ipv6HostResult.Out
         foreach ($result in @($ipv6HostResult, $ipv6GuestResult)) {
             Assert-Check ($result.Err.Length -eq 0 -and $result.Out.Contains('对局结束：')) 'IPv6 自动回环未正常完成。'
-            Assert-Check ($result.Out.Contains('房主种子：7') -and $result.Out.Contains('战报已保存：')) 'IPv6 自动回环未采用主机种子或保存战报。'
-            Assert-Check ((Final-Hash $result.Out) -ceq $finalHash) 'IPv6 终局哈希与相同队伍、种子的 IPv4 对局不同。'
+            Assert-Check ((Fair-Seed $result.Out) -eq $ipv6Seed -and $result.Out.Contains('战报已保存：')) 'IPv6 自动回环未采用相同公平种子或保存战报。'
+            Assert-Check ((Final-Hash $result.Out) -ceq $ipv6Hash) 'IPv6 本局双方的终局哈希不同。'
         }
-        $reportHashes.ipv6 = Assert-Reports $ipv6HostReport $ipv6GuestReport $normalReplayed
+        # 每次联网握手都重新协商种子，IPv6 应与自己的回放比较，不能复用另一局的胜者与哈希。
+        $ipv6Winner = $null
+        foreach ($save in @($ipv6HostSave, $ipv6GuestSave)) {
+            $files = @(Replay-Files $save)
+            Assert-Check ($files.Count -eq 1) 'IPv6 对局每端应恰好保存一份回放。'
+            $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
+            Assert-Check ($record.Seed -eq $ipv6Seed -and $record.PackId -ceq 'original') 'IPv6 回放的公平种子或内容包不正确。'
+            Assert-Check (($record.Teams[0] -join ',') -ceq ($hostTeam -join ',') -and
+                ($record.Teams[1] -join ',') -ceq ($guestTeam -join ',')) 'IPv6 回放的主客队伍顺序不正确。'
+            $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
+            Assert-Check ($replayed.Phase -eq [StreamDuel.Core.Phase]::Over -and
+                $replayed.StateHash().ToString('x16', [Globalization.CultureInfo]::InvariantCulture) -ceq $ipv6Hash) 'IPv6 回放不能复现本局终局哈希。'
+            if ($null -eq $ipv6Winner) { $ipv6Winner = $replayed.Winner }
+            Assert-Check ($ipv6Winner -eq $replayed.Winner) 'IPv6 两份回放的胜者不同。'
+        }
+        $reportHashes.ipv6 = Assert-Reports $ipv6HostReport $ipv6GuestReport $replayed
         Assert-PrintedReviews $ipv6HostResult.Out $ipv6GuestResult.Out
-        foreach ($part in @('host', 'guest', 'body')) {
-            Assert-Check ($reportHashes.ipv6.$part -ceq $reportHashes.ipv4.$part) "IPv6 与相同队伍、种子的 IPv4 战报 $part 不同。"
-        }
-        Assert-Profile $ipv6HostSave 0 $hostTeam $winner
-        Assert-Profile $ipv6GuestSave 1 $guestTeam $winner
-        Assert-Check (@(Replay-Files $ipv6HostSave).Count -eq 1 -and
-            @(Replay-Files $ipv6GuestSave).Count -eq 1) 'IPv6 对局没有为双方各保存一份回放。'
+        Assert-Profile $ipv6HostSave 0 $hostTeam $ipv6Winner
+        Assert-Profile $ipv6GuestSave 1 $guestTeam $ipv6Winner
         $ipv6Evidence.status = 'PASS'
-        $ipv6Evidence.final_hash = Final-Hash $ipv6HostResult.Out
-        $checks.Add('IPv6 [::1] 真实自动回环：双方 exit 0、战报/终局与 IPv4 相同、各自档案及回放保存')
+        $ipv6Evidence.final_hash = $ipv6Hash
+        $ipv6Evidence.seed = $ipv6Seed
+        $ipv6Evidence.winner = $ipv6Winner
+        $checks.Add('IPv6 [::1] 真实自动回环：双方 exit 0、同局公平种子/战报/终局一致、各自回放复现并按本局胜者保存档案')
     }
     else {
         $ipv6Evidence.status = 'UNSUPPORTED'
@@ -447,8 +501,10 @@ try {
     $expertHostResult = Wait-Cli $expert.Host 0
     $expertGuestResult = Wait-Cli $expert.Guest 0
     $expertHash = Final-Hash $expertHostResult.Out
+    $expertSeed = Fair-Seed $expertHostResult.Out
     Assert-Check ($expertHash -ceq (Final-Hash $expertGuestResult.Out)) '专家 AI 双进程的最终状态哈希不同。'
     foreach ($result in @($expertHostResult, $expertGuestResult)) {
+        Assert-Check ((Fair-Seed $result.Out) -eq $expertSeed) '专家 AI 双进程公平种子不一致。'
         Assert-Check ($result.Err.Length -eq 0 -and $result.Out.Contains('对局结束：')) '专家 AI 联网对局未正常完成。'
         Assert-Check ($result.Out.Contains('战报已保存：')) '专家 AI 联网对局未报告战报保存成功。'
     }
@@ -457,6 +513,7 @@ try {
         $files = @(Replay-Files $save)
         Assert-Check ($files.Count -eq 1) '专家 AI 对局每端应恰好保存一份回放。'
         $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
+        Assert-Check ($record.Seed -eq $expertSeed) '专家 AI 回放没有保存本局最终公平种子。'
         $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
         Assert-Check ($replayed.Phase -eq [StreamDuel.Core.Phase]::Over) '专家 AI 回放没有重新结算到终局。'
         Assert-Check ($replayed.StateHash().ToString('x16', [Globalization.CultureInfo]::InvariantCulture) -ceq $expertHash) '专家 AI 回放最终哈希与本次联网对局不同。'
@@ -506,7 +563,7 @@ finally {
     $report = [ordered]@{
         status = $(if ($null -eq $failure) { 'PASS' } else { 'FAIL' })
         error = $(if ($null -eq $failure) { $null } else { $failure.Exception.Message })
-        final_hash = $finalHash; winner = $winner; content_mismatch = $mismatchEvidence
+        final_hash = $finalHash; seed = $fairSeed; winner = $winner; content_mismatch = $mismatchEvidence
         battle_reports_sha256 = $reportHashes; ipv6 = $ipv6Evidence
         checks = $checks.ToArray(); invocations = $invocations
     }

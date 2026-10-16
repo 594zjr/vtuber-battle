@@ -17,6 +17,10 @@ namespace StreamDuel.Ladder
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
             try
             {
+                if (args != null && args.Contains("--compare-styles"))
+                    return StyleComparison.Run(args, LoadPack);
+                if (args != null && args.Contains("--compare-expert"))
+                    return ExpertComparison.Run(args, LoadPack);
                 var options = Options.Parse(args);
                 if (options.Help)
                 {
@@ -29,6 +33,14 @@ namespace StreamDuel.Ladder
                     Console.WriteLine("输出 UTF-8 teams.csv 和 streamers.csv，控制台打印两榜前十；同版本、内容和参数可复现。统计定义见 Tools/Ladder/README.md。");
                     Console.WriteLine("开局策略比较：--compare-openers [--blocks 250] [--pack original] [--seed 1] [--season s1] [--out ./ladder_out]；每组同种子、同两阵容换边/互换策略打四局。");
                     Console.WriteLine("默认共 1000 局，新 Hard 与旧 Normal 仅禁用/首发不同，双方行动和补位均 Hard；输出逐局 CSV、全部回放 JSONL 和胜平负/配置 JSON。");
+                    Console.WriteLine();
+                    Console.WriteLine("电脑强度回归：dotnet run --project Tools/Ladder -- --ai-regression [--pack original] [--games 100] [--seed 1] [--baseline 文件]");
+                    Console.WriteLine("生成候选基准：dotnet run --project Tools/Ladder -- --ai-regression --write-baseline 输出文件 [--games 100] [--seed 1]");
+                    Console.WriteLine("每对难度对战 games 局，games 必须为正偶数；默认读取随工具打包的 ai-baseline.json，比较时局数、种子与采样方案必须一致。");
+                    Console.WriteLine("输出四档难度胜率表和六组胜负统计；高难度胜率须大于 50%，且不能比基准下降超过允许幅度，否则退出码为 1。");
+                    Console.WriteLine("--write-baseline 显式覆盖指定输出文件；即使难度顺序未达标也保存实际结果，并返回失败，候选结果需审查后再启用。");
+                    Console.WriteLine("回归模式不能使用 --teams、--rounds、--level、--season、--out；--baseline 与 --write-baseline 互斥。完整回归耗时较长，不接入 CI。");
+                    Console.WriteLine("专家预算比较使用独立模式：--compare-expert --help。");
                     return 0;
                 }
 
@@ -38,6 +50,7 @@ namespace StreamDuel.Ladder
                     OpenerComparison.Run(db, options);
                     return 0;
                 }
+                if (options.AiRegression) return AiRegressionCommand.Run(db, options);
                 var rosters = TeamGenerator.Generate(db, options.Season, options.Teams, options.Seed);
                 var tournament = new Tournament(db, options, rosters);
                 tournament.Run();
@@ -80,7 +93,7 @@ namespace StreamDuel.Ladder
                 Console.WriteLine("已输出 teams.csv、streamers.csv。");
                 return 0;
             }
-            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException || ex is UnauthorizedAccessException || ex is KeyError)
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is IOException || ex is UnauthorizedAccessException || ex is KeyError || ex is FormatException)
             {
                 Console.Error.WriteLine("错误：" + ex.Message);
                 return 1;
@@ -90,13 +103,44 @@ namespace StreamDuel.Ladder
         static ContentDb LoadPack(string id)
         {
             string content = Path.Combine(AppContext.BaseDirectory, "Content");
+            var policy = PackPolicy.Load(Path.Combine(content, "PackPolicy.json"));
+            string disabledReason = policy.PackReason(id);
+            if (disabledReason != null) throw new ArgumentException(disabledReason);
             string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"));
-            var packs = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"));
+            var packs = PackLoader.LoadDirectory(rules, Path.Combine(content, "Packs"), policy);
             var selected = packs.FirstOrDefault(p => p.Db != null && p.Db.PackId == id)
                 ?? packs.FirstOrDefault(p => string.Equals(Path.GetFileNameWithoutExtension(p.FileName), id, StringComparison.OrdinalIgnoreCase));
-            if (selected == null) throw new ArgumentException("找不到内置内容包「" + id + "」。");
+            if (selected == null)
+            {
+                disabledReason = FindDisabledReason(rules, Path.Combine(content, "Packs"), id, policy, true);
+                throw new ArgumentException(disabledReason ?? "找不到内置内容包「" + id + "」。");
+            }
             if (selected.Db == null) throw new ArgumentException("内容包载入失败：" + selected.Error);
             return selected.Db;
+        }
+
+        private static string FindDisabledReason(string rules, string directory, string id, PackPolicy policy, bool allowAlias)
+        {
+            if (directory == null || !Directory.Exists(directory)) return null;
+            try
+            {
+                foreach (string path in Directory.GetFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                    .Where(path => string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(path => Path.GetFileName(path), StringComparer.Ordinal))
+                {
+                    PackLoadResult result;
+                    try { result = PackLoader.LoadJson(rules, File.ReadAllText(path), Path.GetFileName(path), policy); }
+                    catch (IOException) { continue; }
+                    catch (UnauthorizedAccessException) { continue; }
+                    if (result.IsDisabled && (result.PackId == id || (allowAlias &&
+                        string.Equals(Path.GetFileNameWithoutExtension(path), id, StringComparison.OrdinalIgnoreCase))))
+                        return result.Error;
+                }
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            // 目录加载时已报告坏包；选择失败时只补充下架原因，不改变原来的错误路径。
+            return null;
         }
 
         static string Number(long value) { return value.ToString(CultureInfo.InvariantCulture); }

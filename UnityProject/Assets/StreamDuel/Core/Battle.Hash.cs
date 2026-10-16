@@ -75,6 +75,25 @@ namespace StreamDuel.Core
                 hash.Int(modifiers.Count);
                 foreach (string id in modifiers) hash.Text(id);
             }
+            HashTermination(hash);
+            bool delayedHeader = false;
+            for (int side = 0; side < Sides.Length; side++)
+            {
+                for (int slot = 0; slot < Sides[side].Team.Count; slot++)
+                {
+                    var fields = Sides[side].Team[slot].Fields;
+                    for (int index = 0; index < fields.Count; index++)
+                    {
+                        if (fields[index].Id != ContentDb.DelayedDamageFieldId) continue;
+                        // 没有延迟效果时不追加任何字节，保留旧状态哈希。
+                        if (!delayedHeader) { hash.Text("StreamDuel.DelayedDamage.v1"); delayedHeader = true; }
+                        hash.Int(side);
+                        hash.Int(slot);
+                        hash.Int(index);
+                        hash.Int(fields[index].PendingDamage);
+                    }
+                }
+            }
             return hash.Value;
         }
 

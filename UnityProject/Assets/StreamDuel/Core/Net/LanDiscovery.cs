@@ -11,6 +11,10 @@ namespace StreamDuel.Core
         public string Name, Address, ContentHash, Ruleset;
         public int Port, Protocol;
         public double LastSeen;
+
+        // 公告原值保留既有编码契约，界面只显示经过统一清理的副本。
+        public TextInputResult NameInput { get { return TextInput.Clean(Name, TextInputKind.RoomName); } }
+        public string DisplayName { get { return NameInput.Text; } }
     }
 
     public static class LanBeacon
