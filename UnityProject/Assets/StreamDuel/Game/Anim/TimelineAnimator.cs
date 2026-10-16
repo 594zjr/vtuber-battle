@@ -15,6 +15,7 @@ namespace StreamDuel.Game
         readonly IFxPlayer fx;
         readonly IStatusIconProvider icons;
         readonly Func<string, string> skillFx;
+        readonly Action<float> tickFx;
         readonly bool ownsPortraits;
         readonly SideVisual[] visuals = new SideVisual[2];
         readonly List<VisualElement> temporary = new List<VisualElement>();
@@ -28,7 +29,8 @@ namespace StreamDuel.Game
         public bool IsPlaying { get; private set; }
 
         public TimelineAnimator(BattleStage stage, ContentDb db, IPortraitProvider portraits = null,
-            IFxPlayer fx = null, IStatusIconProvider icons = null, Func<string, string> skillFx = null)
+            IFxPlayer fx = null, IStatusIconProvider icons = null, Func<string, string> skillFx = null,
+            Action<float> tickFx = null)
         {
             this.stage = stage ?? throw new ArgumentNullException(nameof(stage));
             this.db = db ?? throw new ArgumentNullException(nameof(db));
@@ -37,6 +39,7 @@ namespace StreamDuel.Game
             this.fx = fx ?? new NullFx();
             this.icons = icons ?? new TextStatusIconProvider();
             this.skillFx = skillFx ?? (id => id);
+            this.tickFx = tickFx;
             try
             {
                 visuals[0] = new SideVisual(stage.Fighter0);
@@ -148,6 +151,8 @@ namespace StreamDuel.Game
                     double boundary = item.Started ? item.Cue.Start + item.Cue.Duration : item.Cue.Start;
                     if (!item.Finished && boundary > elapsed && boundary < next) next = boundary;
                 }
+                // 在同一提示边界推进特效，跨起点的一帧不能让新特效少走或多走整帧。
+                tickFx?.Invoke((float)(next - elapsed));
                 PaintAt(next);
                 elapsed = next;
             }
@@ -363,8 +368,18 @@ namespace StreamDuel.Game
             var fighter = display.Team[cue.Side][cue.Slot];
             fighter.Chips.RemoveAll(chip => chip.Key == item.ChipKey);
             var data = new ChipData { Key = item.ChipKey, Id = cue.Id, Name = EffectName(cue.Id, status) };
+            // 时长直接来自事件；印记的 Amount 是新增层数，不能当成剩余回合。
+            if (!item.Removing && cue.Amount > 0 && (status
+                || (db.Fields.TryGetValue(cue.Id, out var field) && field.Kind != "mark")))
+                data.Remaining = cue.Amount;
             if (!item.Removing) fighter.Chips.Add(data);
             if (!IsCurrent(cue)) return;
+            if (!item.Removing && icons is IStatusDurationIconProvider
+                && visuals[cue.Side].Chips.TryGetValue(item.ChipKey, out var previous))
+            {
+                previous.RemoveFromHierarchy();
+                visuals[cue.Side].Chips.Remove(item.ChipKey);
+            }
             if (!visuals[cue.Side].Chips.TryGetValue(item.ChipKey, out item.Chip) && !item.Removing)
             {
                 item.Chip = MakeChip(data);

@@ -41,7 +41,7 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Menu, () => new MenuScreen(legacy));
             router.Register(ScreenIds.About, () => new AboutScreen());
             router.Register(ScreenIds.AnimationPreview, () => new AnimPreviewScreen());
-            router.Register(ScreenIds.EffectPreview, () => new MenuPreviewScreen(ScreenIds.EffectPreview, "特效预览"));
+            router.Register(ScreenIds.EffectPreview, () => new FxPreviewScreen());
             router.Register(ScreenIds.Team, () => new TeamScreen());
             router.Register(ScreenIds.Battle, () => new BattlePlaceholderScreen());
             router.Register(ScreenIds.Result, () => new ResultScreen());

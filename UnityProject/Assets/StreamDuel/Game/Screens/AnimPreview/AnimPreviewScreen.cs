@@ -18,6 +18,8 @@ namespace StreamDuel.Game
         string returnScreenId;
         object returnArgs;
         ContentDb db;
+        ProceduralFx proceduralFx;
+        ProceduralPortraitProvider proceduralPortraits;
         VisualElement page;
         Label status, result;
         Button nextButton, autoButton, skipButton;
@@ -141,6 +143,8 @@ namespace StreamDuel.Game
             if (disposed || db == null) return;
             Animator?.Dispose();
             Animator = null;
+            proceduralFx?.Dispose();
+            proceduralPortraits?.Dispose();
             autoPlay = paused = false;
             displayedTurn = 0;
             var teams = new IList<string>[]
@@ -149,7 +153,12 @@ namespace StreamDuel.Game
                 db.Streamers.Skip(6).Concat(db.Streamers.Take(6)).Take(6).Select(x => x.Id).ToArray()
             };
             Battle = new Battle(db, teams, new[] { "左方", "右方" }, PreviewSeed);
-            Animator = new TimelineAnimator(Stage, db);
+            proceduralPortraits = new ProceduralPortraitProvider();
+            proceduralFx = new ProceduralFx(Stage.FxLayer, from => Animator.TrackColorFor(from), false);
+            Animator = new TimelineAnimator(Stage, db, proceduralPortraits, proceduralFx,
+                new ProceduralIcons(db), db.Art.SkillFx, proceduralFx.Tick);
+            Stage.Fighter0.Q<Label>("timeline-fighter-initial").style.display = DisplayStyle.None;
+            Stage.Fighter1.Q<Label>("timeline-fighter-initial").style.display = DisplayStyle.None;
             var view = BattleViewModel.From(Battle, 0);
             Animator.Prepare(Battle, view, view);
             CurrentCues = BattleTimeline.Build(Battle.Events, 0, Battle.Events.Count).AsReadOnly();
@@ -166,6 +175,7 @@ namespace StreamDuel.Game
 
         void AdvanceRound()
         {
+            proceduralFx.Clear();
             var before = BattleViewModel.From(Battle, 0);
             int from = Battle.Events.Count;
             displayedTurn = Battle.Turn;
@@ -209,6 +219,7 @@ namespace StreamDuel.Game
         {
             if (disposed || Animator == null) return;
             Animator.SkipToEnd();
+            proceduralFx.Clear();
             paused = false;
             RefreshControls();
         }
@@ -219,6 +230,7 @@ namespace StreamDuel.Game
             if (!paused) Animator.Tick(dt * speed);
             if (!Animator.IsPlaying)
             {
+                proceduralFx.Clear();
                 if (Battle.Phase == Phase.Over) autoPlay = false;
                 else if (autoPlay && !paused) AdvanceRound();
             }
@@ -260,6 +272,10 @@ namespace StreamDuel.Game
             Stage?.UnregisterCallback<GeometryChangedEvent>(OnStageGeometry);
             Animator?.Dispose();
             Animator = null;
+            proceduralFx?.Dispose();
+            proceduralFx = null;
+            proceduralPortraits?.Dispose();
+            proceduralPortraits = null;
             Battle = null;
             CurrentCues = Array.Empty<AnimCue>();
             returnScreenId = null;
