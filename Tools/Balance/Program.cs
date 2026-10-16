@@ -8,7 +8,7 @@ using StreamDuel.Core;
 
 namespace StreamDuel.Balance
 {
-    internal static class Program
+    internal static partial class Program
     {
         private static readonly string[] BuiltInPacks = { "original", "original_wave2", "fan_asoul_vr", "fan_holo_niji" };
 
@@ -19,6 +19,7 @@ namespace StreamDuel.Balance
             public uint Seed = 2026;
             public AiLevel Level = AiLevel.Normal;
             public bool Help;
+            public string SaveBalance;
         }
 
         private static int Main(string[] args)
@@ -28,6 +29,7 @@ namespace StreamDuel.Balance
             Console.Error.NewLine = "\n";
             try
             {
+                if (args.Contains("--compare-balance")) return RunBalanceComparison(args);
                 var options = ParseOptions(args);
                 if (options.Help)
                 {
@@ -35,19 +37,35 @@ namespace StreamDuel.Balance
                     return 0;
                 }
 
+                string outputPath = options.SaveBalance == null ? null : BalanceOutputPath(options.SaveBalance);
                 string content = Path.Combine(AppContext.BaseDirectory, "Content");
                 var policy = PackPolicy.Load(Path.Combine(content, "PackPolicy.json"));
                 string rules = File.ReadAllText(Path.Combine(content, "StreamDuelRules.json"), Encoding.UTF8);
                 var packs = options.Pack == null ? BuiltInPacks : new[] { options.Pack };
+                var snapshot = new BalanceSnapshot
+                {
+                    GamesPerStreamer = options.GamesPerStreamer,
+                    Seed = options.Seed,
+                    Level = options.Level.ToString().ToLowerInvariant(),
+                    AiVersion = "core-mvid:" + typeof(Ai).Module.ModuleVersionId.ToString("N"),
+                    Packs = new List<BalancePackSnapshot>()
+                };
                 var csv = new StringBuilder("pack_id,content_hash,streamer_id,name,games_per_streamer,seed,level,win_rate\n");
                 foreach (string pack in packs)
                 {
                     string json = File.ReadAllText(Path.Combine(content, "Packs", pack + ".json"), Encoding.UTF8);
                     var db = ContentDb.FromJson(rules, json, policy);
                     string contentHash = db.ContentHash();
-                    var rates = BalanceCheck.WinRates(db, options.GamesPerStreamer, options.Seed, options.Level);
+                    var run = BalanceCheck.Measure(db, options.GamesPerStreamer, options.Seed, options.Level);
+                    var stats = run.Streamers.ToDictionary(item => item.Id, StringComparer.Ordinal);
+                    var packSnapshot = new BalancePackSnapshot
+                    {
+                        PackId = db.PackId, ContentHash = contentHash, Battles = run.Battles,
+                        Streamers = new List<BalanceStreamerSnapshot>()
+                    };
                     foreach (var streamer in db.Streamers.OrderBy(item => item.Id, StringComparer.Ordinal))
                     {
+                        packSnapshot.Streamers.Add(BalanceStreamerSnapshot.FromStats(stats[streamer.Id], streamer.Name));
                         // API 返回真实入队次数口径的比例；最低次数仅作为本轮请求参数输出。
                         string[] row =
                         {
@@ -55,11 +73,13 @@ namespace StreamDuel.Balance
                             options.GamesPerStreamer.ToString(CultureInfo.InvariantCulture),
                             options.Seed.ToString(CultureInfo.InvariantCulture),
                             options.Level.ToString().ToLowerInvariant(),
-                            rates[streamer.Id].ToString("R", CultureInfo.InvariantCulture)
+                            stats[streamer.Id].WinRate.ToString("R", CultureInfo.InvariantCulture)
                         };
                         csv.Append(string.Join(",", row.Select(Csv))).Append('\n');
                     }
+                    snapshot.Packs.Add(packSnapshot);
                 }
+                if (outputPath != null) SaveBalanceSnapshot(snapshot, outputPath);
                 Console.Write(csv.ToString());
                 return 0;
             }
@@ -82,7 +102,7 @@ namespace StreamDuel.Balance
                     options.Help = true;
                     continue;
                 }
-                if (option != "--pack" && option != "--games-per-streamer" && option != "--seed" && option != "--level")
+                if (option != "--pack" && option != "--games-per-streamer" && option != "--seed" && option != "--level" && option != "--save-balance")
                     throw new ArgumentException("未知选项：" + option + "；使用 --help 查看用法。");
                 if (!seen.Add(option)) throw new ArgumentException("选项不能重复：" + option + "。");
                 if (++index >= args.Length || string.IsNullOrWhiteSpace(args[index])
@@ -91,6 +111,9 @@ namespace StreamDuel.Balance
                 string value = args[index];
                 switch (option)
                 {
+                    case "--save-balance":
+                        options.SaveBalance = value;
+                        break;
                     case "--pack":
                         if (!BuiltInPacks.Contains(value, StringComparer.Ordinal))
                             throw new ArgumentException("未知内置包：" + value + "；可选 " + string.Join("、", BuiltInPacks) + "。");
@@ -136,6 +159,9 @@ namespace StreamDuel.Balance
             Console.WriteLine("--seed：0..4294967295 的整数，默认 2026；每个包使用同一个给定种子。");
             Console.WriteLine("--level：easy（简单）、normal（普通）、hard（困难）、expert（专家），默认 normal；双方使用相同难度。");
             Console.WriteLine("--help / -h：显示此说明。");
+            Console.WriteLine("--save-balance <新文件.json>：另存本次结果、实际入队数/局数、近似 95% 区间、内容和电脑构建版本；父目录须存在，不覆盖已有文件、不写入内容资源目录。");
+            Console.WriteLine("--compare-balance <旧文件> <新文件> [--change-threshold 0.05]：独立只读对比，不与模拟或保存选项合用；阈值按比例填写，0.05 即 5 个百分点。");
+            Console.WriteLine("胜率变化严格超过阈值且区间不重叠时标记明显变化；新结果超出 35%～65% 时返回 1，边界包含。条件不同只提示，不阻止比较。");
             Console.WriteLine("输出 UTF-8 CSV：包 id、内容指纹、主播 id、姓名、请求最低入队次数、种子、难度、胜率。");
             Console.WriteLine("win_rate 为 Core.BalanceCheck 返回的 0..1 原始比例，平局算半胜；含后排入队，按真实入队次数统计。输出不包含耗时，主播按 id 序排序。");
         }
