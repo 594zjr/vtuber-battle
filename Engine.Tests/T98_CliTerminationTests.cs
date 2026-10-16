@@ -320,13 +320,16 @@ public sealed class T98_CliTerminationTests
             errorTask = Read(process.StandardError, error);
         }
 
-        static async Task Read(StreamReader reader, StringBuilder destination)
+        static Task Read(StreamReader reader, StringBuilder destination)
         {
-            char[] buffer = new char[1024];
-            int count;
-            // 输出读取不依赖 xUnit 上下文，避免与 Finish 的同步等待互锁。
-            while ((count = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) != 0)
-                lock (destination) destination.Append(buffer, 0, count);
+            // 独立读取线程不依赖测试上下文或线程池续体，避免并行计算拖延管道收尾。
+            return Task.Factory.StartNew(() =>
+            {
+                char[] buffer = new char[1024];
+                int count;
+                while ((count = reader.Read(buffer, 0, buffer.Length)) != 0)
+                    lock (destination) destination.Append(buffer, 0, count);
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
         public void Send(params string[] lines)
