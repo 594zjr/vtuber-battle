@@ -23,8 +23,9 @@ public class T65_BalanceTests
     public void EveryStreamerIsWithinRange(string pack)
     {
         var db = BattleTests.LoadPack(pack);
-        var rates = BalanceCheck.WinRates(db, 60, 2026, AiLevel.Normal);
-        var bad = rates.Where(kv => kv.Value < 0.30 || kv.Value > 0.70).Select(kv => kv.Key + "=" + kv.Value.ToString("P0")).ToList();
+        // 小样本不能代表平衡结论；使用报告相同的固定样本量和正式验收区间。
+        var rates = BalanceCheck.WinRates(db, 5000, 2026, AiLevel.Normal);
+        var bad = rates.Where(kv => kv.Value < 0.35 || kv.Value > 0.65).Select(kv => kv.Key + "=" + kv.Value.ToString("P0")).ToList();
         Assert.True(bad.Count == 0, pack + " 胜率越界：" + string.Join("，", bad));
     }
 }
