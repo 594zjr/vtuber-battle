@@ -295,7 +295,9 @@ namespace StreamDuel.Core
             }
             output.Append(tournament.IsElimination
                 ? "\n晋级排名（冠军 → 仍在赛 → 较晚淘汰；同阶段按种子顺序）\n"
-                : "\n积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
+                : tournament.Format == "swiss" && tournament.SeedMode == TournamentSeedMode.ByRating
+                    ? "\n积分榜（积分 → 对手分 → 直接对话分 → 排位种子顺序）\n"
+                    : "\n积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
             if (standings.Count == 0) output.Append("暂无报名。\n");
             foreach (var row in standings)
                 output.Append(Number(row.Rank)).Append(" · 报名 #").Append(Number(row.Player + 1)).Append(' ').Append(row.Name)

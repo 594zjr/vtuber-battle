@@ -109,9 +109,13 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
             Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
-            Console.WriteLine("                    可搭配 --format、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
+            Console.WriteLine("                    可搭配 --format、--seed-by、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("  --format single|double  仅用于赛事：直接创建单败或双败淘汰赛；续赛时必须与已存赛制一致。");
             Console.WriteLine("                    CLI 新建淘汰赛默认按报名顺序排种子，双败默认开启总决赛重置；不接受 --seed。");
+            Console.WriteLine("  --seed-by rating  仅用于赛事：按当前季默认排位分、场数、报名顺序排种子，四种赛制均支持。");
+            Console.WriteLine("                    报名额外选择真人或普通/困难/专家电脑，可提供只读档案目录；无档案真人 1500，电脑 1400/1600/1800。");
+            Console.WriteLine("                    分数快照随赛事保存；续赛省略时保留原方式，显式 rating 不能改变旧赛事方式。坏档案拒绝报名。");
+            Console.WriteLine("                    不能与 --tournament-seed 同用；淘汰赛可搭配 --auto 与 --no-auto-tiebreak，自动加赛按未指定赛事种子的 0 派生。");
             Console.WriteLine("  --tournament-seed 整数  淘汰赛种子 0..4294967295，用于种子顺位和加赛派生；续赛不能更改已存种子。");
             Console.WriteLine("  --no-auto-tiebreak  关闭新建淘汰赛的自动加赛，平局保持待赛，重赛分出胜负后手工报分。");
             Console.WriteLine("                    新建淘汰赛配合 --auto 默认自动加赛，最多 3 次仍平按种子顺位晋级；原场和每次加赛先归档再登记结果。");
