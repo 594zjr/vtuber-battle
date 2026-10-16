@@ -11,6 +11,7 @@ using UnityEngine;
 [InitializeOnLoad]
 public static class T71SmokeEditor
 {
+    const string StatePrefix = "StreamDuel.T71SmokeEditor.";
     [Serializable]
     sealed class ConsoleResult
     {
@@ -28,20 +29,32 @@ public static class T71SmokeEditor
 
     static EditorWindow gameView;
     static int width, height;
-    static bool startPending, stopping;
-    static double started, stoppedAt = -1;
+    static bool startPending
+    {
+        get => SessionState.GetBool(StatePrefix + "startPending", false);
+        set => SessionState.SetBool(StatePrefix + "startPending", value);
+    }
+    static bool stopping
+    {
+        get => SessionState.GetBool(StatePrefix + "stopping", false);
+        set => SessionState.SetBool(StatePrefix + "stopping", value);
+    }
+    static double stoppedAt = -1;
     static int stoppedUpdates;
     static string Marker => Path.Combine(Application.dataPath, "../Library/t71-editor-exit.json");
 
     static T71SmokeEditor()
     {
         if (!Environment.GetCommandLineArgs().Contains("T71SmokeEditor.Run")) return;
-        started = EditorApplication.timeSinceStartup;
         EditorApplication.update += Poll;
     }
 
     public static void Run()
     {
+        SessionState.SetFloat(StatePrefix + "started", (float)EditorApplication.timeSinceStartup);
+        SessionState.SetBool(StatePrefix + "active", true);
+        SessionState.SetInt(StatePrefix + "originalCustomCount", -1);
+        startPending = stopping = false;
         OutputRoot();
         if (File.Exists(Marker)) File.Delete(Marker);
         EditorSceneManager.OpenScene("Assets/Scenes/Main.unity");
@@ -58,7 +71,8 @@ public static class T71SmokeEditor
     {
         string[] args = Environment.GetCommandLineArgs();
         int index = Array.IndexOf(args, "--t71-smoke-test");
-        if (index < 0 || index + 1 >= args.Length || !Path.IsPathFullyQualified(args[index + 1]))
+        if (index < 0 || index + 1 >= args.Length || args.Count(value => value == "--t71-smoke-test") != 1
+            || !Path.IsPathFullyQualified(args[index + 1]))
             throw new ArgumentException("--t71-smoke-test 需要工程内的绝对输出目录。");
         string project = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
         string output = Path.GetFullPath(args[index + 1]);
@@ -76,6 +90,8 @@ public static class T71SmokeEditor
 
     static void SetSize(int newWidth, int newHeight)
     {
+        if (!((newWidth == 1280 && newHeight == 720) || (newWidth == 1920 && newHeight == 1080)))
+            throw new ArgumentException("T71 验收仅允许 1280×720 和 1920×1080。");
         if (width == newWidth && height == newHeight && gameView != null) return;
         var assembly = typeof(Editor).Assembly;
         var viewType = assembly.GetType("UnityEditor.GameView", true);
@@ -85,6 +101,14 @@ public static class T71SmokeEditor
         object sizes = singleton.GetProperty("instance", BindingFlags.Public | BindingFlags.Static).GetValue(null);
         var groupType = assembly.GetType("UnityEditor.GameViewSizeGroupType", true);
         object group = sizesType.GetMethod("GetGroup").Invoke(sizes, new[] { Enum.Parse(groupType, "Standalone") });
+        if (SessionState.GetInt(StatePrefix + "originalCustomCount", -1) < 0)
+        {
+            SessionState.SetInt(StatePrefix + "originalCustomCount",
+                (int)group.GetType().GetMethod("GetCustomCount").Invoke(group, null));
+            SessionState.SetInt(StatePrefix + "originalSelectedSize",
+                (int)viewType.GetProperty("selectedSizeIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    .GetValue(gameView));
+        }
         var sizeType = assembly.GetType("UnityEditor.GameViewSize", true);
         var sizeKind = assembly.GetType("UnityEditor.GameViewSizeType", true);
         object size = Activator.CreateInstance(sizeType,
@@ -100,6 +124,27 @@ public static class T71SmokeEditor
         height = newHeight;
     }
 
+    static void RestoreSizes()
+    {
+        int originalCount = SessionState.GetInt(StatePrefix + "originalCustomCount", -1);
+        if (originalCount < 0) return;
+        var assembly = typeof(Editor).Assembly;
+        var sizesType = assembly.GetType("UnityEditor.GameViewSizes", true);
+        var singleton = typeof(ScriptableSingleton<>).MakeGenericType(sizesType);
+        object sizes = singleton.GetProperty("instance", BindingFlags.Public | BindingFlags.Static).GetValue(null);
+        var groupType = assembly.GetType("UnityEditor.GameViewSizeGroupType", true);
+        object group = sizesType.GetMethod("GetGroup").Invoke(sizes, new[] { Enum.Parse(groupType, "Standalone") });
+        int count = (int)group.GetType().GetMethod("GetCustomCount").Invoke(group, null);
+        int builtIn = (int)group.GetType().GetMethod("GetBuiltinCount").Invoke(group, null);
+        if (gameView != null)
+            gameView.GetType().GetProperty("selectedSizeIndex", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .SetValue(gameView, SessionState.GetInt(StatePrefix + "originalSelectedSize", 0));
+        // 退出前撤回本进程添加的尺寸，域重载也不留下验收项；不调用全局保存接口。
+        for (int index = count - 1; index >= originalCount; index--)
+            group.GetType().GetMethod("RemoveCustomSize").Invoke(group, new object[] { builtIn + index });
+        SessionState.SetInt(StatePrefix + "originalCustomCount", -1);
+    }
+
     static int[] ConsoleCounts()
     {
         var type = typeof(Editor).Assembly.GetType("UnityEditor.LogEntries", true);
@@ -110,6 +155,7 @@ public static class T71SmokeEditor
 
     static void Poll()
     {
+        if (!SessionState.GetBool(StatePrefix + "active", false)) return;
         try
         {
             if (!EditorApplication.isPlayingOrWillChangePlaymode && File.Exists(Marker))
@@ -131,11 +177,13 @@ public static class T71SmokeEditor
                 File.WriteAllText(data.consolePath, JsonUtility.ToJson(result, true));
                 int code = settled && counts[0] == 0 && counts[1] == 0 ? data.code : 1;
                 File.Delete(Marker);
+                SessionState.SetBool(StatePrefix + "active", false);
                 EditorApplication.Exit(code);
                 return;
             }
             if (stopping) return;
-            if (EditorApplication.timeSinceStartup - started > 480) { Finish(false, 1); return; }
+            if (EditorApplication.timeSinceStartup - SessionState.GetFloat(StatePrefix + "started", 0) > 480)
+            { Finish(false, 1); return; }
             if (startPending)
             {
                 if (EditorApplication.isCompiling || EditorApplication.isUpdating
@@ -155,6 +203,7 @@ public static class T71SmokeEditor
             catch (Exception finishError)
             {
                 Debug.LogException(finishError);
+                SessionState.SetBool(StatePrefix + "active", false);
                 EditorApplication.Exit(1);
             }
         }
@@ -163,6 +212,7 @@ public static class T71SmokeEditor
     static void Finish(bool completed, int requestedCode)
     {
         if (stopping) return;
+        RestoreSizes();
         int[] counts = ConsoleCounts();
         var result = new ConsoleResult
         {

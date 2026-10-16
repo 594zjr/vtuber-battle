@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Match = System.Text.RegularExpressions.Match;
 using StreamDuel.Core;
 using Xunit;
 

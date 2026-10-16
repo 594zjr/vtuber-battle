@@ -14,15 +14,29 @@ namespace StreamDuel.Game
         TcpHost listener;
         TcpTransport result;
         bool cancelled, completed;
+        readonly bool ownsListener;
         string error, status;
         int listeningPort;
 
         public int ListeningPort { get { lock (gate) return listeningPort; } }
 
-        public OnlineConnectionAttempt(bool host, string address, int port)
+        public OnlineConnectionAttempt(bool host, string address, int port, TcpHost existingListener = null)
         {
+            listener = existingListener;
+            ownsListener = existingListener == null;
             status = host ? "正在创建房间……" : "正在连接对方……";
-            Task.Run(() => Run(host, address, port));
+            Task.Run(() => Run(host, address, port, existingListener));
+        }
+
+        public TcpHost TakeListener()
+        {
+            lock (gate)
+            {
+                if (!completed || !ownsListener) return null;
+                var value = listener;
+                listener = null;
+                return value;
+            }
         }
 
         public bool TakeResult(out TcpTransport transport, out string failure, out string notice)
@@ -37,15 +51,17 @@ namespace StreamDuel.Game
             }
         }
 
-        void Run(bool host, string address, int port)
+        void Run(bool host, string address, int port, TcpHost existingListener)
         {
             TcpHost opened = null;
             TcpTransport connected = null;
+            bool published = false;
             try
             {
                 if (host)
                 {
-                    opened = TcpTransport.Listen(port, out int actualPort);
+                    int actualPort = port;
+                    opened = existingListener ?? TcpTransport.Listen(port, out actualPort);
                     lock (gate)
                     {
                         if (cancelled) return;
@@ -68,6 +84,7 @@ namespace StreamDuel.Game
                     if (cancelled) return;
                     result = connected;
                     connected = null;
+                    published = true;
                     completed = true;
                 }
             }
@@ -87,8 +104,12 @@ namespace StreamDuel.Game
             finally
             {
                 connected?.Dispose();
-                opened?.Dispose();
-                lock (gate) if (ReferenceEquals(listener, opened)) listener = null;
+                // 房主监听端口由整场会话持有，首次接入后仍须接受原会话重连。
+                if (!published && ownsListener)
+                {
+                    opened?.Dispose();
+                    lock (gate) if (ReferenceEquals(listener, opened)) listener = null;
+                }
             }
         }
 
@@ -115,7 +136,7 @@ namespace StreamDuel.Game
             {
                 if (cancelled) return;
                 cancelled = true;
-                stop = listener;
+                stop = ownsListener ? listener : null;
                 listener = null;
                 close = result;
                 result = null;

@@ -18,8 +18,22 @@ namespace StreamDuel.Game
 
         void SaveSettingsSafely()
         {
-            if (SmokeRequested) return;
             if (GameRuntimeSettings.TrySave(settings, out string message)) settingsNotice = null;
+            else ShowSettingsNotice(message);
+        }
+
+        void SaveBattleQuickSettings(bool playback)
+        {
+            // 本局可能保留较早的开局快照，快捷开关不能覆盖设置页后来保存的其它默认值。
+            var latest = GameSettings.FromJson(GameRuntimeSettings.Current.ToJson());
+            if (playback)
+            {
+                latest.FastPlay = settings.FastPlay;
+                latest.AnimationSpeed = settings.AnimationSpeed;
+                latest.Animations = settings.Animations;
+            }
+            else latest.TurnTimer = settings.TurnTimer;
+            if (GameRuntimeSettings.TrySave(latest, out string message)) settingsNotice = null;
             else ShowSettingsNotice(message);
         }
 

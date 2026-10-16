@@ -1,0 +1,252 @@
+{
+  "original": [
+    {
+      "id": "original_opening",
+      "name": "初播练习生",
+      "blurb": "歌回先发，搭配游戏、杂谈、绘画、恐怖与助眠，六种赛道各占一席。",
+      "team": ["bell", "enka", "lumi", "hane", "momo", "shiori"],
+      "level": "easy",
+      "style": "aggressive"
+    },
+    {
+      "id": "original_watchkeeper",
+      "name": "长夜守台员",
+      "blurb": "硬核先发，后排集合回复、护盘与净化，阵容偏重维持人气。",
+      "team": ["kei", "shiori", "lumi", "hane", "kasumi", "yuan"],
+      "level": "normal",
+      "style": "defensive"
+    },
+    {
+      "id": "original_quickbeat",
+      "name": "快拍控台手",
+      "blurb": "歌回与硬核衔接，配有游戏输出和整活热度，先制与反应技能较多。",
+      "team": ["bell", "bee", "enka", "momo", "nyako", "buck"],
+      "level": "normal",
+      "style": "aggressive"
+    },
+    {
+      "id": "original_relay",
+      "name": "六席接力客",
+      "blurb": "绘画先发，杂谈与硬核提供支援，整活成员在五号位与后排队友配合。",
+      "team": ["hane", "lumi", "kei", "bee", "nyako", "shiori"],
+      "level": "hard",
+      "style": "defensive"
+    },
+    {
+      "id": "original_midnight",
+      "name": "午夜调音师",
+      "blurb": "两位助眠与两位恐怖搭档，另配游戏和硬核，兼有蓄力与控制手段。",
+      "team": ["kasumi", "yuan", "momo", "shiori", "buck", "bee"],
+      "level": "hard",
+      "style": "tricky"
+    },
+    {
+      "id": "original_fullhouse",
+      "name": "满席排阵师",
+      "blurb": "硬核先发，歌回、绘画、游戏、杂谈和整活补齐六个赛道，覆盖多种对位。",
+      "team": ["bee", "bell", "hane", "enka", "lumi", "nyako"],
+      "level": "expert",
+      "style": "aggressive"
+    }
+  ],
+  "original_wave2": [
+    {
+      "id": "original_wave2_lamplight",
+      "name": "留灯排练员",
+      "blurb": "杂谈与助眠双赛道先发，搭配纸艺、料理、歌回和像素绘画，配置偏向续航。",
+      "team": ["og2_qideng", "og2_zhisun", "og2_tangshao", "og2_xiankou", "og2_gedian", "og2_zhenye"],
+      "level": "easy",
+      "style": "defensive"
+    },
+    {
+      "id": "original_wave2_paperwall",
+      "name": "纸屋值班人",
+      "blurb": "绘画先发，硬核与助眠留在后排，回复、保护和抗压强化较为齐全。",
+      "team": ["og2_zhisun", "og2_handian", "og2_qideng", "og2_zhenye", "og2_xingchi", "og2_guya"],
+      "level": "normal",
+      "style": "defensive"
+    },
+    {
+      "id": "original_wave2_splitline",
+      "name": "分段记谱员",
+      "blurb": "游戏先发，杂谈与歌回接续，恐怖和绘画补充控制与清理强化的手段。",
+      "team": ["og2_miaozhen", "og2_zhutong", "og2_xiankou", "og2_wuguan", "og2_tangshao", "og2_gedian"],
+      "level": "normal",
+      "style": "tricky"
+    },
+    {
+      "id": "original_wave2_gridwork",
+      "name": "格点布阵师",
+      "blurb": "以硬核和绘画成员为主，双赛道首发配合杂谈与恐怖后排，强化与防护兼备。",
+      "team": ["og2_xingchi", "og2_zhisun", "og2_handian", "og2_gedian", "og2_qideng", "og2_wuguan"],
+      "level": "hard",
+      "style": "defensive"
+    },
+    {
+      "id": "original_wave2_rhythmroom",
+      "name": "合奏编排客",
+      "blurb": "歌回与整活双赛道先发，助眠和杂谈提供支援，游戏成员补充收尾选择。",
+      "team": ["og2_guya", "og2_tangshao", "og2_zhenye", "og2_qideng", "og2_xiankou", "og2_miaozhen"],
+      "level": "hard",
+      "style": "aggressive"
+    },
+    {
+      "id": "original_wave2_starroute",
+      "name": "星图排阵师",
+      "blurb": "游戏、硬核、杂谈、歌回、恐怖与助眠各有成员，双赛道为攻防对位增加选择。",
+      "team": ["og2_miaozhen", "og2_xingchi", "og2_zhutong", "og2_xiankou", "og2_wuguan", "og2_zhenye"],
+      "level": "expert",
+      "style": "tricky"
+    }
+  ],
+  "fan_holo_niji": [
+    {
+      "id": "fan_holo_niji_openmic",
+      "name": "开麦练习搭档",
+      "blurb": "歌回先发，后排包含游戏、杂谈、绘画、恐怖和助眠，是六赛道的均衡搭配。",
+      "team": ["suisei", "korone", "mito", "lize", "kuzuha", "fubuki"],
+      "level": "easy",
+      "style": "aggressive"
+    },
+    {
+      "id": "fan_holo_niji_softguard",
+      "name": "缓拍守阵客",
+      "blurb": "硬核先发，助眠与杂谈作为支援，队伍包含回复、净化和护盘技能。",
+      "team": ["saku", "fubuki", "mito", "lize", "miko", "kanae"],
+      "level": "normal",
+      "style": "defensive"
+    },
+    {
+      "id": "fan_holo_niji_fastcue",
+      "name": "快场提示员",
+      "blurb": "歌回和硬核组成前排，游戏、恐怖与整活补充输出，配置侧重反应与先制。",
+      "team": ["suisei", "himawari", "korone", "kuzuha", "pekora", "marine"],
+      "level": "normal",
+      "style": "aggressive"
+    },
+    {
+      "id": "fan_holo_niji_sixseat",
+      "name": "六席轮换客",
+      "blurb": "绘画先发，杂谈与两位硬核搭配，整活在五号位，助眠留守六号位。",
+      "team": ["lize", "mito", "saku", "himawari", "pekora", "fubuki"],
+      "level": "hard",
+      "style": "defensive"
+    },
+    {
+      "id": "fan_holo_niji_lateecho",
+      "name": "夜场回声客",
+      "blurb": "两位助眠和两位恐怖组成主体，游戏与硬核补位，队伍具备蓄力和控制手段。",
+      "team": ["miko", "kanae", "kuzuha", "fubuki", "marine", "himawari"],
+      "level": "hard",
+      "style": "tricky"
+    },
+    {
+      "id": "fan_holo_niji_fullstage",
+      "name": "全场配阵师",
+      "blurb": "硬核先发，歌回、绘画、游戏、杂谈和整活分担后排位置，攻防技能互相补充。",
+      "team": ["himawari", "suisei", "lize", "korone", "mito", "pekora"],
+      "level": "expert",
+      "style": "aggressive"
+    }
+  ],
+  "fan_asoul_vr": [
+    {
+      "id": "fan_asoul_vr_firstlight",
+      "name": "初光排练客",
+      "blurb": "歌回先发，整活、杂谈、游戏、助眠与绘画各一位，六个赛道均有覆盖。",
+      "team": ["bella", "diana", "eileen", "nana7mi", "aza", "eine"],
+      "level": "easy",
+      "style": "aggressive"
+    },
+    {
+      "id": "fan_asoul_vr_softrelay",
+      "name": "柔拍接力员",
+      "blurb": "杂谈先发，助眠与绘画相伴，歌回、整活和游戏提供后排对位选择。",
+      "team": ["eileen", "aza", "eine", "bella", "diana", "koichi"],
+      "level": "normal",
+      "style": "defensive"
+    },
+    {
+      "id": "fan_asoul_vr_doublelane",
+      "name": "双线配阵客",
+      "blurb": "两位游戏成员排在前列，整活与歌回补充输出，杂谈和绘画留在后排。",
+      "team": ["nana7mi", "koichi", "diana", "bella", "eileen", "eine"],
+      "level": "normal",
+      "style": "aggressive"
+    },
+    {
+      "id": "fan_asoul_vr_steadyframe",
+      "name": "稳场布景师",
+      "blurb": "绘画先发，助眠与杂谈负责续航配置，双游戏与歌回补充攻击手段。",
+      "team": ["eine", "aza", "eileen", "nana7mi", "koichi", "bella"],
+      "level": "hard",
+      "style": "defensive"
+    },
+    {
+      "id": "fan_asoul_vr_brightturn",
+      "name": "转场节拍客",
+      "blurb": "整活先发，双游戏搭配助眠、绘画和杂谈，回复与控制技能分布在不同成员上。",
+      "team": ["diana", "nana7mi", "koichi", "aza", "eine", "eileen"],
+      "level": "hard",
+      "style": "tricky"
+    },
+    {
+      "id": "fan_asoul_vr_finalmix",
+      "name": "合台调度师",
+      "blurb": "歌回与游戏排在前列，助眠、整活、另一位游戏和绘画组成后排，兼顾反应与续航。",
+      "team": ["bella", "nana7mi", "aza", "diana", "koichi", "eine"],
+      "level": "expert",
+      "style": "tricky"
+    }
+  ],
+  "original_wave3": [
+    {
+      "id": "original_wave3_firstbeat",
+      "name": "起拍排练员",
+      "blurb": "歌回与游戏双赛道先发，杂谈、绘画、恐怖、助眠和硬核补齐后排，适合熟悉第三期阵容。",
+      "team": ["og3_liling", "og3_yaye", "og3_zhiyuan", "og3_rongjiao", "og3_miantang", "og3_paochi"],
+      "level": "easy",
+      "style": "aggressive"
+    },
+    {
+      "id": "original_wave3_teahouse",
+      "name": "暖茶守台员",
+      "blurb": "杂谈与助眠双赛道先发，茶帽、慢音与工坊成员提供回复和防护，阵容侧重维持人气。",
+      "team": ["og3_yaye", "og3_miantang", "og3_xingguan", "og3_yunkou", "og3_paochi", "og3_ruandian"],
+      "level": "normal",
+      "style": "defensive"
+    },
+    {
+      "id": "original_wave3_quickticket",
+      "name": "快票调度员",
+      "blurb": "游戏先发，踏拍与转盘接续输出，投影、工坊和巡游后排补充不同赛道的进攻选择。",
+      "team": ["og3_jufan", "og3_liling", "og3_guodong", "og3_rongjiao", "og3_paochi", "og3_modi"],
+      "level": "normal",
+      "style": "aggressive"
+    },
+    {
+      "id": "original_wave3_paperstage",
+      "name": "纸景布阵师",
+      "blurb": "绘画先发，投影与巡游带来控制选择，软垫和云扣提供反弹、清理与强化的配合。",
+      "team": ["og3_zhiyuan", "og3_rongjiao", "og3_ruandian", "og3_modi", "og3_yunkou", "og3_yaye"],
+      "level": "hard",
+      "style": "tricky"
+    },
+    {
+      "id": "original_wave3_softrelay",
+      "name": "软拍接力客",
+      "blurb": "助眠先发，人设可为后排补充 PP；邮筒、工坊、软垫和慢音共同维持防护，飞票保留收尾位置。",
+      "team": ["og3_miantang", "og3_yaye", "og3_paochi", "og3_ruandian", "og3_xingguan", "og3_jufan"],
+      "level": "hard",
+      "style": "defensive"
+    },
+    {
+      "id": "original_wave3_lastlight",
+      "name": "尾灯配阵师",
+      "blurb": "恐怖先发，游戏与歌回衔接进攻，硬核和绘画补充强化与清理能力，优先寻找压低对手人气的机会。",
+      "team": ["og3_modi", "og3_jufan", "og3_liling", "og3_guodong", "og3_yunkou", "og3_zhiyuan"],
+      "level": "expert",
+      "style": "aggressive"
+    }
+  ]
+}

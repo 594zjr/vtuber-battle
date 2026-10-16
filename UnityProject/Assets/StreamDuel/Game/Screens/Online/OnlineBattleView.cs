@@ -13,21 +13,39 @@ namespace StreamDuel.Game
         readonly VisualElement root;
         readonly Action<BattleAction> submit;
         readonly Action<int> replace;
+        readonly Action<string> terminate;
+        readonly Action<int> chat;
+        readonly Action<bool> mute;
+        int revision;
 
-        public OnlineBattleView(VisualElement root, Action<BattleAction> submit, Action<int> replace)
+        public OnlineBattleView(VisualElement root, Action<BattleAction> submit, Action<int> replace,
+            Action<string> terminate, Action<int> chat, Action<bool> mute)
         {
             this.root = root;
             this.submit = submit;
             this.replace = replace;
+            this.terminate = terminate;
+            this.chat = chat;
+            this.mute = mute;
         }
 
-        public void Refresh(NetSession session, bool finished)
+        public void Refresh(NetSession session, bool finished, string summary = null, string chatNotice = null)
         {
             Dispose();
-            var battle = session.Battle;
+            var battle = session.Battle == null ? null : TextInput.ForDisplay(session.Battle);
             if (battle == null) return;
-            var view = BattleViewModel.From(battle, session.MySide);
+            var view = BattleViewModel.From(battle, session.MySide, GameRuntimeSettings.Current);
             root.Add(Text("第 " + view.Turn + " 回合 · " + (session.MySide == 0 ? "你是主机" : "你是客机")));
+            if (session.Clock != null)
+            {
+                var clock = Text("房主计时 · 我方：本阶段 " + Math.Ceiling(session.Clock.TurnLeft(session.MySide))
+                    + " 秒 / 总时间 " + Math.Ceiling(session.Clock.BankLeft(session.MySide)) + " 秒；对方：本阶段 "
+                    + Math.Ceiling(session.Clock.TurnLeft(1 - session.MySide)) + " 秒 / 总时间 "
+                    + Math.Ceiling(session.Clock.BankLeft(1 - session.MySide)) + " 秒"
+                    + (session.IsDisconnected ? "（重连期间暂停）" : ""), true);
+                clock.name = "online-clock";
+                root.Add(clock);
+            }
             if (!string.IsNullOrEmpty(view.Notice)) root.Add(Text(view.Notice, true));
             var sides = new VisualElement { name = "online-fighters" };
             sides.style.flexDirection = FlexDirection.Row;
@@ -87,8 +105,8 @@ namespace StreamDuel.Game
             choices.style.flexDirection = FlexDirection.Row;
             choices.style.flexWrap = Wrap.Wrap;
             root.Add(choices);
-            bool choose = session.State == NetState.Choose && !session.HasSubmitted;
-            bool replacement = session.State == NetState.Replace && !session.HasSubmitted;
+            bool choose = !finished && !session.IsDisconnected && session.State == NetState.Choose && !session.HasSubmitted;
+            bool replacement = !finished && !session.IsDisconnected && session.State == NetState.Replace && !session.HasSubmitted;
             if (session.State == NetState.Replace)
             {
                 root.Add(Text("请选择下一位开播的队员。"));
@@ -125,6 +143,47 @@ namespace StreamDuel.Game
                     AddButton(choices, "online-pass", pass, choose, () => submit(BattleAction.Pass()));
                 }
             }
+            var requests = new VisualElement { name = "online-requests" };
+            requests.style.flexDirection = FlexDirection.Row;
+            requests.style.flexWrap = Wrap.Wrap;
+            root.Add(requests);
+            AddButton(requests, "surrender-button", "投降并结算", !finished && session.CanSurrender, () => terminate("surrender"));
+            AddButton(requests, "draw-offer-button", "提议和局", !finished && session.CanOfferDraw, () => terminate("offer"));
+            if (session.DrawOffered)
+            {
+                root.Add(Text("对方提议和局，请选择接受或拒绝。"));
+                AddButton(requests, "draw-accept-button", "接受和局", !finished && session.CanRespondDraw, () => terminate("accept"));
+                AddButton(requests, "draw-reject-button", "拒绝和局", !finished && session.CanRespondDraw, () => terminate("reject"));
+            }
+            else if (session.DrawOfferPending) root.Add(Text("和局提议已发出，等待对方回应。", true));
+            var chats = new VisualElement { name = "online-chat" };
+            chats.style.flexDirection = FlexDirection.Row;
+            chats.style.flexWrap = Wrap.Wrap;
+            root.Add(chats);
+            for (int index = 0; index < QuickChat.Count; index++)
+            {
+                int selected = index;
+                AddButton(chats, "chat-" + index, QuickChat.Text(index), !finished && !session.IsDisconnected
+                    && session.State != NetState.Error && session.State != NetState.Desync, () => chat(selected));
+            }
+            var muted = new Toggle("屏蔽对方快捷语") { name = "mute-chat", value = session.MuteOpponent };
+            muted.style.fontSize = 22;
+            muted.style.minHeight = 36;
+            int currentRevision = revision;
+            EventCallback<ChangeEvent<bool>> changed = evt => { if (currentRevision == revision) mute(evt.newValue); };
+            muted.RegisterValueChangedCallback(changed);
+            unbind.Add(() => muted.UnregisterValueChangedCallback(changed));
+            root.Add(muted);
+            if (!string.IsNullOrEmpty(chatNotice)) root.Add(Text(chatNotice, true));
+            if (!session.MuteOpponent)
+                foreach (var message in session.ReceivedChats.Skip(Math.Max(0, session.ReceivedChats.Count - 6)))
+                    root.Add(Text("第 " + message.Turn + " 回合 · " + session.DisplayNames[message.Side] + "：" + QuickChat.Text(message.Index), true));
+            if (!string.IsNullOrEmpty(summary))
+            {
+                var result = Text(summary, true);
+                result.name = "online-rating-summary";
+                root.Add(result);
+            }
             root.Add(Text("对战日志（最近 12 条）", true));
             foreach (var entry in battle.Log.Skip(Math.Max(0, battle.Log.Count - 12)))
                 root.Add(Text("第 " + entry.Turn + " 回合 · " + entry.Node + " · " + entry.Text, true));
@@ -134,12 +193,15 @@ namespace StreamDuel.Game
         {
             var button = new Button { name = name, text = label };
             button.AddToClassList("screen-button");
+            button.Query<Label>().ForEach(label => label.enableRichText = false);
             button.style.minWidth = 240;
             button.style.minHeight = 52;
             button.style.fontSize = 21;
             button.SetEnabled(enabled);
-            button.clicked += clicked;
-            unbind.Add(() => button.clicked -= clicked);
+            int currentRevision = revision;
+            Action guarded = () => { if (currentRevision == revision && button.enabledInHierarchy) clicked(); };
+            button.clicked += guarded;
+            unbind.Add(() => button.clicked -= guarded);
             parent.Add(button);
             return button;
         }
@@ -155,6 +217,7 @@ namespace StreamDuel.Game
 
         public void Dispose()
         {
+            revision++;
             foreach (var remove in unbind) remove();
             unbind.Clear();
             root.Clear();

@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    public sealed class OnlineScreen : IScreen
+    public sealed partial class OnlineScreen : IScreen
     {
         readonly List<Action> unbind = new List<Action>();
         readonly List<Action> unbindTeam = new List<Action>();
@@ -34,9 +34,6 @@ namespace StreamDuel.Game
         List<string> pendingTeam;
         string pendingName;
         bool pendingHost, failed, disposed;
-        NetState renderedState;
-        int renderedLogCount = -1;
-        bool renderedSubmitted;
 
         public string Id => ScreenIds.Online;
         internal NetSession Session { get; private set; }
@@ -74,7 +71,7 @@ namespace StreamDuel.Game
             scroll.Add(editor);
             battleRoot = new VisualElement { name = "online-battle" };
             scroll.Add(battleRoot);
-            battleView = new OnlineBattleView(battleRoot, Submit, SubmitReplace);
+            battleView = new OnlineBattleView(battleRoot, Submit, SubmitReplace, Terminate, SendChat, SetChatMuted);
             var actions = new VisualElement();
             actions.AddToClassList("screen-actions");
             panel.Add(actions);
@@ -82,7 +79,7 @@ namespace StreamDuel.Game
             cancel.SetEnabled(false);
             AddButton(actions, "back-button", "返回", () => router.Show(navigation.ReturnScreenId, navigation.ReturnArgs));
             try { BuildEntry(); }
-            catch (Exception) { Fail("内容包暂时无法读取，请返回后重试。", false); }
+            catch (Exception ex) { Fail("内容包暂时无法读取：" + ex.Message, false); }
             return page;
         }
 
@@ -90,12 +87,17 @@ namespace StreamDuel.Game
         {
             var rules = UnityEngine.Resources.Load<TextAsset>("StreamDuelRules");
             if (rules == null) throw new InvalidOperationException();
+            var policy = UnityPackPolicy.Load();
+            var warnings = new List<string>();
             foreach (var asset in UnityEngine.Resources.LoadAll<TextAsset>("Packs")
                 .Where(item => item.name != "LICENSE").OrderBy(item => item.name, StringComparer.Ordinal))
-                packs.Add(ContentDb.FromJson(rules.text, asset.text));
-            var warnings = new List<string>();
+            {
+                var loaded = PackLoader.LoadJson(rules.text, asset.text, asset.name, policy);
+                if (loaded.Db != null) packs.Add(loaded.Db);
+                else warnings.Add(loaded.Error);
+            }
             if (!GameRuntimeSettings.IsSmokeTest)
-                foreach (var loaded in PackLoader.LoadDirectory(rules.text, Path.Combine(Application.persistentDataPath, "packs")))
+                foreach (var loaded in PackLoader.LoadDirectory(rules.text, Path.Combine(Application.persistentDataPath, "packs"), policy))
                 {
                     if (loaded.Error != null) { warnings.Add(loaded.Error); continue; }
                     if (packs.Any(existing => existing.PackId == loaded.Db.PackId))
@@ -105,14 +107,14 @@ namespace StreamDuel.Game
                     }
                     packs.Add(loaded.Db);
                 }
-            if (packs.Count == 0) throw new InvalidOperationException();
+            if (packs.Count == 0) throw new InvalidOperationException("没有可用内容包，请检查内容文件与下架政策。");
             if (warnings.Count > 0) editor.Add(OnlineBattleView.Text(string.Join("\n", warnings), true));
             editor.Add(OnlineBattleView.Text("双方需选择相同内容包和规则。仅连接可信的本机或局域网设备；本版本不提供公网匹配。", true));
             nickname = new TextField("昵称") { name = "nickname", value = "玩家", maxLength = 24 };
             editor.Add(nickname);
             StyleInput(nickname);
             int selected = packs.FindIndex(item => item.PackId == GameRuntimeSettings.Current.DefaultPack);
-            pack = new DropdownField("内容包", packs.Select(item => item.PackName).ToList(), Math.Max(0, selected)) { name = "pack" };
+            pack = new DropdownField("内容包", packs.Select(item => item.PackName + " [" + item.PackId + "]").ToList(), Math.Max(0, selected)) { name = "pack" };
             editor.Add(pack);
             StyleInput(pack);
             packNotice = OnlineBattleView.Text("", true);
@@ -154,6 +156,7 @@ namespace StreamDuel.Game
             joinBox.Add(joinPort);
             StyleInput(joinPort);
             AddButton(joinBox, "join-button", "加入房间", () => Begin(false));
+            BuildDiscovery();
             if (!string.IsNullOrEmpty(GameRuntimeSettings.Notice)) editor.Add(OnlineBattleView.Text(GameRuntimeSettings.Notice, true));
         }
 
@@ -228,11 +231,19 @@ namespace StreamDuel.Game
                 status.text = "请输入有效的 IPv4 或 IPv6 地址。";
                 return;
             }
+            try { openingRating = LoadRating(); }
+            catch (Exception ex) { status.text = "本机档案无法读取：" + TextInput.Clean(ex.Message, TextInputKind.Note).Text; return; }
+            StopDiscovery();
             failed = false;
             IsFinished = IsClosing = false;
+            settlementMessage = chatNotice = null;
+            renderedSignature = null;
             pendingHost = host;
             pendingTeam = team;
             pendingName = name;
+            pendingAddress = ip;
+            pendingPort = port;
+            pendingSettings = GameSettings.FromJson(GameRuntimeSettings.Current.ToJson());
             battleRoot.SetEnabled(true);
             editor.SetEnabled(false);
             cancel.SetEnabled(true);
@@ -244,93 +255,29 @@ namespace StreamDuel.Game
         public void Tick(float dt)
         {
             if (disposed || failed || IsFinished) return;
-            try
-            {
-                if (attempt != null)
-                {
-                    ListeningPort = attempt.ListeningPort;
-                    bool ready = attempt.TakeResult(out var connected, out var error, out var notice);
-                    status.text = notice;
-                    if (!ready) return;
-                    attempt.Dispose();
-                    attempt = null;
-                    if (error != null) { Fail(error, true); return; }
-                    transport = connected;
-                    Session = new NetSession(SelectedContent, transport, pendingHost, pendingTeam, pendingName, null);
-                    phaseTime.Restart();
-                }
-                if (Session == null) return;
-                Session.Poll();
-                if (Session.State == NetState.Error || Session.State == NetState.Desync)
-                {
-                    RefreshBattle();
-                    Fail(Session.Error ?? "联网会话已中止，请重新连接。", false);
-                    return;
-                }
-                if (Session.State == NetState.Handshake)
-                {
-                    status.text = "已连接，正在核对协议与内容包……";
-                    if (phaseTime.Elapsed.TotalSeconds >= 10) Fail("等待对方握手超时，请确认双方都已进入联网对战。", false);
-                    return;
-                }
-                editor.style.display = DisplayStyle.None;
-                RefreshBattle();
-                if (Session.State == NetState.Over)
-                {
-                    if (!IsClosing)
-                    {
-                        transport.CompleteSending();
-                        IsClosing = true;
-                        closeTime.Restart();
-                    }
-                    status.text = "最终状态已核对，正在等待对方完成收尾……";
-                    // EOF 可能和最后的错误一起到达，必须在看见 EOF 后再清空一次消息队列。
-                    if (transport.PeerClosed)
-                    {
-                        Session.Poll();
-                        if (Session.State != NetState.Over)
-                        {
-                            Fail(Session.Error ?? "终局核对失败。", false);
-                            return;
-                        }
-                        IsClosing = false;
-                        IsFinished = true;
-                        status.text = Session.Battle.Winner < 0 ? "对战完成 · 平局"
-                            : "对战完成 · " + Session.Battle.Sides[Session.Battle.Winner].Name + " 获胜";
-                        CloseTransport();
-                        battleView.Refresh(Session, true);
-                    }
-                    else if (closeTime.Elapsed.TotalSeconds >= 10)
-                        Fail("终局收尾超时，未能确认对方正常结束。请返回重试。", false);
-                }
-                else status.text = Session.State == NetState.Choose ? "请选择本回合行动。双方锁定后一起结算。"
-                    : Session.State == NetState.Replace ? "我方需要补位，请选择下一位开播的队员。"
-                    : Session.HasSubmitted ? "选择已锁定，正在等待对方或核对结果……" : "正在等待对方补位或核对结果……";
-            }
-            catch (Exception) { Fail("联网操作失败，连接已关闭。请检查网络后重试。", false); }
+            try { TickDiscovery(); TickNetwork(); }
+            catch (Exception ex) { Fail("联网操作失败：" + ex.Message, false); }
         }
 
         void RefreshBattle()
         {
             if (Session?.Battle == null) return;
-            if (renderedLogCount == Session.Battle.Log.Count && renderedState == Session.State
-                && renderedSubmitted == Session.HasSubmitted) return;
-            renderedLogCount = Session.Battle.Log.Count;
-            renderedState = Session.State;
-            renderedSubmitted = Session.HasSubmitted;
-            battleView.Refresh(Session, IsFinished);
+            string signature = ViewSignature();
+            if (renderedSignature == signature) return;
+            renderedSignature = signature;
+            battleView.Refresh(Session, IsFinished || IsClosing, settlementMessage, chatNotice);
         }
 
         void Submit(BattleAction action)
         {
-            if (failed || disposed || Session == null || Session.State != NetState.Choose || Session.HasSubmitted) return;
+            if (!RefreshInput() || Session.State != NetState.Choose || Session.HasSubmitted) return;
             try { Session.Submit(action); Tick(0); }
             catch (Exception) { Fail("提交行动失败，连接已关闭。请返回重试。", false); }
         }
 
         void SubmitReplace(int target)
         {
-            if (failed || disposed || Session == null || Session.State != NetState.Replace || Session.HasSubmitted) return;
+            if (!RefreshInput() || Session.State != NetState.Replace || Session.HasSubmitted) return;
             try { Session.SubmitReplace(target); Tick(0); }
             catch (Exception) { Fail("提交补位失败，连接已关闭。请返回重试。", false); }
         }
@@ -340,9 +287,11 @@ namespace StreamDuel.Game
             failed = true;
             IsClosing = false;
             battleRoot.SetEnabled(false);
-            status.text = reason;
+            status.text = TextInput.Clean(reason, TextInputKind.Note).Text;
             attempt?.Dispose();
             attempt = null;
+            StopBeacon();
+            CloseListener();
             CloseTransport();
             if (restoreEntry) { failed = false; editor.SetEnabled(true); }
             cancel.SetEnabled(Session != null);
@@ -350,13 +299,18 @@ namespace StreamDuel.Game
 
         void Cancel()
         {
+            LeaveSession();
             attempt?.Dispose();
             attempt = null;
             CloseTransport();
+            CloseListener();
+            StopBeacon();
+            StopDiscovery();
             Session = null;
             IsClosing = IsFinished = failed = false;
             ListeningPort = 0;
-            renderedLogCount = -1;
+            renderedSignature = null;
+            settlementMessage = chatNotice = null;
             phaseTime.Reset();
             closeTime.Reset();
             battleView.Dispose();
@@ -379,6 +333,7 @@ namespace StreamDuel.Game
         {
             var button = new Button { name = name, text = text };
             button.AddToClassList("screen-button");
+            button.Query<Label>().ForEach(label => label.enableRichText = false);
             button.clicked += action;
             unbind.Add(() => button.clicked -= action);
             parent.Add(button);
@@ -414,9 +369,14 @@ namespace StreamDuel.Game
         public void Dispose()
         {
             disposed = true;
+            LeaveSession();
             attempt?.Dispose();
             attempt = null;
             CloseTransport();
+            CloseListener();
+            StopBeacon();
+            StopDiscovery();
+            ClearRoomBindings();
             battleView?.Dispose();
             battleView = null;
             Session = null;
@@ -428,7 +388,12 @@ namespace StreamDuel.Game
             packs.Clear();
             IsClosing = IsFinished = false;
             ListeningPort = 0;
-            renderedLogCount = -1;
+            renderedSignature = null;
+            discoveredRooms.Clear();
+            roomSignature = null;
+            discoveryTime.Reset();
+            roomRoot = null;
+            networkTime.Reset();
             phaseTime.Reset();
             closeTime.Reset();
         }

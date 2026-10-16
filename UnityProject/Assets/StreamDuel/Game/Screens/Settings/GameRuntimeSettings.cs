@@ -26,7 +26,8 @@ namespace StreamDuel.Game
         }
 
         public static bool IsSmokeTest => Environment.GetCommandLineArgs().Any(argument =>
-            argument == "--smoke-test" || argument == "--ui-smoke-test" || argument == "--t71-smoke-test");
+            argument == "--smoke-test" || argument == "--ui-smoke-test" || argument == "--menu-smoke-test"
+            || argument == "--anim-smoke-test" || argument == "--t66-smoke-test" || argument == "--t71-smoke-test");
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void Reset()
@@ -140,6 +141,7 @@ namespace StreamDuel.Game
             target.FastPlay = source.FastPlay;
             target.TurnTimer = source.TurnTimer;
             target.Animations = source.Animations;
+            target.ColorblindMode = source.ColorblindMode;
             target.AnimationSpeed = source.AnimationSpeed;
             target.TurnSeconds = source.TurnSeconds;
             target.Fullscreen = source.Fullscreen;

@@ -9,7 +9,7 @@ namespace StreamDuel.Core
     {
         public const int CurrentVersion = 1;
 
-        public bool FastPlay, TurnTimer;
+        public bool FastPlay, TurnTimer, ColorblindMode;
         public bool Animations = true;
         public double AnimationSpeed = 1;
         public int TurnSeconds = 10;
@@ -32,6 +32,8 @@ namespace StreamDuel.Core
             if (speed != 1)
                 text.Append(",\"animationSpeed\":").Append(speed.ToString(CultureInfo.InvariantCulture));
             text.Append(",\"animations\":").Append(Animations ? "true" : "false");
+            // 缺省即关闭，保留旧设置的序列化形状；开启时才写入新增选项。
+            if (ColorblindMode) text.Append(",\"colorblindMode\":true");
             text.Append(",\"defaultPack\":");
             WriteString(text, DefaultPack);
             text.Append(",\"fastPlay\":").Append(FastPlay ? "true" : "false");
@@ -68,6 +70,7 @@ namespace StreamDuel.Core
             settings.FastPlay = ReadBool(source, "fastPlay", settings.FastPlay);
             settings.TurnTimer = ReadBool(source, "turnTimer", settings.TurnTimer);
             settings.Animations = ReadBool(source, "animations", settings.Animations);
+            settings.ColorblindMode = ReadBool(source, "colorblindMode", settings.ColorblindMode);
             if (source.TryGetValue("animationSpeed", out var speed) && speed is double numberSpeed)
                 settings.AnimationSpeed = ValidSpeed(numberSpeed);
             settings.TurnSeconds = ReadInt(source, "turnSeconds", 1, 300, settings.TurnSeconds);

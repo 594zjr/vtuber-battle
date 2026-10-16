@@ -15,7 +15,7 @@ namespace StreamDuel.Game
         readonly List<Vector2Int> resolutions = new List<Vector2Int>();
         GameSettings draft;
         DropdownField animation, resolution, ai, pack;
-        Toggle timer, fullscreen;
+        Toggle timer, fullscreen, colorblind;
         IntegerField seconds;
         Label notice, packNotice;
 
@@ -56,9 +56,11 @@ namespace StreamDuel.Game
             seconds = new IntegerField { name = "settings-turn-seconds", value = draft.TurnSeconds };
             Field(playback, "每次选择可用秒数（1—300）", seconds);
             seconds.SetEnabled(draft.TurnTimer);
-            AddNote(playback, "此计时用于本机对战的行动与补位；联网对战暂不启用此本机限时。禁选与首发不计时。");
+            AddNote(playback, "计时用于行动与补位。联网由房主设置、会话统一计时，客机使用房主预算；禁选与首发不计时。");
 
             var display = Section(scroll, "窗口与显示");
+            colorblind = new Toggle("色弱配色") { name = "settings-colorblind", value = draft.ColorblindMode };
+            AddControl(display, colorblind);
             fullscreen = new Toggle("全屏显示") { name = "settings-fullscreen", value = draft.Fullscreen };
             AddControl(display, fullscreen);
             LoadResolutions();
@@ -93,6 +95,7 @@ namespace StreamDuel.Game
             Bind(timer, value => { seconds.SetEnabled(value); Changed(); });
             Bind(seconds, _ => Changed());
             Bind(fullscreen, _ => Changed());
+            Bind(colorblind, _ => Changed());
             Bind(resolution, _ => Changed());
             Bind(ai, _ => Changed());
             Bind(pack, _ => { UpdatePackNotice(); Changed(); });
@@ -113,6 +116,7 @@ namespace StreamDuel.Game
             draft.TurnTimer = timer.value;
             if (seconds.value >= 1 && seconds.value <= 300) draft.TurnSeconds = seconds.value;
             draft.Fullscreen = fullscreen.value;
+            draft.ColorblindMode = colorblind.value;
             if (resolution.index >= 0 && resolution.index < resolutions.Count)
             {
                 draft.Width = resolutions[resolution.index].x;
@@ -160,6 +164,13 @@ namespace StreamDuel.Game
 
         string LoadPacks()
         {
+            PackPolicy policy;
+            try { policy = UnityPackPolicy.Load(); }
+            catch (Exception)
+            {
+                packs.Add(new PackChoice { Id = draft.DefaultPack, Label = "暂不可用 [" + draft.DefaultPack + "]", Missing = true });
+                return "下架策略暂时无法读取，已停止加载内容包；当前默认选择保持不变。";
+            }
             var rules = UnityEngine.Resources.Load<TextAsset>("StreamDuelRules");
             int errors = 0;
             if (rules != null)
@@ -167,12 +178,15 @@ namespace StreamDuel.Game
                 foreach (var asset in UnityEngine.Resources.LoadAll<TextAsset>("Packs").OrderBy(value => value.name, StringComparer.Ordinal))
                 {
                     if (asset.name == "LICENSE") continue;
-                    try { AddPack(ContentDb.FromJson(rules.text, asset.text)); }
-                    catch (Exception) { errors++; }
+                    var result = PackLoader.LoadJson(rules.text, asset.text, asset.name + ".json", policy);
+                    if (result.IsDisabled) continue;
+                    if (result.Db == null) errors++;
+                    else AddPack(result.Db);
                 }
                 if (!GameRuntimeSettings.IsSmokeTest)
-                    foreach (var result in PackLoader.LoadDirectory(rules.text, Path.Combine(Application.persistentDataPath, "packs")))
+                    foreach (var result in PackLoader.LoadDirectory(rules.text, Path.Combine(Application.persistentDataPath, "packs"), policy))
                     {
+                        if (result.IsDisabled) continue;
                         if (result.Db == null) errors++;
                         else AddPack(result.Db);
                     }
@@ -280,7 +294,7 @@ namespace StreamDuel.Game
             resolutions.Clear();
             draft = null;
             animation = resolution = ai = pack = null;
-            timer = fullscreen = null;
+            timer = fullscreen = colorblind = null;
             seconds = null;
             notice = packNotice = null;
         }

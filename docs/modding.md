@@ -38,10 +38,32 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 | `fieldNames` | 可选对象，id → 字符串 | 给已有或本包直播间效果换显示名 |
 | `statusNames` | 可选对象，id → 字符串 | 给已有或本包状态换显示名 |
 | `seasons` | 可选对象，默认无赛季 | 键为赛季 id，值为组队限制，见第 8 节 |
+| `art` | 可选对象，默认使用资源清单的缺省值 | 立绘资源键、强调色、技能特效和状态图标，见 2.1 节 |
 
 四类包内定义与共用规则合并后，才处理改名、主播绑定和引用校验。它们都可以引用同包新增定义。**同类别 id 不得覆盖共用规则中的 id**；给自己的所有 id 加前缀（示例使用 `ex_`）可减少冲突。显示改名不改变机制。定义的 id 是对象的键，不需要在定义内部再写 `id`。
 
 `stats` 的显示名称、`categories`、`types`、`chart` 和 `struggle` 属于共用规则，不是内容包可覆盖的顶层字段。`PackDefined` 等 C# 内部标记也不是 JSON 字段。仅修改 `desc`、`when`、`node` 不会增加新机制。
+
+### 2.1 声明立绘、特效与图标
+
+示例包包含以下配置；也可以省略整个 `art`，或只填写需要覆盖的项：
+
+```json
+"art": {
+  "portraitDir": "Portraits/example_pack",
+  "streamers": { "ex_a": { "accent": "#ffcc33", "portrait": "ex_a_v2" } },
+  "skillFx": { "ex_opening_note": "wave" },
+  "statusIcons": { "ex_short_pause": "clock" }
+}
+```
+
+`ex_a` 的立绘资源键为 `Portraits/example_pack/ex_a_v2`。未配置的主播默认使用 `Portraits/<包id>/<主播id>`，强调色取主赛道颜色。这里填写 Unity `Resources.Load` 使用的相对资源键，不带文件扩展名；允许 `/` 子目录，不允许绝对路径、`..`、冒号、反斜线、任意大小写的 `http`、控制字符、空路径段或首尾空格。清单只声明资源，不读取、复制或下载图片；画面层尚未接入的资源不会仅因填写 JSON 而出现，仓库不新增头像图片。
+
+`streamers` 的键须为本包主播，颜色必须是 `#RRGGBB`；`skillFx` 的键须为已加载的技能，值只能为 `slash`、`burst`、`wave`、`sparkle`、`beam`、`ring`、`shield`、`heal`。缺省时互动技能用 `slash`、才艺技能用 `beam`；状态技能按回复、保护、其它的顺序选 `heal`、`shield`、`sparkle`。
+
+`statusIcons` 可引用状态或直播间效果，值只能为 `lock`、`down`、`up`、`shield`、`mark`、`clock`、`heart`、`star`。默认控制状态用 `lock`、弱化状态用 `down`，保护类效果用 `shield`、印记用 `mark`、回合类用 `clock`。状态和效果同名时，默认先取状态；显式覆盖作用于该名字。所有已填写值必须是字符串，`null` 不能代替省略。
+
+PackCheck 会检查资源引用、颜色、路径和特效/图标名单，并显示中文错误及出错 id。仅替换 `art` 不改变对战、随机数或内容指纹。混合包保留主播来源目录；共用技能或图标的显式覆盖必须一致，缺省值不构成冲突。下架时先完整校验原包，再移除被下架主播的资源条目；拼错的引用仍会报错。旧逻辑包 id 含冒号等 Windows 禁用字符时，缺省目录会百分号编码，原 `%` 也会编码以免碰撞；显式资源路径仍严格拒绝这些字符。完整约定见 [design.md](design.md) 第 6.3 节。
 
 ## 3. 主播、属性与双赛道
 
@@ -60,8 +82,13 @@ Unity 版在启动时加载 `Application.persistentDataPath/packs/`。把文件�
 | `personaName` | 可选字符串 | 仅为这位主播复制并改名人设 |
 | `personaDesc` | 可选字符串 | 仅为这位主播复制并改写人设说明，不能改变代码的作用 |
 | `personaStatus` | 可选状态 id 或 `null` | 复制人设并替换它引用的状态；只有使用 `status` 的人设码才有对应行为 |
+| `aiStyle` | 可选字符串或 `null` | 电脑出招风格：`aggressive`（猛攻）、`defensive`（稳守）、`tricky`（花招）；名称区分大小写，未知值拒绝加载 |
 
 三个人设覆盖字段都会保留原人设的代码和参数；`null` 表示不替换，不是清空原状态。新 id 不要使用加载器为人设副本保留的 `主播id#原人设id` 形式。
+
+例如在主播对象中加入 `"aiStyle": "aggressive"`：猛攻偏重伤害和击倒、较少换人；稳守偏重回复、防护和改善对位的换人；花招偏重状态、驱散和削减 PP。省略 `aiStyle` 或设为 `null` 时保留原有电脑行为；本次不为现有主播配置风格。
+
+普通、困难和专家难度在选招时读取当前场上主播的风格，换人后重新读取；简单难度忽略风格。普通难度的风格预设优先于调用者传入的权重，困难和专家把风格相对默认估值的差额加入原有评分。风格只改变选择偏好，不改变技能、人设、合法行动或实际结算规则。`AiStyles.Get(name)` 每次返回独立权重，修改返回值不会污染预设；未知名称返回 `null`，但内容包校验会拒绝未知的 `aiStyle`。
 
 `Describe.Persona` 对 `T_KO_HEAL/T_FIRST_CONTROL_IMMUNE/T_ENDURE/T_ALLY_PP_ON_ENTER/T_STAGE_ON_HIT` 会按代码和参数生成标准时机与说明；这些标准说明不会被 `personaDesc` 覆盖。填写自定义文字时仍须与真实行为一致。
 
