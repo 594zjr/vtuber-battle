@@ -18,6 +18,7 @@ namespace StreamDuel.Game
         public IPortraitProvider Portraits;
         public Action<TeamBattleRequest> StartBattle;
         public bool NavigateToBattle;
+        public bool SelectionOnly;
         public Action Return;
         public uint Seed = 1;
         public Func<string> ReadClipboard;

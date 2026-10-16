@@ -55,6 +55,7 @@ namespace StreamDuel.Game
             var primary = AddPage(router, buttons, "open-team", ScreenIds.Team, "对电脑", args);
             primary.AddToClassList("sd-menu__button--primary");
             AddPage(router, buttons, "open-online", ScreenIds.Online, "联网对战", args);
+            AddPage(router, buttons, "open-tournament", ScreenIds.Tournament, "本地赛事", args);
             AddPage(router, buttons, "open-replay", ScreenIds.Replay, "录像", args);
             AddPage(router, buttons, "open-settings", ScreenIds.Settings, "设置", args);
             AddPage(router, buttons, "open-about", ScreenIds.About, "关于", args);

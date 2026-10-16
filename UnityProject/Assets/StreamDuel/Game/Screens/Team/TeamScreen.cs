@@ -68,7 +68,9 @@ namespace StreamDuel.Game
             var style = Resources.Load<StyleSheet>("T66Team");
             if (style == null) throw new InvalidOperationException("缺少组队页样式 T66Team。");
             root.styleSheets.Add(style);
-            BuildHeader(args); BuildSelectors(); BuildRulesets(); BuildSlots(); BuildBody(); BuildLibrary(); BuildFooter();
+            BuildHeader(args); BuildSelectors();
+            if (!options.SelectionOnly) BuildRulesets();
+            BuildSlots(); BuildBody(); BuildLibrary(); BuildFooter();
             if (db != null)
             {
                 var initial = options.Selection != null && options.Selection.PackId == db.PackId
@@ -94,7 +96,7 @@ namespace StreamDuel.Game
             title.style.unityFont = router.Resources.BoldFont;
             Label(row, "team-caption", "选好六位主播，查看技能，再迎接对手。", "sd-team__muted");
             var navigation = args as ScreenArgs;
-            Button(row, "back-button", "返回主菜单", () =>
+            Button(row, "back-button", options.SelectionOnly ? "返回赛事" : "返回主菜单", () =>
             {
                 RememberView();
                 if (options.Return != null) options.Return();
@@ -110,6 +112,7 @@ namespace StreamDuel.Game
             seasonField = Dropdown(row, "team-season", "赛季", new List<string> { "不限赛季" });
             levelField = Dropdown(row, "team-level", "电脑", new List<string> { "简单", "普通", "困难", "专家" });
             levelField.index = Mathf.Clamp((int)settings.AiLevel, 0, 3);
+            if (options.SelectionOnly) { seasonField.SetEnabled(false); levelField.SetEnabled(false); }
             Bind(packField, () => { if (packField.index >= 0 && packField.index < packs.Count) SwitchPack(packs[packField.index]); });
             Bind(seasonField, () =>
             {
@@ -181,7 +184,7 @@ namespace StreamDuel.Game
                 Remember(); Refresh(); Message("已按当前赛季组成六人队伍。");
             });
             Button(row, "team-clear", "清空队伍", () => { selected.Clear(); Remember(); Refresh(); Message("队伍已清空。"); });
-            start = Button(row, "team-start", "开始对战（对电脑）", StartBattle, "sd-team__primary");
+            start = Button(row, "team-start", options.SelectionOnly ? "确认队伍" : "开始对战（对电脑）", StartBattle, "sd-team__primary");
             var feedback = new ScrollView(ScrollViewMode.Vertical) { name = "team-feedback", horizontalScrollerVisibility = ScrollerVisibility.Hidden };
             feedback.AddToClassList("sd-team__feedback"); row.Add(feedback);
             errors = Label(feedback, "team-errors", "", "sd-team__error");
@@ -268,7 +271,7 @@ namespace StreamDuel.Game
             start.SetEnabled(issues.Count == 0 && options.StartBattle != null);
             copyCode.SetEnabled(issues.Count == 0); savePreset.SetEnabled(issues.Count == 0 && libraryReady);
             loadPreset.SetEnabled(libraryReady && presets != null && presets.Items.Count > 0);
-            packField.SetEnabled(packs.Count > 0); seasonField.SetEnabled(db != null);
+            packField.SetEnabled(packs.Count > 0); seasonField.SetEnabled(db != null && !options.SelectionOnly);
             for (int i = 0; i < slots.Length; i++)
             {
                 string id = i < selected.Count ? selected[i] : null;

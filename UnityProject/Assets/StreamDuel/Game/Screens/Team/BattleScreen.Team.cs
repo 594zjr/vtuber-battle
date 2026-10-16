@@ -125,6 +125,7 @@ namespace StreamDuel.Game
 
         void RequestTeamScreen()
         {
+            if (TournamentBattleActive) { CancelTournamentBattle(); return; }
             b = null;
             teamBattleRequest = null;
             ClearTeamMatch();

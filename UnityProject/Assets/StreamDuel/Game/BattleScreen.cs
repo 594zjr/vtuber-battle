@@ -224,6 +224,7 @@ namespace StreamDuel.Game
         void Update()
         {
             if (view != View.Battle || b == null) return;
+            if (TournamentBattleActive) { UpdateTournamentBattle(); return; }
             if (b.Phase == Phase.Lead) return;
             if (playing)
             {
@@ -259,6 +260,7 @@ namespace StreamDuel.Game
 
         void SubmitLead(int index)
         {
+            if (TournamentBattleActive) { SubmitTournamentPosition(index); return; }
             if (b == null || b.Phase != Phase.Lead || b.HasChosenLead(0)) return;
             b.ChooseLead(0, index);
             detailKind = null;
@@ -269,6 +271,7 @@ namespace StreamDuel.Game
 
         void AfterPlayback()
         {
+            if (AfterTournamentPlayback()) return;
             ReportTeamMatchCompletion();
             if (AfterTeamClockPlayback()) return;
             if (b.Phase == Phase.Replace && b.Need[1])
@@ -282,6 +285,7 @@ namespace StreamDuel.Game
         void Submit(BattleAction a)
         {
             if (b == null || playing || b.Phase != Phase.Choose) return;
+            if (TournamentBattleActive) { SubmitTournamentAction(a); return; }
             if (SubmitTeamClockAction(a)) return;
             b.ResolveTurn(a, Ai.Choose(b, 1, settings.AiLevel));
             detailKind = null;
@@ -290,6 +294,7 @@ namespace StreamDuel.Game
 
         void DoReplace(int i)
         {
+            if (TournamentBattleActive) { SubmitTournamentPosition(i); return; }
             if (playing || b.Phase != Phase.Replace || !b.Need[0]) return;
             if (SubmitTeamClockReplacement(i)) return;
             b.Replace(0, i);
@@ -317,13 +322,18 @@ namespace StreamDuel.Game
                 GUI.Label(new Rect(40, 60, RefW - 80, RefH - 120),
                     "暂无可用内容包，部分内容可能已下架。\n" + string.Join("\n", packErrors), unavailableStyle);
             }
+            else if (DrawTournamentHandover()) { }
             else if (view == View.Team) DrawTeam();
             else if (b.Phase == Phase.Ban) DrawTeamBan();
             else if (b.Phase == Phase.Lead) DrawLead();
             else DrawBattle();
             DrawSettingsNotice();
             GUI.matrix = Matrix4x4.identity;
-            if (MainMenuRequested != null && GUI.Button(new Rect(12, 6, 120, 32), "主菜单", sBtn)) Do(MainMenuRequested);
+            if (TournamentBattleActive)
+            {
+                if (GUI.Button(new Rect(12, 6, 120, 32), "返回赛事", sBtn)) Do(CancelTournamentBattle);
+            }
+            else if (MainMenuRequested != null && GUI.Button(new Rect(12, 6, 120, 32), "主菜单", sBtn)) Do(MainMenuRequested);
             if (pending != null) { var a = pending; pending = null; a(); }
         }
 
@@ -545,17 +555,17 @@ namespace StreamDuel.Game
         {
             GUI.Label(new Rect(24, 12, 620, 44), C("开播对决", Accent) + "  选择首发", sBig);
             if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(650, 24, 360, 28), "非官方同人作品 · 免费 · 非商业", sSmall);
-            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(RequestTeamScreen);
+            if (GUI.Button(new Rect(1400, 18, 176, 36), TournamentBattleActive ? "返回赛事" : "返回组队", sBtn)) Do(RequestTeamScreen);
             GUI.Label(new Rect(24, 62, 1500, 32), "先查看对手阵容，再选择你的首发。首发移到 1 号位，其余队友保持相对顺序；此时不计回合限时。", sText);
 
-            DrawLeadTeam(1, 104, "对手阵容 · 点卡片查看技能和人设");
-            DrawLeadTeam(0, 388, "你的阵容 · 选择一位首发后开始对战");
+            DrawLeadTeam(1 - BattleViewerSide, 104, "对手阵容 · 点卡片查看技能和人设");
+            DrawLeadTeam(BattleViewerSide, 388, "你的阵容 · 选择一位首发后开始对战");
             DrawDetail(new Rect(24, 690, 1552, 192));
         }
 
         void DrawLeadTeam(int side, float y, string title)
         {
-            GUI.Label(new Rect(24, y, 1500, 28), C(title, side == 0 ? Mine : Foe), sTitle);
+            GUI.Label(new Rect(24, y, 1500, 28), C(title, side == BattleViewerSide ? Mine : Foe), sTitle);
             float width = (1552f - 5 * 12) / 6;
             for (int i = 0; i < b.Sides[side].Team.Count; i++)
             {
@@ -574,9 +584,9 @@ namespace StreamDuel.Game
                     GUI.Label(new Rect(r.x + 12, r.y + 114 + row * 26, width - 24, 26),
                         string.Join("  ", stats.Skip(row * 3).Take(3).Select(k => db.StatName(k) + " " + (k == "hp" ? fighter.MaxHp : def.Stats[k]))), sSmall);
                 int index = i;
-                if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side == 0 ? "选为首发" : "查看详情", sBtn))
+                if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side == BattleViewerSide ? "选为首发" : "查看详情", sBtn))
                 {
-                    if (side == 0) Do(() => SubmitLead(index));
+                    if (side == BattleViewerSide) Do(() => SubmitLead(index));
                     else Do(() => { detailKind = "pet"; detailSide = side; detailIdx = index; detailScroll = Vector2.zero; });
                 }
                 if (GUI.Button(new Rect(r.x, r.y, width, 166), GUIContent.none, GUIStyle.none))
@@ -590,28 +600,33 @@ namespace StreamDuel.Game
 
         void DrawBattle()
         {
-            var battleView = BattleViewModel.From(b, 0);
+            int own = BattleViewerSide, foe = 1 - own;
+            var battleView = TournamentBattleActive ? tournamentSession.ViewFor(own, settings) : BattleViewModel.From(b, own);
             int turnShown = shown > 0 ? b.Log[Mathf.Min(shown, b.Log.Count) - 1].Turn : 1;
             GUI.Label(new Rect(24, 12, 560, 44), C("开播对决", Accent) + C("   第 " + turnShown + " 回合", Fg), sBig);
             if (db.IsMixed || (db.PackId != null && db.PackId.StartsWith("fan_", System.StringComparison.Ordinal))) GUI.Label(new Rect(560, 24, 290, 28), C("非官方同人作品 · 免费 · 非商业", Muted), sSmall);
             bool nf = GUI.Toggle(new Rect(860, 20, 150, 32), fast, " 快速播放", sBtn);
-            if (nf != fast) { fast = nf; settings.FastPlay = fast; SaveSettingsSafely(); }
-            if (!DrawTeamClockHeader())
+            if (nf != fast)
+            {
+                fast = nf;
+                if (!TournamentBattleActive) { settings.FastPlay = fast; SaveSettingsSafely(); }
+            }
+            if (!DrawTournamentHeader() && !DrawTeamClockHeader())
             {
                 bool nt = GUI.Toggle(new Rect(1020, 20, 170, 32), timerOn, " 每回合 10 秒", sBtn);
                 if (nt != timerOn) { timerOn = nt; timerLeft = 10f; settings.TurnTimer = timerOn; SaveSettingsSafely(); }
                 if (timerOn && !playing && b.Phase != Phase.Over) GUI.Label(new Rect(1340, 18, 200, 40), C(Mathf.CeilToInt(Mathf.Max(0, timerLeft)) + " 秒", Accent), sBig);
             }
-            if (GUI.Button(new Rect(1200, 18, 120, 36), "重新组队", sBtn)) Do(RequestTeamScreen);
+            if (GUI.Button(new Rect(1200, 18, 120, 36), TournamentBattleActive ? "返回赛事" : "重新组队", sBtn)) Do(RequestTeamScreen);
 
             var act = SnapActive();
             GUI.Label(new Rect(24, 60, 600, 24), "对手队伍（点一下看技能和人设）", sSmall);
-            DrawBench(1, new Rect(24, 84, 1090, 46), act);
-            DrawFighter(1, new Rect(24, 138, 1090, 140), act, battleView.Sides[1].Team[act[1]]);
-            DrawFighter(0, new Rect(24, 288, 1090, 140), act, battleView.Sides[0].Team[act[0]]);
-            bool replacing = b.Phase == Phase.Replace && b.Need[0] && !playing;
+            DrawBench(foe, new Rect(24, 84, 1090, 46), act);
+            DrawFighter(foe, new Rect(24, 138, 1090, 140), act, battleView.Sides[foe].Team[act[foe]]);
+            DrawFighter(own, new Rect(24, 288, 1090, 140), act, battleView.Sides[own].Team[act[own]]);
+            bool replacing = b.Phase == Phase.Replace && b.Need[own] && !playing;
             GUI.Label(new Rect(24, 434, 800, 24), replacing ? C("你的主播下播了，点下面一位补位", Mine) : "你的队伍（蓝边 = 可以换上，换人会用掉这回合）", sSmall);
-            DrawBench(0, new Rect(24, 458, 1090, 46), act);
+            DrawBench(own, new Rect(24, 458, 1090, 46), act);
             var actions = MeasureActions(battleView, 1090);
             var actionsRect = new Rect(24, 514, 1090, actions.Height);
             DrawActions(actionsRect, battleView, actions);
@@ -625,13 +640,13 @@ namespace StreamDuel.Game
         {
             var sd = b.Sides[s];
             float w = (r.width - 5 * 8) / 6f;
-            var legal = s == 0 && b.Phase == Phase.Choose && !playing ? b.LegalFor(0) : null;
+            var legal = s == BattleViewerSide && b.Phase == Phase.Choose && !playing ? b.LegalFor(s) : null;
             for (int i = 0; i < sd.Team.Count; i++)
             {
                 var p = sd.Team[i];
                 var cr = new Rect(r.x + i * (w + 8), r.y, w, r.height);
                 int hp = Hp(s, i);
-                bool canSwitch = s == 0 && !playing && ((legal != null && legal.Switches.Contains(i)) || (b.Phase == Phase.Replace && b.Need[0] && !p.Fainted && i != sd.Active));
+                bool canSwitch = s == BattleViewerSide && !playing && ((legal != null && legal.Switches.Contains(i)) || (b.Phase == Phase.Replace && b.Need[s] && !p.Fainted && i != sd.Active));
                 Box(cr);
                 if (act[s] == i) Fill(new Rect(cr.x, cr.y, cr.width, 3), Accent);
                 if (canSwitch) { Fill(new Rect(cr.x, cr.y, 3, cr.height), Mine); Fill(new Rect(cr.xMax - 3, cr.y, 3, cr.height), Mine); }
@@ -652,9 +667,9 @@ namespace StreamDuel.Game
             var p = b.Sides[s].Team[act[s]];
             int hp = Hp(s, act[s]);
             Box(r);
-            Fill(new Rect(r.x, r.y, 5, r.height), s == 0 ? Mine : Foe);
+            Fill(new Rect(r.x, r.y, 5, r.height), s == BattleViewerSide ? Mine : Foe);
             Portrait(new Rect(r.x + 20, r.y + 18, 100, 100), p.Def, hp <= 0);
-            GUI.Label(new Rect(r.x + 136, r.y + 10, 600, 40), "<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("   " + p.Slot + " 号位 · " + db.StatName("spd") + " " + b.StatVal(p, "spd") + (s == 0 ? "" : "   对手"), Muted), sTitle);
+            GUI.Label(new Rect(r.x + 136, r.y + 10, 600, 40), "<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("   " + p.Slot + " 号位 · " + db.StatName("spd") + " " + b.StatVal(p, "spd") + (s == BattleViewerSide ? "" : "   对手"), Muted), sTitle);
             HpBar(new Rect(r.x + 136, r.y + 48, 520, 14), hp, p.MaxHp);
             GUI.Label(new Rect(r.x + 670, r.y + 40, 260, 28), C(db.StatName("hp") + " " + hp + " / " + p.MaxHp + "（" + Mathf.RoundToInt(100f * hp / p.MaxHp) + "%）", Muted), sSmall);
 
@@ -710,8 +725,8 @@ namespace StreamDuel.Game
         {
             var layout = new ActionLayout();
             if (playing || b.Phase != Phase.Choose) return layout;
-            var me = battleView.Sides[0].Team[battleView.Sides[0].Active];
-            var foe = battleView.Sides[1].Team[battleView.Sides[1].Active];
+            var me = battleView.Sides[BattleViewerSide].Team[battleView.Sides[BattleViewerSide].Active];
+            var foe = battleView.Sides[1 - BattleViewerSide].Team[battleView.Sides[1 - BattleViewerSide].Active];
             string head = "选择技能，或点上方蓝边的队友换人。";
             if (battleView.ControlledReason != null) head = "<b>" + me.Name + " 处于「" + battleView.ControlledReason + "」，本回合不能用技能。</b>可以换人，或直接跳过。";
             else if (battleView.Struggle) head = "<b>所有技能 PP 用完</b>，将自动使用「" + battleView.StruggleName + "」。";
@@ -788,10 +803,10 @@ namespace StreamDuel.Game
             {
                 case "skill":
                 {
-                    var me = b.Active(0);
+                    var me = b.Active(BattleViewerSide);
                     if (detailIdx >= me.Skills.Count) break;
                     var slot = me.Skills[detailIdx]; var sk = db.Skills[slot.Id];
-                    var pr = b.PrioOf(0, sk);
+                    var pr = b.PrioOf(BattleViewerSide, sk);
                     GUILayout.Label((slot.Fifth ? C("第五技能 ", Accent) : "") + "<b>" + sk.Name + "</b>  " + SkillMeta(sk, slot.Max), sText);
                     GUILayout.Label("当前实际先制 " + (pr.Value > 0 ? "+" : "") + pr.Value + (pr.Parts.Count > 0 ? "（技能本身 " + sk.Prio + "，" + string.Join("，", pr.Parts) + "）" : ""), sSmall);
                     if (sk.Effects.Count == 0) GUILayout.Label("没有附加效果", sSmall);
@@ -823,7 +838,7 @@ namespace StreamDuel.Game
                 {
                     var p = b.Sides[detailSide].Team[detailIdx];
                     var pd = db.Personas[p.Def.Persona];
-                    GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == 0 ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
+                    GUILayout.Label("<b>" + p.Name + "</b>  " + TypeTag(p.Def) + C("  " + (detailSide == BattleViewerSide ? "你的" : "对手") + " " + p.Slot + " 号位 · " + db.StatName("hp") + " " + p.Hp + "/" + p.MaxHp, Muted), sText);
                     DrawMixedNotice(p.Def.Id);
                     GUILayout.Label(C("人设·" + pd.Name, Accent) + C("（" + pd.Node + "）", Muted) + Describe.PersonaDescription(db, pd, b), sSmall);
                     foreach (var sl in p.Skills) SkillBlock(db.Skills[sl.Id], sl.Fifth, sl.Pp, sl.Max, b);
@@ -867,9 +882,16 @@ namespace StreamDuel.Game
             if (count != logCountDrawn) { logCountDrawn = count; logScroll.y = float.MaxValue; }
             GUILayout.BeginArea(new Rect(r.x + 10, r.y + 78, r.width - 20, r.height - 88));
             logScroll = GUILayout.BeginScrollView(logScroll);
+            IReadOnlyList<LogEntry> entries = TournamentBattleActive ? tournamentSession.DisplayLog : b.Log;
+            var tournamentLogStyle = TournamentBattleActive ? new GUIStyle(sSmall) { richText = false } : null;
             for (int i = 0; i < count; i++)
             {
-                var e = b.Log[i];
+                var e = entries[i];
+                if (TournamentBattleActive)
+                {
+                    GUILayout.Label(e.Node + "  " + e.Text, tournamentLogStyle);
+                    continue;
+                }
                 if (e.Kind == "turn") { GUILayout.Space(6); GUILayout.Label(C("<b>" + e.Text + "</b>", Accent), sText); continue; }
                 Color c = e.Kind == "check" || e.Kind == "order" ? Muted : e.Kind == "trait" ? Accent : e.Side == 0 ? Hex("#cfeeff") : e.Side == 1 ? Hex("#ffd6dc") : Fg;
                 GUILayout.BeginHorizontal();
@@ -883,6 +905,7 @@ namespace StreamDuel.Game
 
         void DrawResult()
         {
+            if (DrawTournamentResult()) return;
             if (DrawTeamMatchResult()) return;
             Fill(new Rect(0, 0, RefW, RefH), new Color(Bg.r, Bg.g, Bg.b, 0.75f));
             var r = new Rect(RefW / 2 - 260, RefH / 2 - 150, 520, 300);

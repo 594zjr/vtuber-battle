@@ -183,10 +183,11 @@ namespace StreamDuel.Game
             };
             var callback = options.StartBattle;
             bool navigate = options.NavigateToBattle;
+            bool selectionOnly = options.SelectionOnly;
             var activeRouter = router;
             Remember(); callback(request);
             if (navigate) activeRouter.Show(ScreenIds.Legacy, request);
-            else Message("队伍和设置已交给对战界面。");
+            else if (!selectionOnly) Message("队伍和设置已交给对战界面。");
         }
     }
 }
