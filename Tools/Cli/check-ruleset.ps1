@@ -291,7 +291,7 @@ $invalidCases = @(
     @{ Name = 'replays'; Args = @('--ruleset', 'ranked', '--replays') },
     @{ Name = 'watch'; Args = @('--ruleset', 'ranked', '--watch', 'localhost:1') },
     @{ Name = 'lan-host'; Args = @('--ruleset', 'ranked', '--lan-host', 'room') },
-    @{ Name = 'hotseat'; Args = @('--ruleset', 'ranked', '--hotseat') },
+    @{ Name = 'hotseat-timer'; Args = @('--ruleset', 'ranked', '--hotseat', '--timer', '10,30') },
     @{ Name = 'new-season'; Args = @('--ruleset', 'ranked', '--new-season') },
     @{ Name = 'rating-history'; Args = @('--ruleset', 'ranked', '--rating-history') },
     @{ Name = 'tournament'; Args = @('--ruleset', 'ranked', '--tournament', 'event.json') },

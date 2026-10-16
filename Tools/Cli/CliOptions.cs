@@ -463,7 +463,7 @@ namespace StreamDuel.Cli
                 {
                     var allowed = new HashSet<string>(new[] { "--hotseat", "--packs", "--random-teams", "--pack", "--pack-dir", "--seed", "--team",
                         "--team-code", "--team-b", "--name-a", "--name-b", "--ban", "--lead", "--save-dir",
-                        "--report", "--share", "--export-team", "--help", "-h" }, StringComparer.Ordinal);
+                        "--report", "--share", "--export-team", "--ruleset", "--help", "-h" }, StringComparer.Ordinal);
                     var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
                     if (unsupported.Length > 0)
                         throw new ArgumentException("--hotseat 不支持 " + string.Join("、", unsupported)

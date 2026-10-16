@@ -49,7 +49,8 @@ namespace StreamDuel.Cli
                 if (options.Glossary) return PrintGlossary(db, options.GlossaryKeyword);
                 if (options.AnalysisMode) return PrintAnalysis(db, options);
                 PrepareRandomTeams(db, options);
-                if (options.RulesetId != null) return PlayRuleset(db, options, imported);
+                if (options.RulesetId != null) return options.Hotseat
+                    ? PlayHotseatRuleset(db, options, imported) : PlayRuleset(db, options, imported);
                 var preset = PrepareTeam(db, options, imported);
                 var player = preset.Ids.ToArray();
                 if (options.Hotseat) return PlayHotseat(db, preset, options);
@@ -105,6 +106,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
             Console.WriteLine("  --ruleset 编号    本地赛制：casual（休闲一局）、ranked（禁用、首发、计时三局两胜）、chaos（双修饰器一局）。");
+            Console.WriteLine("                     可与 --hotseat 同用；同屏赛制逐局保存，交接、禁用和首发时暂停计时。");
             Console.WriteLine("                    每个完成局独立保存回放、录像库与战绩；仅整场完成时导出一份汇总 --report，提前退出保留已完成局。");
             Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
             Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");

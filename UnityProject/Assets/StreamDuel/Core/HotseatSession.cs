@@ -5,9 +5,9 @@ using System.Linq;
 namespace StreamDuel.Core
 {
     /// <summary>同一台设备轮流选择；调用方用交接遮挡保护屏幕，战斗规则仍由 Battle 结算。</summary>
-    public sealed class HotseatSession
+    public sealed partial class HotseatSession
     {
-        readonly Battle battle;
+        Battle battle;
         readonly bool[] submitted = new bool[2];
         readonly BattleAction[] actions = new BattleAction[2];
         readonly int[] choices = new int[2];
@@ -182,6 +182,7 @@ namespace StreamDuel.Core
         void FinishSubmission()
         {
             int holder = WhoseTurn;
+            if (Clock != null) Clock.Submit(holder);
             submitted[holder] = true;
             int other = 1 - holder;
             if (!submitted[other] && (battle.Phase != Phase.Replace || battle.Need[other]))
@@ -225,6 +226,7 @@ namespace StreamDuel.Core
             // 单方补位没有另一份秘密选择需要保护，直接让需要补位的玩家操作。
             if (battle.Phase == Phase.Replace && battle.Need[0] != battle.Need[1])
                 WhoseTurn = battle.Need[0] ? 0 : 1;
+            StartRulesetStage();
         }
     }
 }
