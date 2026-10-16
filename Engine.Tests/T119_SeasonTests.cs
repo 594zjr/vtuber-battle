@@ -431,7 +431,7 @@ public class T119_SeasonTests
         for (int i = 0; i < 8; i++) { host.Poll(); guest.Poll(); }
         Assert.Equal(NetState.Choose, host.State);
         Assert.Equal(NetState.Choose, guest.State);
-        Assert.Equal(3, host.SessionProtocolVersion);
+        Assert.Equal(6, host.SessionProtocolVersion);
         using var hello = JsonDocument.Parse(first.Sent[0]);
         var wire = hello.RootElement.GetProperty("rating");
         Assert.Equal(new[] { "games", "rating" }, wire.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));

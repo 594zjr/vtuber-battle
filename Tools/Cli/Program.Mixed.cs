@@ -55,8 +55,8 @@ namespace StreamDuel.Cli
         private static void ValidateRandomNetworkTeams(ContentDb db, Battle battle, CliOptions options)
         {
             if (!options.RandomTeams) return;
-            var expected = MixedBattle.RandomTeams(db, battle.Seed);
-            if (options.Seed != battle.Seed || Enumerable.Range(0, 2).Any(side =>
+            var expected = MixedBattle.RandomTeams(db, options.Seed);
+            if (Enumerable.Range(0, 2).Any(side =>
                 !expected[side].SequenceEqual(battle.Sides[side].Team.Select(fighter => fighter.Def.Id))))
                 throw new ArgumentException("随机联网阵容不一致：双方必须加载相同包组合、使用 --random-teams，并显式指定相同 --seed；本局未开始或保存。");
         }

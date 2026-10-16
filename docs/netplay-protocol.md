@@ -1,6 +1,6 @@
-# 联网对战协议 v3、终止协议 v4 与重连协议 v5
+# 联网对战协议 v6：公平种子与可选终止、重连
 
-第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节；T-75 的显式重连协议 v5 列在第 12 节。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+当前 `NetSession.ProtocolVersion`、`TerminationProtocolVersion`、`ReconnectProtocolVersion` 和实际线路版本统一为 **6**。公平种子和能力协商以第 13 节为准；v3～v5 旧连接明确拒绝，不自动降级。第 1～9 节保留 T-79 冻结的 v3 格式及历史接收语义，便于核对已有样例；第 10 节终止窗口、第 12 节消息 journal 与重连行为在 v6 继续有效。其旧 hello 版本/主机 seed 字段由第 13 节替代，普通行动承诺、公开选择、快捷语及哈希字段保持原样。第 11 节观众协议独立，不随选手版本升级。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；主要源码为 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[公平种子](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.FairSeed.cs)、[行动承诺](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[重连](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Reconnect.cs) 和 [终止控制](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Termination.cs)。
 
 v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
 
@@ -226,9 +226,9 @@ CLI 的 `FinishNetwork` 在 `Over` 后调用 `CompleteSending()`，仅关闭 TCP
 
 固定承诺与公开样例必须配套，保持摘要计算关系；测试不得把不一致的摘要当作有效样例。对战的确定性仍由相同内容、种子和行动保证。固定样例也需要在对应会话阶段送入，单独收到一条正确的 `reveal` 或 `hash` 不意味着当时允许接收。
 
-普通消息的“额外未知字段被忽略、缺少必需字段进入 Error”断言保持不变；新增聊天样例须独立验证额外字段或缺少 index 被丢弃，不能把其差异改成忽略普通消息的错误。发送侧普通 hello 的字段集合包括 `timerVersion`，接收侧另测缺省计时能力的无计时 v3 握手仍可用；带 timer 的握手必须覆盖预算和能力校验。版本 2 的旧握手用于明确拒绝测试，不作为当前成功样例。
+普通消息的“额外未知字段被忽略、缺少必需字段进入 Error”断言保持不变；新增聊天样例须独立验证额外字段或缺少 index 被丢弃，不能把其差异改成忽略普通消息的错误。发送侧普通 hello 的字段集合包括 `timerVersion`，历史接收侧曾验证缺省计时能力的无计时 v3 握手；该可选能力规则在当前 v6 公平握手中继续验证。带 timer 的握手仍覆盖预算和能力校验。版本 1～5 的旧握手用于明确拒绝测试，不作为当前成功样例。
 
-当前版本只接受 `version == 3`。以下变更必须提升协议版本并同步文档、固定样例和兼容性测试：
+历史 v3 实现只接受 `version == 3`，当前 v6 的版本门禁见第 13 节。以下变更必须提升协议版本并同步文档、固定样例和兼容性测试：
 
 - 增删或更改必需字段、字段含义/类型/取值域，改变行动编码或承诺摘要输入、算法。
 - 新增旧端必须处理的消息，改变承诺/公开/哈希顺序、参与方、同回合哈希配对规则或终局确认流程。
@@ -245,9 +245,9 @@ CLI 的 `FinishNetwork` 在 `Over` 后调用 `CompleteSending()`，仅关闭 TCP
 2. JSON 重复键取最后值，没有重复键错误。需要另行决定后续版本是否拒绝重复键；本任务不通过改解析器改变现有行为。
 3. `hash` 没有独立的十六进制格式验证；字符串与本地值不等便进入 `Desync`。需要决定未来是否将非法格式归类为 `Error`，区分它与真正的状态分歧。
 
-## 10. T-98：显式启用终止协议 v4
+## 10. T-98：可选终止能力（历史 v4，当前 v6）
 
-双方构造 `NetSession(..., enableTermination: true)` 才使用本节。hello 的 `version` 为 4，并额外要求数值 `terminationVersion:1`；旧端 v3 与新端 v4 明确拒绝连接，未声明能力的 v4 端也拒绝。其他 hello、快捷语、计时和错误字段沿用前文，主机种子规则暂不改变。仅启用终止功能时使用此模式；当前 CLI 同时启用第 12 节的重连，使用 v5。库的默认构造仍为 v3，因此原固定消息样例和旧集成调用保持原样。尚未合并的公平种子任务 T-87 也涉及新版本，后合并方须统一版本及能力组合，不能仅因版本号相等省略能力核对。
+双方构造 `NetSession(..., enableTermination: true)` 才使用本节窗口。T-98 最初独立使用 v4；当前所有会话使用 v6，并独立核对 `terminationVersion:1` 的存在性和值。未启用端拒绝对端声明此字段，启用端拒绝缺省或不支持的值，不能只因版本号相等就混连。公平种子握手完成后才开放控制输入；计时、评级和下述确认流程不变。旧 `t98-termination-*.json` 没有 hello 或 seed，继续作为相同控制载荷的固定样例。
 
 在可信 FIFO 传输上，新模式把每次普通结算和投降/和局控制操作都排入一次确认窗口。阶段编号 `phase` 从 1 开始，每次开放新的选择或补位阶段递增；`turn` 为该阶段的 Battle.Turn。控制序号 `seq` 从 1 开始，由主机逐窗口递增，不随回合归零。
 
@@ -288,13 +288,13 @@ v3 的既有已知问题仍保留，本扩展不增加认证、加密或可信�
 
 聊天发送或转发失败只影响对应观众；主机不把错误发送给选手。观众上传方向正常 EOF 只停止读取该方向，保留观战帧、其他观众聊天和结束标记的下行，允许 `TcpTransport.CompleteSending()` 后继续只读观看；其他读取异常或下行发送失败才移除对应观众。真实终局未由 `Finish()` 释放前，仍按可见回合处理聊天；释放结束后不再转发。快捷语不是战斗事件，客户端处理它时不替换已确认的 `Battle`。
 
-## 12. T-75：显式启用原会话重连 v5
+## 12. T-75：可选原会话重连（历史 v5，当前 v6）
 
-构造参数在原 `seed, turnSeconds, bankSeconds, enableTermination, rating` 后追加 `enableReconnect=false`，不改变原有参数位置。双方显式启用时使用 `ReconnectProtocolVersion=5`；缺省仍按 v3 或 v4 运行，未完成会话断线立即错误；原终局排空后的正常 EOF 仍按旧规则处理。不同版本不协商降级。v5 可单独使用，也可和终止功能组合；组合时双方均须声明 `terminationVersion:1`，单独使用的一端拒绝对方声明该能力，避免同为 v5 却拥有不同控制流程。计时能力和评级元数据沿用原校验。
+构造参数保留 `seed, turnSeconds, bankSeconds, enableTermination, rating, enableReconnect=false` 的既有位置，公平种子注入参数只追加在末尾。当前 `enableReconnect:true` 使用第 13 节的 v6 hello，要求双方均声明 `reconnectVersion:1`；未启用的一端拒绝重连声明或 sessionId，启用端拒绝缺省/不支持的能力。终止能力也须独立精确匹配。省略重连时，未完成会话断线立即错误；没有公平握手成功前的重连窗口。T-75 原 v5 JSON 保留为历史样例，不再作为成功握手输入。
 
 ### 12.1 握手、标识与有序消息
 
-v5 `hello` 在原格式中增加必需的 `sessionId`：主机用密码学随机源产生 16 字节、编码成 32 位小写十六进制；客机必须为 null，收到主机 hello 后保存原值。此标识不含账号、设备或时间，不进入 Battle.Rng、内容指纹、状态哈希或录像。它只区分保留在内存的原会话，不提供加密或可信身份认证。
+启用重连的 v6 `hello` 在公平种子字段外保留必需的 `sessionId`：主机用密码学随机源产生 16 字节、编码成 32 位小写十六进制；客机必须为 null，收到主机 hello 后保存原值。此标识不含账号、设备或时间，不进入 Battle.Rng、内容指纹、状态哈希或录像。它只区分保留在内存的原会话，不提供加密或可信身份认证。
 
 握手后的普通消息，包括 `commit/reveal/hash/chat/termination-*/error/goodbye`，均放入以下信封。`payload` 是原消息 JSON 字符串，字段仍按各自协议校验：
 
@@ -308,7 +308,7 @@ v5 `hello` 在原格式中增加必需的 `sessionId`：主机用密码学随机
 
 ### 12.2 断线、恢复与 60 秒窗口
 
-完成握手后，传输 IOException/ObjectDisposedException 可暂停为 `IsDisconnected=true`、`State=Waiting`。完整消息格式错误、非法 UTF-8、内容变化以及显式 Leave 不恢复。正常 UTF-8 在 EOF 前只有半行时以传输截断处理，未交付该半行，允许新连接从 journal 重发；v3/v4 对同样情况仍报错。握手尚未完成的断线仍是未开局，不自动构造或恢复另一场对战。
+完成握手后，传输 IOException/ObjectDisposedException 可暂停为 `IsDisconnected=true`、`State=Waiting`。完整消息格式错误、非法 UTF-8、内容变化以及显式 Leave 不恢复。正常 UTF-8 在 EOF 前只有半行时以传输截断处理，未交付该半行，允许新连接从 journal 重发；未启用重连的 v6 会话对同样情况仍报错。握手尚未完成的断线仍是未开局，不自动构造或恢复另一场对战。
 
 调用方通过 `Poll(elapsedSeconds)` 传入有限非负秒数；参数无效抛异常，无参数 Poll 为 0 秒。首次检测断线后累计 60 秒，恰到 60 秒进入 Error；建立候选连接、重复失败或未完成的恢复不重置窗口。成功恢复后下一次独立断线拥有新的 60 秒。选招预算和原 10 秒承诺/公开/哈希/终止等待在断线及恢复期间暂停，不能抢先判错；保留余额，恢复后重新设置调用方测量基线。
 
@@ -329,6 +329,47 @@ v5 `hello` 在原格式中增加必需的 `sessionId`：主机用密码学随机
 
 最终状态仍须双方 hash 校验。仅在 NetState.Over 且没有断线时调用 `PrepareClose()`，发送 journal 中的 `{"type":"goodbye"}`。收到该载荷时必须已到 Battle.Phase.Over 且无待确认哈希；否则拒绝。收到对方 goodbye 后的纯 EOF 才视为正常收尾；最终 hash 或 goodbye 丢失仍进入恢复窗口。晚到的 error、非法帧或 I/O 故障仍阻止保存，不能只凭 Battle.Over 判定完成。
 
-CLI 保留房主监听器及原会话，客机使用原连接地址重试，显示「对方断线，等待重连（剩余 N 秒）」。保留计时、终止、评级和观战配置；恢复期间不执行新的玩家选择，恢复后丢弃已经失效的输入并重新提示。q/输入 EOF 用 Leave 通知主动退出，不把退出伪装为短暂抖动。当前 CLI 和局域网广播均使用 v5。
+CLI 保留房主监听器及原会话，客机使用原连接地址重试，显示「对方断线，等待重连（剩余 N 秒）」。保留计时、终止、评级和观战配置；恢复期间不执行新的玩家选择，恢复后丢弃已经失效的输入并重新提示。q/输入 EOF 用 Leave 通知主动退出，不把退出伪装为短暂抖动。当前 CLI 和局域网广播均使用 v6，同时声明终止与重连能力。
 
 正常终局发送 goodbye 后半关闭，再继续分批 Poll，直到无会话错误且 ReceiveDrained 确认正常 EOF 与队列为空；之后才结束观战流、导出录像并累计本机战绩和评级。恢复失败、超时或不同步不保存战绩。成功恢复并完成终局校验后按正常结果保存。恢复过程本身不创建第二局、追加重复录像或重复累计排位。
+
+## 13. T-87：统一协议 v6 与公平种子
+
+v6 取代旧普通 v3、终止 v4、重连 v5 的成功握手路径。所有配置都必须 `version:6`；旧版本收到「版本不一致」中文错误，Battle 保持 null。不按版本号推断能力，终止与重连字段分别精确匹配。构造器末尾新增 `byte[] seedContribution = null`，先前参数位置不变；兼容的 `uint? seed` 不参与联网最终种子，测试中的固定贡献不作为玩家可选种子入口。
+
+### 13.1 hello 与能力组合
+
+| 字段 | v6 类型与约束 |
+|---|---|
+| `type` / `version` | `"hello"` / 整数 `6` |
+| `packId`, `contentHash`, `name`, `team` | 沿用第 2 节的内容、中文显示名和合法六人队伍校验；没有旧 `seed` 字段 |
+| `side` | 整数 `0` 或 `1`，必须是接收方的另一角色；主机为 0，客机为 1 |
+| `seedCommit` | 恰好 64 位小写十六进制，表示绑定发送者角色的 SHA-256 |
+| `timerVersion`, `timer` | 沿用 2.1：发送端总带 `timerVersion:1`，主机可带预算；双方无计时时允许省略 timerVersion，计时启用时仍严格校验 |
+| `terminationVersion` | 启用终止时必需且为整数 `1`；未启用则禁止携带，包括 null 或其它值 |
+| `reconnectVersion`, `sessionId` | 启用重连时分别为整数 `1` 和旧 T-75 标识（主机 32 位小写 hex，客机 null）；未启用则禁止携带这两个字段 |
+| `rating` | 沿用已接入的可选评级元数据校验，缺省按新档案初值；不要求双方均携带，不改变其两字段格式或持久化门禁 |
+
+双方必须都选择普通、仅终止、仅重连或终止加重连中的同一组合，不能因 version 都是 6 就混用。内容库在发送 hello 时保存指纹，收到 hello 和 seed_reveal 时重新校验；等待期间内容被修改仍在开局前拒绝。
+
+### 13.2 角色绑定的承诺与公开
+
+每端默认用 `RandomNumberGenerator` 生成独立 32 字节原值，不读取时间或 Battle.Rng。测试注入数组必须恰好 32 字节，构造时复制。主机承诺为 `SHA-256(UTF-8("host:") || hostValue)`，客机为 `SHA-256(UTF-8("guest:") || guestValue)`；原值直接拼接二进制，不对 hex 文本求摘要。双方各自发出 hello，只有本端承诺已发出、对端 hello 完整校验成功后才发送一次：
+
+```json
+{"type":"seed_reveal","value":"<32字节原值的64位小写十六进制>"}
+```
+
+接收端按发送者角色重算承诺并逐值匹配，拒绝相同的双方原值，以阻止复制承诺或重复贡献。最终种子是 `SHA-256(hostValue || guestValue)` 的前 4 字节按小端转换成 uint；**最终摘要不添加角色前缀**。只有有效公开值收到后才创建 Battle、启动选招计时与重连检查点。双方 Battle.Seed 和录像 Seed 相同；贡献和种子承诺不写进日志、回放或排位记录，完成或失败后清理内存原值。
+
+`hello` 和 `seed_reveal` 都是未封装的握手消息，不进入重连 packet journal；正式会话建立后第一条 packet 仍从 sequence 1 开始。丢失握手公开值不能调用 Reconnect 绕过公平生成，也不能在恢复时重新生成贡献或重置已有 Battle。
+
+### 13.3 超时、错误与未开局
+
+等待 hello、等待 seed_reveal 分别限 10 秒，到限即 Error；重复 hello/公开、提前公开、非法长度/大小写、角色冲突、承诺不符、双方原值相同均中文拒绝。调用方持续执行 Poll 后 Tick，即使没开启回合计时也推进握手超时；窗口切换更新 TimerRevision，避免把旧窗口耗时计入新窗口。聊天或其它消息不会延长等待。
+
+握手断线或超时属于**未开局**，不判胜负、不计排位，不保存为已完成战绩。公平承诺锁定公开前的贡献，但不提供身份认证或防止恶意中止。只有开局后启用重连的会话才执行第 12 节 60 秒窗口；恢复时保持最终 seed、原承诺和已公开行动，终止窗口、计时余额与评级的只保存一次约束继续成立。
+
+### 13.4 固定样例与覆盖迁移
+
+原 `hello-*.json`（v3）、`t75-*.json`（v5）和 T-98 控制文件逐字保留。当前公平握手新增 `t87-v6-*.json`：固定主机原值为字节 0～31，客机原值为 32～63；承诺、最终种子和结算哈希均由这组新输入核对，不把旧 seed 79 的状态哈希改称公平种子结果。旧 hello 用于版本拒绝测试；旧 seed 79 的行动、双补位和终局状态仍由独立 Core 夹具验证。普通 commit/reveal/chat/error 的未变载荷继续读取原文件。新版样例完整比较字段集合、中文转义、能力、序号、状态哈希及实际接收结果，不仅检查版本数字。重连样例仍覆盖真实断开、重放及恢复，双向能力不一致在开局前拒绝。

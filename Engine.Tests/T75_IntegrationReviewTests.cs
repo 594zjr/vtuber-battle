@@ -59,8 +59,8 @@ public sealed class T75_IntegrationReviewTests
             Guest = new NetSession(Db, B, false, Team1, "客机", null,
                 enableTermination: termination, rating: GuestRating, enableReconnect: true);
             Pump();
-            Assert.Equal(5, Host.SessionProtocolVersion);
-            Assert.Equal(5, Guest.SessionProtocolVersion);
+            Assert.Equal(6, Host.SessionProtocolVersion);
+            Assert.Equal(6, Guest.SessionProtocolVersion);
             Assert.Equal(NetState.Choose, Host.State);
             Assert.Equal(NetState.Choose, Guest.State);
         }

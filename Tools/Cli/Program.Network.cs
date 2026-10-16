@@ -23,21 +23,32 @@ namespace StreamDuel.Cli
             {
                 var session = network.Session;
                 if (session == null) return Quit();
-                Console.WriteLine("等待对手握手……");
+                Console.WriteLine("等待对手握手，共同生成公平种子……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
                 {
+                    double seconds = handshake.Elapsed.TotalSeconds;
+                    handshake.Restart();
+                    long timerRevision = session.TimerRevision;
                     network.Poll();
                     spectators?.Pump();
                     if (session.State != NetState.Handshake) break;
-                    if (handshake.ElapsedMilliseconds >= 10000) throw new IOException("等待对手握手超时。");
+                    // 收到承诺后刚开启的公开窗口不承担上一窗口已经花掉的时间。
+                    if (timerRevision != session.TimerRevision)
+                    {
+                        seconds = 0;
+                        handshake.Restart();
+                    }
+                    session.Tick(seconds);
+                    CheckNetwork(session);
                     Thread.Sleep(10);
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
+                if (battle == null) throw new IOException("握手未完成，对局未开始或保存。");
                 ValidateRandomNetworkTeams(db, battle, options);
                 spectators?.Start(battle);
-                Console.WriteLine("连接成功；本方：" + session.DisplayNames[session.MySide] + "；房主种子：" + battle.Seed);
+                Console.WriteLine("连接成功；本方：" + session.DisplayNames[session.MySide] + "；公平种子：" + battle.Seed);
                 Console.WriteLine("本方自报排位分：" + rating.Rating + "；对手自报排位分：" + session.OpponentRating.Rating
                     + "（仅用于本机显示，无防作弊）");
                 var nameInputs = session.NameInputs;
@@ -205,7 +216,7 @@ namespace StreamDuel.Cli
                         Connection = TcpTransport.Connect(options.JoinHost, options.JoinPort, 10000);
                     }
                     Session = new NetSession(db, Connection, host, team, host ? "房主" : "客机",
-                        host ? options.Seed : (uint?)null, turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds,
+                        null, turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds,
                         enableTermination: true, rating: rating, enableReconnect: true);
                     lastPollSeconds = clock.Elapsed.TotalSeconds;
                 }

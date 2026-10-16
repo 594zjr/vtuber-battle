@@ -105,7 +105,7 @@ namespace StreamDuel.Game
             if (Session.State == NetState.Handshake)
             {
                 status.text = "已连接，正在核对协议与内容包……";
-                if (phaseTime.Elapsed.TotalSeconds >= 10) Fail("等待对方握手超时，请确认双方都已进入联网对战。", false);
+                // 承诺与公开各有独立等待期限，由上面的 Core Tick 统一处理。
                 return;
             }
             editor.style.display = DisplayStyle.None;

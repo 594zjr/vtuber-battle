@@ -61,8 +61,10 @@ public class T29_NetSessionEdgeTests
         {
             HostTransport.Peer = GuestTransport;
             GuestTransport.Peer = HostTransport;
-            Host = new NetSession(BattleTests.LoadPack("original"), HostTransport, true, HostTeam, hostName, seed);
-            Guest = new NetSession(BattleTests.LoadPack("original"), GuestTransport, false, GuestTeam, guestName, guestSeed);
+            Host = new NetSession(BattleTests.LoadPack("original"), HostTransport, true, HostTeam, hostName, seed,
+                seedContribution: NetSeedTestData.Host);
+            Guest = new NetSession(BattleTests.LoadPack("original"), GuestTransport, false, GuestTeam, guestName, guestSeed,
+                seedContribution: NetSeedTestData.Guest);
             if (handshake)
             {
                 Pump();
@@ -91,7 +93,7 @@ public class T29_NetSessionEdgeTests
     }
 
     [Fact]
-    public void HandshakePreservesEscapedNamesAndUsesOnlyTheHostsSeed()
+    public void HandshakePreservesEscapedNamesAndUsesBothCommittedContributions()
     {
         const string hostName = "主\"机\\一\n第二行\t\r";
         const string guestName = "客机😀\"\\";
@@ -106,7 +108,7 @@ public class T29_NetSessionEdgeTests
         foreach (var session in new[] { pair.Host, pair.Guest })
         {
             Assert.Equal(NetState.Choose, session.State);
-            Assert.Equal(uint.MaxValue, session.Battle.Seed);
+            Assert.Equal(NetSeedTestData.Seed, session.Battle.Seed);
             Assert.Equal(new[] { hostName, guestName }, session.Battle.Sides.Select(side => side.Name));
             Assert.Equal(HostTeam, session.Battle.Sides[0].Team.Select(fighter => fighter.Def.Id));
             Assert.Equal(GuestTeam, session.Battle.Sides[1].Team.Select(fighter => fighter.Def.Id));
@@ -116,7 +118,17 @@ public class T29_NetSessionEdgeTests
             Assert.DoesNotContain("\n", message);
             Assert.DoesNotContain("\r", message);
             using var parsed = JsonDocument.Parse(message);
-            Assert.Equal("hello", parsed.RootElement.GetProperty("type").GetString());
+            string type = parsed.RootElement.GetProperty("type").GetString();
+            Assert.True(type == "hello" || type == "seed_reveal");
+        }
+        foreach (var item in new[] { (pair.HostTransport, 0, NetSeedTestData.Host), (pair.GuestTransport, 1, NetSeedTestData.Guest) })
+        {
+            Assert.Equal(new[] { "hello", "seed_reveal" }, item.Item1.Sent.Select(TypeOf));
+            using var hello = JsonDocument.Parse(Assert.Single(item.Item1.Messages("hello")));
+            Assert.Equal(item.Item2, hello.RootElement.GetProperty("side").GetInt32());
+            Assert.Equal(NetSeedTestData.Commit(item.Item3, item.Item2), hello.RootElement.GetProperty("seedCommit").GetString());
+            using var reveal = JsonDocument.Parse(Assert.Single(item.Item1.Messages("seed_reveal")));
+            Assert.Equal(NetSeedTestData.Hex(item.Item3), reveal.RootElement.GetProperty("value").GetString());
         }
         Assert.Equal(pair.Host.Battle.StateHash(), pair.Guest.Battle.StateHash());
     }
@@ -420,7 +432,7 @@ public class T29_NetSessionEdgeTests
         Assert.Equal(NetState.Error, pair.Host.State);
         Assert.Equal(NetState.Error, pair.Guest.State);
         Assert.Null(pair.Host.Battle);
-        Assert.Contains("版本", pair.Host.Error);
+        Assert.Contains("版本不一致", pair.Host.Error);
     }
 
     [Fact]
@@ -490,7 +502,7 @@ public class T29_NetSessionEdgeTests
 
     static Battle Reference()
     {
-        return new Battle(BattleTests.LoadPack("original"), new IList<string>[] { HostTeam, GuestTeam }, new[] { "主机", "客机" }, 19);
+        return new Battle(BattleTests.LoadPack("original"), new IList<string>[] { HostTeam, GuestTeam }, new[] { "主机", "客机" }, NetSeedTestData.Seed);
     }
 
     static void FaintActives(Battle battle) { Faint(battle.Active(0)); Faint(battle.Active(1)); }

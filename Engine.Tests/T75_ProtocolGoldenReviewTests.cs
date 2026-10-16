@@ -15,13 +15,14 @@ public class T75_ProtocolGoldenReviewTests
     const string GoldenNonce = "000102030405060708090a0b0c0d0e0f";
     static readonly string[] Files =
     {
-        "hello-host", "hello-guest", "hello-host-timer", "hello-host-termination", "hello-guest-termination",
+        "hello-host", "hello-guest", "seed-reveal-host", "seed-reveal-guest", "hello-host-timer", "hello-host-termination", "hello-guest-termination",
         "packet-commit", "packet-reveal", "packet-hash", "resume", "resumed", "packet-goodbye", "packet-termination-freeze"
     };
 
     static string Golden(string name, [CallerFilePath] string source = "")
     {
-        return File.ReadAllText(Path.Combine(Path.GetDirectoryName(source), "Golden", "net", "t75-" + name + ".json"), Encoding.UTF8);
+        string prefix = name.StartsWith("seed-reveal-", StringComparison.Ordinal) ? "t87-v6-" : "t87-v6-reconnect-";
+        return File.ReadAllText(Path.Combine(Path.GetDirectoryName(source), "Golden", "net", prefix + name + ".json"), Encoding.UTF8);
     }
 
     static string Digest(string wire, string nonce)
@@ -106,15 +107,19 @@ public class T75_ProtocolGoldenReviewTests
     }
 
     [Fact]
-    public void VersionFiveMessagesMatchTheNewFrozenSamplesWithoutChangingLegacySamples()
+    public void VersionSixReconnectMessagesMatchNewFrozenSamplesWithoutChangingLegacySamples()
     {
         var messages = new Dictionary<string, string>();
         var pair = new T75ReviewProtocol.Pair();
-        Assert.Equal(5, pair.Host.SessionProtocolVersion);
-        Assert.Equal(5, pair.Guest.SessionProtocolVersion);
+        Assert.Equal(6, pair.Host.SessionProtocolVersion);
+        Assert.Equal(6, pair.Guest.SessionProtocolVersion);
         Assert.Equal("06cab9cf6b123697", pair.Host.Battle.Db.ContentHash());
         messages.Add("hello-host", Single(pair.A, "hello"));
         messages.Add("hello-guest", Single(pair.B, "hello"));
+        messages.Add("seed-reveal-host", Single(pair.A, "seed_reveal"));
+        messages.Add("seed-reveal-guest", Single(pair.B, "seed_reveal"));
+        Assert.Equal(T75ReviewProtocol.FairSeed, pair.Host.Battle.Seed);
+        Assert.Equal(T75ReviewProtocol.FairSeed, pair.Guest.Battle.Record.Seed);
         pair.Act(BattleAction.Skill(0));
         string commit = Single(pair.B, "commit"), reveal = Single(pair.B, "reveal");
         string nonce = T75ReviewProtocol.Text(T75ReviewProtocol.Payload(reveal), "nonce");
@@ -123,7 +128,7 @@ public class T75_ProtocolGoldenReviewTests
         messages.Add("packet-commit", commit);
         messages.Add("packet-reveal", reveal);
         messages.Add("packet-hash", Single(pair.B, "hash"));
-        Assert.Equal("e72531a46e767db7", pair.Host.Battle.StateHash().ToString("x16"));
+        Assert.Equal("42cc2dfa4dfd0972", pair.Host.Battle.StateHash().ToString("x16"));
         pair.Disconnect();
         pair.Attach();
         messages.Add("resume", Single(pair.A, "resume"));
@@ -162,10 +167,16 @@ public class T75_ProtocolGoldenReviewTests
     {
         T75ReviewProtocol.NewTransport(out var input, out _);
         var host = new NetSession(T75ReviewProtocol.FrozenContent(), input, true,
-            T75ReviewProtocol.HostTeam, T75ReviewProtocol.HostName, 79, enableReconnect: true);
+            T75ReviewProtocol.HostTeam, T75ReviewProtocol.HostName, 79, enableReconnect: true,
+            seedContribution: T75ReviewProtocol.HostContribution);
         input.Incoming.Enqueue(Golden("hello-guest"));
         host.Poll();
+        Assert.Equal(NetState.Handshake, host.State);
+        Assert.Null(host.Battle);
+        input.Incoming.Enqueue(Golden("seed-reveal-guest"));
+        host.Poll();
         Assert.Equal(NetState.Choose, host.State);
+        Assert.Equal(T75ReviewProtocol.FairSeed, host.Battle.Seed);
         host.Submit(BattleAction.Skill(0));
         foreach (string name in new[] { "packet-commit", "packet-reveal", "packet-hash" })
         {
@@ -176,7 +187,7 @@ public class T75_ProtocolGoldenReviewTests
             T75ReviewProtocol.Healthy(host);
         }
         Assert.Equal(NetState.Choose, host.State);
-        Assert.Equal("e72531a46e767db7", host.Battle.StateHash().ToString("x16"));
+        Assert.Equal("42cc2dfa4dfd0972", host.Battle.StateHash().ToString("x16"));
         var turn = Assert.Single(host.Battle.Record.Events);
         Assert.Equal("S0", turn.A0.ToWire());
         Assert.Equal("S0", turn.A1.ToWire());
@@ -185,12 +196,12 @@ public class T75_ProtocolGoldenReviewTests
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
-    public void SameVersionFiveWithDifferentTerminationCapabilitiesCannotCreateABattle(bool hostTermination, bool guestTermination)
+    public void SameVersionSixWithDifferentTerminationCapabilitiesCannotCreateABattle(bool hostTermination, bool guestTermination)
     {
         var pair = new T75ReviewProtocol.Pair(handshake: false,
             hostTermination: hostTermination, guestTermination: guestTermination);
-        Assert.Equal(5, pair.Host.SessionProtocolVersion);
-        Assert.Equal(5, pair.Guest.SessionProtocolVersion);
+        Assert.Equal(6, pair.Host.SessionProtocolVersion);
+        Assert.Equal(6, pair.Guest.SessionProtocolVersion);
 
         pair.Pump();
 
@@ -201,4 +212,27 @@ public class T75_ProtocolGoldenReviewTests
         Assert.Contains("终止协议", pair.Host.Error);
         Assert.Contains("终止协议", pair.Guest.Error);
     }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void SameVersionSixWithDifferentReconnectCapabilitiesCannotCreateABattle(bool hostReconnect, bool guestReconnect)
+    {
+        T75ReviewProtocol.NewTransport(out var a, out var b);
+        var db = T75ReviewProtocol.FrozenContent();
+        var host = new NetSession(db, a, true, T75ReviewProtocol.HostTeam, T75ReviewProtocol.HostName, 79,
+            enableReconnect: hostReconnect, seedContribution: T75ReviewProtocol.HostContribution);
+        var guest = new NetSession(db, b, false, T75ReviewProtocol.GuestTeam, "客机", null,
+            enableReconnect: guestReconnect, seedContribution: T75ReviewProtocol.GuestContribution);
+        Assert.Equal(6, host.SessionProtocolVersion);
+        Assert.Equal(6, guest.SessionProtocolVersion);
+        for (int index = 0; index < 12; index++) { host.Poll(); guest.Poll(); }
+        foreach (var session in new[] { host, guest })
+        {
+            Assert.Equal(NetState.Error, session.State);
+            Assert.Null(session.Battle);
+            Assert.Contains("重连协议", session.Error);
+        }
+    }
+
 }

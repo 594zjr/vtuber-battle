@@ -41,9 +41,9 @@ public class T57_RatingIntegrationReviewTests
             var db = BattleTests.LoadPack("original");
             Host = new NetSession(db, A, true, HostTeam, "主机", 57,
                 turnSeconds: timer ? 20 : (double?)null, bankSeconds: timer ? 30 : (double?)null,
-                enableTermination: termination, rating: hostRating);
+                enableTermination: termination, rating: hostRating, seedContribution: NetSeedTestData.Host);
             Guest = new NetSession(db, B, false, GuestTeam, "客机", null,
-                enableTermination: termination, rating: guestRating);
+                enableTermination: termination, rating: guestRating, seedContribution: NetSeedTestData.Guest);
         }
 
         public void Pump()
@@ -82,7 +82,7 @@ public class T57_RatingIntegrationReviewTests
         foreach (var session in new[] { pair.Host, pair.Guest })
         {
             Assert.Equal(NetState.Choose, session.State);
-            Assert.Equal(termination ? 4 : 3, session.SessionProtocolVersion);
+            Assert.Equal(6, session.SessionProtocolVersion);
             Assert.Equal(termination, session.CanSurrender);
             if (timer)
             {
@@ -97,7 +97,7 @@ public class T57_RatingIntegrationReviewTests
         using var guestHello = JsonDocument.Parse(pair.B.Sent[0]);
         foreach (var hello in new[] { hostHello.RootElement, guestHello.RootElement })
         {
-            Assert.Equal(termination ? 4 : 3, hello.GetProperty("version").GetInt32());
+            Assert.Equal(6, hello.GetProperty("version").GetInt32());
             Assert.Equal(1, hello.GetProperty("timerVersion").GetInt32());
             Assert.Equal(termination, hello.TryGetProperty("terminationVersion", out var capability));
             if (termination) Assert.Equal(1, capability.GetInt32());

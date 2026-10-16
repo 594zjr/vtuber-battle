@@ -5,7 +5,7 @@ namespace StreamDuel.Core
 {
     public sealed partial class NetSession
     {
-        public const int TerminationProtocolVersion = 4;
+        public const int TerminationProtocolVersion = ProtocolVersion;
         readonly bool terminationEnabled;
         bool terminationFrozen, terminationHashPending, terminationKeepPhase, terminationReadySent;
         int terminationPhase, terminationSequence;
@@ -51,7 +51,7 @@ namespace StreamDuel.Core
 
         void RequireTerminationInput(bool allowed, string message)
         {
-            if (!terminationEnabled) throw new InvalidOperationException("投降与和局需要双方显式启用终止协议版本 4。");
+            if (!terminationEnabled) throw new InvalidOperationException("投降与和局需要双方显式启用终止协议能力 terminationVersion 1。");
             if (!allowed) throw new InvalidOperationException(message);
         }
 
@@ -59,8 +59,8 @@ namespace StreamDuel.Core
 
         void ReceiveTerminationHello(Dictionary<string, object> obj)
         {
-            // v5 同时支持两种终止能力，必须显式拒绝不同配置，不能开局后才发现控制消息不兼容。
-            if (enableReconnect && !terminationEnabled && obj.ContainsKey("terminationVersion"))
+            // 同一线路版本允许不同能力组合，必须在公开种子前拒绝配置不一致。
+            if (!terminationEnabled && obj.ContainsKey("terminationVersion"))
                 throw new FormatException("双方终止协议能力不一致。");
             if (!terminationEnabled) return;
             if (!obj.TryGetValue("terminationVersion", out var value) || !(value is double version) || version != 1)

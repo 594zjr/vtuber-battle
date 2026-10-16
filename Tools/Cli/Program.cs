@@ -96,7 +96,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --packs 编号列表  逗号分隔至少两个内容包 id，混合选人；与 --pack 互斥，可加载 --pack-dir 外部包。");
             Console.WriteLine("                    特殊 id 可用 --pack mix: 后接按原始 id 排序、分别 URI 转义再逗号连接的编号；回放自动重建。");
             Console.WriteLine("  --random-teams    按种子随机分配双方各六位，十二位不重复；与手动队伍、队伍码互斥。");
-            Console.WriteLine("                    联网双方均须 --random-teams、相同 --packs 和显式相同 --seed，房主取首队、客机取次队。");
+            Console.WriteLine("                    联网双方均须 --random-teams、相同 --packs 和显式相同 --seed 生成阵容，房主取首队、客机取次队；战斗另用公平种子。");
             Console.WriteLine("  --pack-dir 目录   从指定目录第一层加载外部 JSON；id 冲突时内置优先并提示。");
             Console.WriteLine("  --list-packs      列出可用包的 id、名称和来源后退出，不开始对战或回放。");
             Console.WriteLine(Loc.Current.T("glossary.cli.help"));
@@ -109,7 +109,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --vs 对手id       选择当前包的固定陪练阵容、难度和风格；显式 --level 必须与其一致。");
             Console.WriteLine("                    用于本地单局，可搭配我方队伍码、禁用、首发、建议、计时和保存选项；与多局赛制、同屏、联网、赛事及查询入口互斥。");
             Console.WriteLine("  --vs list         列出当前包的对手 id、名字、难度、风格、简介和阵容后退出；仅搭配 --pack、--pack-dir。");
-            Console.WriteLine("  --seed 整数       自动组队与对战的种子 0..4294967295；默认 1。");
+            Console.WriteLine("  --seed 整数       自动组队与本地对战的种子 0..4294967295；默认 1，联网战斗种子由双方共同生成。");
             Console.WriteLine("  --team 六个编号   逗号分隔我方六位主播；未指定队伍或队伍码时自动建议，未选 --vs 时电脑先选剩余再补齐。");
             Console.WriteLine("  --hotseat         同屏双人轮流手动操作；交接时清屏并按回车确认，私密选择输入不回显。");
             Console.WriteLine("  --team-b 六个编号 同屏 B 方或混合包本地电脑队伍，逗号分隔；A 方沿用 --team 或 --team-code，B 方默认先选未入 A 队者再补齐。");
@@ -149,7 +149,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --lead            双方选择首发；与 --ban 同用时先禁用，再从剩余队伍中选首发。");
             Console.WriteLine(Loc.Current.T("advice.cli.help"));
             Console.WriteLine("  --hash            每回合结算后、补位前输出 64 位状态哈希，补位不重复输出。");
-            Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；种子由房主决定。");
+            Console.WriteLine("  --host 端口       等待一位局域网对手，0 自动分配并显示实际端口；战斗种子由双方共同生成。");
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
             Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");

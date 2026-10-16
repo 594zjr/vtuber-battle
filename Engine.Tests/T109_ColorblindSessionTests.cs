@@ -143,6 +143,10 @@ public class T109_ColorblindSessionTests
         guestTransport.Incoming.Enqueue(Assert.Single(hostTransport.Sent));
         host.Poll();
         guest.Poll();
+        hostTransport.Incoming.Enqueue(Assert.Single(guestTransport.Sent.Skip(1)));
+        guestTransport.Incoming.Enqueue(Assert.Single(hostTransport.Sent.Skip(1)));
+        host.Poll();
+        guest.Poll();
         Assert.Equal(NetState.Choose, host.State);
         Assert.Equal(NetState.Choose, guest.State);
         int hostMessages = hostTransport.Sent.Count;

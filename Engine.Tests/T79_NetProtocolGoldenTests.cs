@@ -19,7 +19,7 @@ public class T79_NetProtocolGoldenTests
     static readonly string[] GuestTeam = { "unit6", "unit5", "unit4", "unit3", "unit2", "unit1" };
     static readonly string[] Files =
     {
-        "hello-host", "hello-guest", "commit-action", "reveal-action", "hash-turn",
+        "hello-host", "hello-guest", "seed-reveal-host", "seed-reveal-guest", "commit-action", "reveal-action", "hash-turn",
         "commit-replace", "reveal-replace", "hash-replace-first", "hash-replace-second", "hash-final", "error"
     };
     static readonly string GoldenDirectory = Path.Combine(SourceDirectory(), "Golden", "net");
@@ -97,8 +97,8 @@ public class T79_NetProtocolGoldenTests
             A.Peer = B;
             B.Peer = A;
             var db = FrozenContent();
-            Host = new NetSession(db, A, true, HostTeam, HostName, 79, turnSeconds, bankSeconds);
-            Guest = new NetSession(db, B, false, GuestTeam, GuestName, null);
+            Host = new NetSession(db, A, true, HostTeam, HostName, 79, turnSeconds, bankSeconds, seedContribution: T75ReviewProtocol.HostContribution);
+            Guest = new NetSession(db, B, false, GuestTeam, GuestName, null, seedContribution: T75ReviewProtocol.GuestContribution);
             if (handshake)
             {
                 Pump();
@@ -181,6 +181,10 @@ public class T79_NetProtocolGoldenTests
         var action = new Pair();
         messages.Add("hello-host", action.A.Single("hello"));
         messages.Add("hello-guest", action.B.Single("hello"));
+        messages.Add("seed-reveal-host", action.A.Single("seed_reveal"));
+        messages.Add("seed-reveal-guest", action.B.Single("seed_reveal"));
+        Assert.Equal(T75ReviewProtocol.FairSeed, action.Host.Battle.Seed);
+        Assert.Equal(T75ReviewProtocol.FairSeed, action.Guest.Battle.Record.Seed);
         action.Act(BattleAction.Skill(0));
         Assert.Equal(NetState.Choose, action.Host.State);
         Assert.Equal(NetState.Choose, action.Guest.State);
@@ -207,7 +211,7 @@ public class T79_NetProtocolGoldenTests
         Assert.Equal(NetState.Over, final.Host.State);
         Assert.Equal(NetState.Over, final.Guest.State);
         messages.Add("hash-final", final.B.Single("hash"));
-        Assert.Equal(new[] { "hello", "commit", "reveal", "hash" }, final.B.Sent.Select(message => Text(message, "type")));
+        Assert.Equal(new[] { "hello", "seed_reveal", "commit", "reveal", "hash" }, final.B.Sent.Select(message => Text(message, "type")));
 
         var error = new Pair();
         error.A.Incoming.Enqueue("{\"type\":\"commit\",\"turn\":1,\"kind\":\"action\"}");
@@ -224,7 +228,17 @@ public class T79_NetProtocolGoldenTests
         return messages;
     }
 
-    static string Golden(string file) { return File.ReadAllText(Path.Combine(GoldenDirectory, file + ".json"), Encoding.UTF8); }
+    static string Golden(string file)
+    {
+        bool fairSeed = file.StartsWith("hello-", StringComparison.Ordinal)
+            || file.StartsWith("hash-", StringComparison.Ordinal) || file.StartsWith("seed-reveal-", StringComparison.Ordinal);
+        return File.ReadAllText(Path.Combine(GoldenDirectory, (fairSeed ? "t87-v6-" : "") + file + ".json"), Encoding.UTF8);
+    }
+
+    static string HistoricalGolden(string file)
+    {
+        return File.ReadAllText(Path.Combine(GoldenDirectory, file + ".json"), Encoding.UTF8);
+    }
 
     [Fact]
     public void CurrentMessagesMatchFrozenFieldsAndRealEntropyRemainsBoundToTheAction()
@@ -275,13 +289,18 @@ public class T79_NetProtocolGoldenTests
 
     static Receiver PrepareReceiver(string file)
     {
-        var pair = new Pair(handshake: !file.StartsWith("hello-", StringComparison.Ordinal));
+        bool isHello = file.StartsWith("hello-", StringComparison.Ordinal);
+        bool isSeed = file.StartsWith("seed-reveal-", StringComparison.Ordinal);
+        var pair = new Pair(handshake: !isHello && !isSeed);
         var result = new Receiver { Session = pair.Host, Transport = pair.A };
-        if (file.StartsWith("hello-", StringComparison.Ordinal))
+        if (isHello || isSeed)
         {
             pair.A.Incoming.Clear();
             pair.B.Incoming.Clear();
-            if (file == "hello-host") { result.Session = pair.Guest; result.Transport = pair.B; }
+            if (file == "hello-host" || file == "seed-reveal-host") { result.Session = pair.Guest; result.Transport = pair.B; }
+            if (isSeed) Deliver(result, Golden(file == "seed-reveal-host" ? "hello-host" : "hello-guest"));
+            Assert.Equal(NetState.Handshake, result.Session.State);
+            Assert.Null(result.Session.Battle);
             return result;
         }
         if (file == "error") return result;
@@ -339,10 +358,18 @@ public class T79_NetProtocolGoldenTests
             Assert.Equal("对方报错：" + Text(Golden(file), "message"), session.Error);
             Assert.DoesNotContain(receiver.Transport.Sent, sent => Text(sent, "type") == "error");
         }
-        else if (file.StartsWith("hello-", StringComparison.Ordinal))
+        else if (file.StartsWith("hello-", StringComparison.Ordinal) || file.StartsWith("seed-reveal-", StringComparison.Ordinal))
         {
+            if (file.StartsWith("hello-", StringComparison.Ordinal))
+            {
+                Assert.Equal(NetState.Handshake, session.State);
+                Assert.Null(session.Battle);
+                Assert.Single(receiver.Transport.All("seed_reveal"));
+                Deliver(receiver, Golden(file == "hello-host" ? "seed-reveal-host" : "seed-reveal-guest"));
+            }
             Assert.Equal(NetState.Choose, session.State);
-            Assert.Equal(79u, session.Battle.Seed);
+            Assert.Equal(T75ReviewProtocol.FairSeed, session.Battle.Seed);
+            Assert.Equal(T75ReviewProtocol.FairSeed, session.Battle.Record.Seed);
             Assert.Equal(HostName, session.Battle.Sides[0].Name);
             Assert.Equal(GuestName, session.Battle.Sides[1].Name);
             Assert.Equal(HostTeam, session.Battle.Sides[0].Team.Select(fighter => fighter.Def.Id));
@@ -382,7 +409,8 @@ public class T79_NetProtocolGoldenTests
         foreach (string file in Files)
         {
             string[] fields = file.StartsWith("hello-", StringComparison.Ordinal)
-                ? new[] { "type", "version", "packId", "contentHash", "seed", "name", "team" }
+                ? new[] { "type", "version", "packId", "contentHash", "side", "seedCommit", "name", "team" }
+                : file.StartsWith("seed-reveal-", StringComparison.Ordinal) ? new[] { "type", "value" }
                 : file.StartsWith("commit-", StringComparison.Ordinal) ? new[] { "type", "turn", "kind", "digest" }
                 : file.StartsWith("reveal-", StringComparison.Ordinal) ? new[] { "type", "turn", "kind", "action", "nonce" }
                 : file.StartsWith("hash-", StringComparison.Ordinal) ? new[] { "type", "turn", "hash" }
@@ -542,7 +570,7 @@ public class T79_NetProtocolGoldenTests
     }
 
     [Fact]
-    public void VersionThreeWithoutTimerCapabilityRemainsCompatibleWhenBothTimersAreDisabled()
+    public void VersionSixWithoutTimerCapabilityRemainsCompatibleWhenBothTimersAreDisabled()
     {
         var pair = new Pair(handshake: false);
         IsolatedReceiver(pair, true);
@@ -550,7 +578,7 @@ public class T79_NetProtocolGoldenTests
         var guestHello = Object(pair.B.Single("hello"));
         foreach (var message in new[] { hostHello, guestHello })
         {
-            Assert.Equal(3, ((JsonElement)message["version"]).GetInt32());
+            Assert.Equal(6, ((JsonElement)message["version"]).GetInt32());
             Assert.True(message.Remove("timerVersion"));
             Assert.False(message.ContainsKey("timer"));
         }
@@ -607,19 +635,74 @@ public class T79_NetProtocolGoldenTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void VersionTwoHelloIsRejectedByEitherSideBeforeCreatingBattle(bool hostReceives)
+    [InlineData(true, 1)]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    [InlineData(false, 2)]
+    [InlineData(true, 3)]
+    [InlineData(false, 3)]
+    [InlineData(true, 4)]
+    [InlineData(false, 4)]
+    [InlineData(true, 5)]
+    [InlineData(false, 5)]
+    public void OlderHelloVersionsAreRejectedByEitherSideBeforeCreatingBattle(bool hostReceives, int version)
     {
         var pair = new Pair(handshake: false);
         var receiver = IsolatedReceiver(pair, hostReceives);
         var message = Object(hostReceives ? pair.B.Single("hello") : pair.A.Single("hello"));
-        message["version"] = 2;
+        message["version"] = version;
 
         Deliver(receiver, JsonSerializer.Serialize(message));
 
         AssertHelloRejected(receiver, "协议版本");
-        Assert.Contains("2", receiver.Session.Error);
-        Assert.Contains("3", receiver.Session.Error);
+        Assert.Contains(version.ToString(CultureInfo.InvariantCulture), receiver.Session.Error);
+        Assert.Contains("6", receiver.Session.Error);
     }
+
+    [Theory]
+    [InlineData("hello-host", false)]
+    [InlineData("hello-guest", true)]
+    [InlineData("t75-hello-host", false)]
+    [InlineData("t75-hello-guest", true)]
+    public void UntouchedHistoricalHelloFilesAreRejectedBeforeCreatingBattle(string file, bool hostReceives)
+    {
+        var receiver = IsolatedReceiver(new Pair(handshake: false), hostReceives);
+        Deliver(receiver, HistoricalGolden(file));
+        AssertHelloRejected(receiver, "版本");
+        Assert.Contains("不一致", receiver.Session.Error);
+        Assert.Contains("6", receiver.Session.Error);
+    }
+
+    [Fact]
+    public void HistoricalSeed79StateSamplesRemainUnchangedUnderTheSameRecordedActions()
+    {
+        Battle NewBattle() => new Battle(FrozenContent(), new IList<string>[] { HostTeam, GuestTeam },
+            new[] { HostName, GuestName }, 79);
+        void Check(string file, Battle battle, int operationTurn)
+        {
+            using var expected = JsonDocument.Parse(HistoricalGolden(file));
+            Assert.Equal("hash", expected.RootElement.GetProperty("type").GetString());
+            Assert.Equal(operationTurn, expected.RootElement.GetProperty("turn").GetInt32());
+            Assert.Equal(expected.RootElement.GetProperty("hash").GetString(), battle.StateHash().ToString("x16"));
+        }
+        var action = NewBattle();
+        action.ResolveTurn(BattleAction.Skill(0), BattleAction.Skill(0));
+        Check("hash-turn", action, 1);
+        var replacement = NewBattle();
+        for (int side = 0; side < 2; side++)
+        {
+            replacement.Active(side).Hp = 0;
+            replacement.Active(side).Fainted = true;
+        }
+        replacement.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        replacement.Replace(0, 1);
+        Check("hash-replace-first", replacement, 2);
+        replacement.Replace(1, 1);
+        Check("hash-replace-second", replacement, 2);
+        var final = NewBattle();
+        final.Turn = Battle.TurnCap;
+        final.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        Check("hash-final", final, Battle.TurnCap);
+    }
+
 }

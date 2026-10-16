@@ -11,6 +11,9 @@ internal static class T75ReviewProtocol
 {
     internal static readonly string[] HostTeam = { "unit1", "unit2", "unit3", "unit4", "unit5", "unit6" };
     internal static readonly string[] GuestTeam = { "unit6", "unit5", "unit4", "unit3", "unit2", "unit1" };
+    internal static byte[] HostContribution => Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
+    internal static byte[] GuestContribution => Enumerable.Range(32, 32).Select(value => (byte)value).ToArray();
+    internal const uint FairSeed = 0xacb9eafd;
     internal const string HostName = "主\"机\\一\n😀";
 
     // 沿用 T-79 固定样例的原创数据值，新增协议不改变旧内容指纹或规则状态。
@@ -93,9 +96,9 @@ internal static class T75ReviewProtocol
             NewTransport(out A, out B);
             var db = FrozenContent();
             Host = new NetSession(db, A, true, HostTeam, HostName, 79, turnSeconds, bankSeconds,
-                enableTermination: hostTermination, enableReconnect: true);
+                enableTermination: hostTermination, enableReconnect: true, seedContribution: HostContribution);
             Guest = new NetSession(db, B, false, GuestTeam, "客机", null,
-                enableTermination: guestTermination, enableReconnect: true);
+                enableTermination: guestTermination, enableReconnect: true, seedContribution: GuestContribution);
             if (handshake)
             {
                 Pump();

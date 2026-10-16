@@ -8,7 +8,7 @@ namespace StreamDuel.Core
 {
     public sealed partial class NetSession
     {
-        public const int ReconnectProtocolVersion = 5;
+        public const int ReconnectProtocolVersion = ProtocolVersion;
         public const double ReconnectTimeoutSeconds = 60;
         public string SessionId { get; private set; }
         public bool IsDisconnected { get; private set; }
@@ -31,6 +31,29 @@ namespace StreamDuel.Core
         {
             public int Turn;
             public string Hash;
+        }
+
+        void ReceiveReconnectHello(Dictionary<string, object> obj)
+        {
+            if (!enableReconnect)
+            {
+                if (obj.ContainsKey("reconnectVersion") || obj.ContainsKey("sessionId"))
+                    throw new FormatException("双方重连协议能力不一致。");
+                return;
+            }
+            if (!obj.TryGetValue("reconnectVersion", out var capability)
+                || !(capability is double version) || version != 1)
+                throw new FormatException("对方未声明重连协议能力 reconnectVersion 1。");
+            if (MySide == 0)
+            {
+                if (!obj.TryGetValue("sessionId", out var id) || id != null)
+                    throw new FormatException("客机不能指定新的会话标识。");
+            }
+            else
+            {
+                SessionId = NetJson.Text(obj, "sessionId");
+                if (!LowerHex(SessionId, 32)) throw new FormatException("主机会话标识无效。");
+            }
         }
 
         static string NewSessionId()

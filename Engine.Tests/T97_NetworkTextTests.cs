@@ -29,7 +29,8 @@ public class T97_NetworkTextTests
         {
             ["type"] = "hello", ["version"] = NetSession.ProtocolVersion,
             ["packId"] = db.PackId, ["contentHash"] = db.ContentHash(),
-            ["seed"] = null, ["name"] = name, ["team"] = GuestTeam
+            ["side"] = 1, ["seedCommit"] = NetSeedTestData.Commit(NetSeedTestData.Guest, 1),
+            ["name"] = name, ["team"] = GuestTeam
         };
     }
 
@@ -41,8 +42,8 @@ public class T97_NetworkTextTests
         string guestName = "客机" + string.Concat(Enumerable.Repeat("😀", 16));
         var hostTransport = new Transport();
         var guestTransport = new Transport();
-        var host = new NetSession(db, hostTransport, true, HostTeam, hostName, 97);
-        var guest = new NetSession(db, guestTransport, false, GuestTeam, guestName, null);
+        var host = new NetSession(db, hostTransport, true, HostTeam, hostName, 97, seedContribution: NetSeedTestData.Host);
+        var guest = new NetSession(db, guestTransport, false, GuestTeam, guestName, null, seedContribution: NetSeedTestData.Guest);
         Assert.Empty(host.NameInputs);
         Assert.Empty(host.DisplayNames);
         Assert.Throws<InvalidOperationException>(() => host.ViewFor(0));
@@ -50,6 +51,10 @@ public class T97_NetworkTextTests
             Assert.Equal(hostName, hello.RootElement.GetProperty("name").GetString());
         hostTransport.Incoming.Enqueue(Assert.Single(guestTransport.Sent));
         guestTransport.Incoming.Enqueue(Assert.Single(hostTransport.Sent));
+        host.Poll();
+        guest.Poll();
+        hostTransport.Incoming.Enqueue(guestTransport.Sent.Single(IsSeedReveal));
+        guestTransport.Incoming.Enqueue(hostTransport.Sent.Single(IsSeedReveal));
         host.Poll();
         guest.Poll();
 
@@ -87,6 +92,7 @@ public class T97_NetworkTextTests
         var session = new NetSession(db, transport, true, HostTeam, "主机", 97);
         const string raw = " \u3000\u200b\n\t";
         transport.Incoming.Enqueue(JsonSerializer.Serialize(Hello(db, raw)));
+        transport.Incoming.Enqueue(JsonSerializer.Serialize(new { type = "seed_reveal", value = NetSeedTestData.Hex(NetSeedTestData.Guest) }));
         session.Poll();
         Assert.Equal(NetState.Choose, session.State);
         Assert.True(session.NameInputs[1].UsedDefault);
@@ -127,6 +133,12 @@ public class T97_NetworkTextTests
         var invalidLocal = new NetSession(db, new Transport(), true, HostTeam, null, 97);
         Assert.Equal(NetState.Error, invalidLocal.State);
         Assert.Empty(invalidLocal.NameInputs);
+    }
+
+    static bool IsSeedReveal(string message)
+    {
+        using var document = JsonDocument.Parse(message);
+        return document.RootElement.GetProperty("type").GetString() == "seed_reveal";
     }
 
     static LanRoom Room(string name)

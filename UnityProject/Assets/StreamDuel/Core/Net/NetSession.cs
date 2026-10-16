@@ -10,7 +10,7 @@ namespace StreamDuel.Core
 
     public sealed partial class NetSession
     {
-        public const int ProtocolVersion = 3;
+        public const int ProtocolVersion = 6;
         public NetState State { get; private set; } = NetState.Handshake;
         public Battle Battle { get; private set; }
         public int MySide { get; }
@@ -21,7 +21,6 @@ namespace StreamDuel.Core
         private INetTransport transport;
         private readonly IList<string> myTeam;
         private readonly string myName;
-        private readonly uint? hostSeed;
         private readonly string contentHash;
         private readonly BattleAction?[] actions = new BattleAction?[2];
         private readonly int?[] replacements = new int?[2];
@@ -39,7 +38,7 @@ namespace StreamDuel.Core
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
             double? turnSeconds = null, double? bankSeconds = null, bool enableTermination = false,
-            PlayerRating rating = null, bool enableReconnect = false)
+            PlayerRating rating = null, bool enableReconnect = false, byte[] seedContribution = null)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
@@ -50,8 +49,7 @@ namespace StreamDuel.Core
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
             string ratingMetadata = WriteRatingHello(rating);
-            // 只由主机在建立会话时生成一次种子，之后不再读取时间。
-            hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
+            // 保留 seed 参数只为兼容旧调用；最终种子必须由双方承诺的原值共同决定。
             if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
             var errors = TeamCheck.Validate(db, null, this.myTeam);
             if (errors.Count > 0 || myName == null)
@@ -60,13 +58,19 @@ namespace StreamDuel.Core
                 return;
             }
             contentHash = db.ContentHash();
-            Send("{\"type\":\"hello\",\"version\":" + Number(SessionProtocolVersion)
-                + (enableReconnect ? ",\"sessionId\":" + (SessionId == null ? "null" : NetJson.Quote(SessionId)) : "")
+            if (!InitializeFairSeed(seedContribution)) return;
+            if (Send("{\"type\":\"hello\",\"version\":" + Number(SessionProtocolVersion)
+                + (enableReconnect ? ",\"reconnectVersion\":1,\"sessionId\":" + (SessionId == null ? "null" : NetJson.Quote(SessionId)) : "")
                 + ",\"packId\":" + NetJson.Quote(db.PackId)
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
-                + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
+                + ",\"side\":" + Number(MySide)
+                + ",\"seedCommit\":" + NetJson.Quote(seedLocalCommit)
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + ratingMetadata + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + ratingMetadata + "}"))
+            {
+                seedHelloSent = true;
+                BeginSeedWait();
+            }
         }
 
         public void Poll()
@@ -163,7 +167,7 @@ namespace StreamDuel.Core
             }
             if (enableReconnect && type == "goodbye")
             {
-                if (Battle.Phase != Phase.Over || hashes.Count != 0)
+                if (Battle == null || Battle.Phase != Phase.Over || hashes.Count != 0)
                     throw new FormatException("对战尚未完成终局校验，不能结束连接。");
                 peerCompleted = true;
                 return false;
@@ -172,6 +176,11 @@ namespace StreamDuel.Core
             if (type == "hello")
             {
                 ReceiveHello(obj);
+                return true;
+            }
+            if (type == "seed_reveal")
+            {
+                ReceiveSeedReveal(obj);
                 return true;
             }
             if (Battle == null) throw new FormatException("握手完成前不能发送行动、补位或哈希。");
@@ -196,22 +205,10 @@ namespace StreamDuel.Core
 
         private void ReceiveHello(Dictionary<string, object> obj)
         {
-            if (Battle != null) throw new FormatException("对方重复发送握手。");
+            if (seedHelloReceived || Battle != null) throw new FormatException("对方重复发送握手承诺。");
             long version = NetJson.Integer(obj, "version", 0, int.MaxValue);
-            if (version != SessionProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(SessionProtocolVersion) + "，对方 " + version + "。");
-            if (enableReconnect)
-            {
-                if (MySide == 0)
-                {
-                    if (!obj.TryGetValue("sessionId", out var id) || id != null)
-                        throw new FormatException("客机不能指定新的会话标识。");
-                }
-                else
-                {
-                    SessionId = NetJson.Text(obj, "sessionId");
-                    if (!LowerHex(SessionId, 32)) throw new FormatException("主机会话标识无效。");
-                }
-            }
+            if (version != SessionProtocolVersion) throw new FormatException("协议版本不一致：本端 " + Number(SessionProtocolVersion) + "，对方 " + version + "。");
+            ReceiveReconnectHello(obj);
             ReceiveTerminationHello(obj);
             string packId = NetJson.Text(obj, "packId");
             if (packId != db.PackId) throw new FormatException("内容包不同：本端「" + db.PackId + "」，对方「" + packId + "」。");
@@ -232,27 +229,17 @@ namespace StreamDuel.Core
             }
             var errors = TeamCheck.Validate(db, null, team);
             if (errors.Count > 0) throw new FormatException("对方队伍不合法：" + string.Join("；", errors));
-            uint sharedSeed;
-            if (MySide == 0)
-            {
-                if (!obj.TryGetValue("seed", out var peerSeed) || peerSeed != null)
-                    throw new FormatException("角色或种子不匹配：客机握手的 seed 必须为 null。");
-                sharedSeed = hostSeed.Value;
-            }
-            else sharedSeed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue);
+            if (NetJson.Integer(obj, "side", 0, 1) != 1 - MySide)
+                throw new FormatException("握手角色不匹配：必须由一名主机和一名客机对战。");
+            string seedCommit = NetJson.Text(obj, "seedCommit");
+            if (!LowerHex(seedCommit, 64)) throw new FormatException("种子承诺必须是 64 位小写十六进制字符串。");
             ReceiveTimerHello(obj);
-            var teams = new IList<string>[2];
-            var names = new string[2];
-            teams[MySide] = myTeam;
-            teams[1 - MySide] = team;
-            names[MySide] = myName;
-            names[1 - MySide] = name;
-            var peerRating = ReadRatingHello(obj);
-            Battle = new Battle(db, teams, names, sharedSeed);
-            opponentRating = peerRating;
-            rngCheckpoint = Battle.NetRngState;
-            RememberCheckpoint();
-            BeginPhase();
+            seedPeerCommit = seedCommit;
+            seedPeerTeam = team;
+            seedPeerName = name;
+            seedPeerRating = ReadRatingHello(obj);
+            seedHelloReceived = true;
+            RevealSeed();
         }
 
         private void Advance()
@@ -378,6 +365,7 @@ namespace StreamDuel.Core
             if (Faulted) return;
             State = state;
             Error = reason;
+            ClearSeedSecrets();
             if (!notify) return;
             try { Send("{\"type\":\"error\",\"message\":" + NetJson.Quote(reason) + "}"); }
             catch (Exception) { }

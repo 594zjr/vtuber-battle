@@ -344,7 +344,7 @@ public class T98_NetTerminationTests
         var old = new Pair(enabled: false);
         using (var hello = JsonDocument.Parse(old.A.Messages("hello").Single()))
         {
-            Assert.Equal(3, hello.RootElement.GetProperty("version").GetInt32());
+            Assert.Equal(6, hello.RootElement.GetProperty("version").GetInt32());
             Assert.False(hello.RootElement.TryGetProperty("terminationVersion", out _));
         }
         Assert.False(old.Host.CanSurrender);
@@ -353,9 +353,9 @@ public class T98_NetTerminationTests
         Assert.DoesNotContain(old.A.Sent, message => Field(message, "type").StartsWith("termination-", StringComparison.Ordinal));
         var modern = new Pair();
         using var newHello = JsonDocument.Parse(modern.A.Messages("hello").Single());
-        Assert.Equal(4, newHello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(6, newHello.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(1, newHello.RootElement.GetProperty("terminationVersion").GetInt32());
-        Assert.Equal(new[] { "contentHash", "name", "packId", "seed", "team", "terminationVersion", "timerVersion", "type", "version" },
+        Assert.Equal(new[] { "contentHash", "name", "packId", "seedCommit", "side", "team", "terminationVersion", "timerVersion", "type", "version" },
             newHello.RootElement.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal));
         var mismatch = new Pair(handshake: false, guestEnabled: false);
         mismatch.Pump();
@@ -366,7 +366,7 @@ public class T98_NetTerminationTests
     }
 
     [Fact]
-    public void VersionFourWithoutTerminationCapabilityIsRejected()
+    public void VersionSixWithoutTerminationCapabilityIsRejected()
     {
         var pair = new Pair(handshake: false);
         Assert.True(pair.A.TryReceive(out string hello));

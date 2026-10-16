@@ -25,7 +25,7 @@ $checks = [Collections.Generic.List[string]]::new()
 $sockets = [Collections.Generic.List[IDisposable]]::new()
 $broadcastPackets = [Collections.Generic.List[object]]::new()
 $broadcast = [ordered]@{ status = 'NOT_RUN'; packet_count = 0; content_checked = $false; cadence_ms = @(); stopped_after_connect = 'NOT_RUN'; error = $null }
-$endToEnd = [ordered]@{ status = 'NOT_RUN'; reason = $null; endpoint = $null; final_hash = $null }
+$endToEnd = [ordered]@{ status = 'NOT_RUN'; reason = $null; endpoint = $null; final_hash = $null; seed = $null }
 $scanMilliseconds = $null
 $failure = $null
 $lanPort = 47777
@@ -33,6 +33,12 @@ $team = 'bell,enka,shiori,lumi,hane,momo'
 
 function Assert-Check([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "$Message 证据目录：$runDirectory" }
+}
+
+function Fair-Seed([string]$Output) {
+    $matches = [regex]::Matches($Output, '(?m)^连接成功；本方：[^\r\n]+；公平种子：([0-9]+)\r?$')
+    Assert-Check ($matches.Count -eq 1) '每端应恰好输出一次协商后的公平种子。'
+    return [uint32]::Parse($matches[0].Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture)
 }
 
 function Read-Log([string]$Path) {
@@ -352,17 +358,36 @@ try {
         $guestChild = Start-Cli 'discovered-game-guest' @('--join', $endpoint, '--auto', '--team', 'kei,yuan,nyako,buck,kasumi,bee')
         $hostResult = Wait-Cli $hostChild 0 60000
         $guestResult = Wait-Cli $guestChild 0 60000
+        $fairSeed = Fair-Seed $hostResult.Out
+        Assert-Check ((Fair-Seed $guestResult.Out) -eq $fairSeed) '通过发现加入的双方协商种子不一致。'
         $hostHash = [regex]::Match($hostResult.Out, '(?m)^最终状态哈希：([0-9a-f]{16})\r?$')
         $guestHash = [regex]::Match($guestResult.Out, '(?m)^最终状态哈希：([0-9a-f]{16})\r?$')
         Assert-Check ($hostHash.Success -and $guestHash.Success -and $hostHash.Groups[1].Value -ceq $guestHash.Groups[1].Value) '通过发现命令加入的对局没有完成一致的终局校验。'
-        foreach ($child in @($hostChild, $guestChild)) {
+        $discoveredChildren = @($hostChild, $guestChild)
+        for ($side = 0; $side -lt 2; $side++) {
+            $child = $discoveredChildren[$side]
             $replayDirectory = Join-Path $child.WorkingDirectory 'saves/replays'
             Assert-Check (Test-Path -LiteralPath $replayDirectory -PathType Container) '通过发现加入的对局没有保存回放目录。'
-            Assert-Check (@(Get-ChildItem -LiteralPath $replayDirectory -File -Filter '*.json').Count -eq 1) '通过发现加入的对局应为每端保存一份回放。'
+            $replayFiles = @(Get-ChildItem -LiteralPath $replayDirectory -File -Filter '*.json')
+            Assert-Check ($replayFiles.Count -eq 1) '通过发现加入的对局应为每端保存一份回放。'
+            $record = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($replayFiles[0].FullName, $utf8))
+            Assert-Check ($record.Seed -eq $fairSeed) '发现对局回放未保存最终公平种子。'
+            $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
+            Assert-Check ($replayed.Phase -eq [StreamDuel.Core.Phase]::Over -and
+                $replayed.StateHash().ToString('x16') -ceq $hostHash.Groups[1].Value) '发现对局的回放无法复现本局终局哈希。'
+            $profilePath = Join-Path $child.WorkingDirectory 'saves/profile.json'
+            Assert-Check (Test-Path -LiteralPath $profilePath -PathType Leaf) '发现对局没有保存档案。'
+            $profile = [StreamDuel.Core.Profile]::FromJson([IO.File]::ReadAllText($profilePath, $utf8))
+            Assert-Check ($profile.Packs.Count -eq 1 -and $profile.Packs.ContainsKey('original')) '发现对局档案内容包不正确。'
+            $stats = $profile.Packs['original']
+            Assert-Check ($stats.Wins -eq [int]($replayed.Winner -eq $side) -and
+                $stats.Losses -eq [int]($replayed.Winner -ge 0 -and $replayed.Winner -ne $side) -and
+                $stats.Draws -eq [int]($replayed.Winner -eq -1)) '发现对局档案没有按本方和本局胜者记录一次胜负。'
         }
         $endToEnd.status = 'PASS'
         $endToEnd.endpoint = $endpoint
         $endToEnd.final_hash = $hostHash.Groups[1].Value
+        $endToEnd.seed = $fairSeed
         $checks.Add('独立 --lan-host 默认临时端口：真实发现、复制加入命令、双方自动完整对战、哈希一致及各一份回放')
     }
 
@@ -384,10 +409,12 @@ try {
     $combinedResults = @($combinedHostResult, $combinedGuestResult)
     $combinedHashes = [Collections.Generic.List[string]]::new()
     $combinedReplayJson = [Collections.Generic.List[string]]::new()
+    $combinedSeed = Fair-Seed $combinedHostResult.Out
     for ($side = 0; $side -lt 2; $side++) {
         $combinedChild = $combinedChildren[$side]
         $combinedResult = $combinedResults[$side]
         $combinedName = if ($side -eq 0) { '房主' } else { '客机' }
+        Assert-Check ((Fair-Seed $combinedResult.Out) -eq $combinedSeed) "$combinedName 组合对局的公平种子与对端不同。"
         Assert-Check ([string]::IsNullOrWhiteSpace($combinedResult.Err)) "$combinedName 组合对局输出错误。"
         Assert-Check ($combinedResult.Out.Contains('已启用房主计时：每阶段 0 秒；总时间 0 秒。')) "$combinedName 未采用房主零预算。"
         Assert-Check ($combinedResult.Out.Contains($combinedName + '：超时，提交默认跳过') -and $combinedResult.Out.Contains('对局结束：')) "$combinedName 未通过默认超时动作完成对局。"
@@ -403,7 +430,7 @@ try {
         $combinedJson = [IO.File]::ReadAllText($combinedReplayFiles[0].FullName, $utf8)
         $combinedReplayJson.Add($combinedJson)
         $combinedRecord = [StreamDuel.Core.BattleRecord]::FromJson($combinedJson)
-        Assert-Check ($combinedRecord.Seed -eq 63 -and $combinedRecord.PackId -ceq 'original' -and
+        Assert-Check ($combinedRecord.Seed -eq $combinedSeed -and $combinedRecord.PackId -ceq 'original' -and
             ($combinedRecord.Teams[0] -join ',') -ceq $team -and ($combinedRecord.Teams[1] -join ',') -ceq $combinedGuestTeam -and
             $combinedRecord.Events.Count -gt 0) "$combinedName 回放丢失种子、队伍原顺序或行动记录。"
         $combinedReplay = [StreamDuel.Core.Replay]::Run($db, $combinedRecord)

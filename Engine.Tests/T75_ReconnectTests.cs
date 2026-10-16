@@ -583,19 +583,26 @@ public class T75_ReconnectTests
         var host = enableReconnect
             ? new NetSession(db, transport, true, HostTeam, "主机", 19, enableReconnect: true)
             : new NetSession(db, transport, true, HostTeam, "主机", 19);
-        string hello = JsonSerializer.Serialize(new
+        var helloFields = new Dictionary<string, object>
         {
-            type = "hello",
-            version = enableReconnect ? NetSession.ReconnectProtocolVersion : NetSession.ProtocolVersion,
-            sessionId = (string)null,
-            packId = db.PackId,
-            contentHash = db.ContentHash(),
-            seed = (uint?)null,
-            name = "客机",
-            team = GuestTeam
-        });
+            ["type"] = "hello",
+            ["version"] = NetSession.ProtocolVersion,
+            ["packId"] = db.PackId,
+            ["contentHash"] = db.ContentHash(),
+            ["side"] = 1,
+            ["seedCommit"] = NetSeedTestData.Commit(NetSeedTestData.Guest, 1),
+            ["name"] = "客机",
+            ["team"] = GuestTeam
+        };
+        if (enableReconnect)
+        {
+            helloFields["reconnectVersion"] = 1;
+            helloFields["sessionId"] = null;
+        }
+        string hello = JsonSerializer.Serialize(helloFields);
+        string reveal = JsonSerializer.Serialize(new { type = "seed_reveal", value = NetSeedTestData.Hex(NetSeedTestData.Guest) });
         var stream = peer.GetStream();
-        byte[] greeting = Encoding.UTF8.GetBytes(hello + "\n");
+        byte[] greeting = Encoding.UTF8.GetBytes(hello + "\n" + reveal + "\n");
         stream.Write(greeting, 0, greeting.Length);
         Until(() => host.State == NetState.Choose, () =>
         {
