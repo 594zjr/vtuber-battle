@@ -10,7 +10,7 @@ namespace StreamDuel.Balance
 {
     internal static partial class Program
     {
-        private static readonly string[] BuiltInPacks = { "original", "original_wave2", "fan_asoul_vr", "fan_holo_niji" };
+        private static readonly string[] BuiltInPacks = { "original", "original_wave2", "fan_asoul_vr", "fan_holo_niji", "original_wave3" };
 
         private sealed class Options
         {
@@ -154,7 +154,7 @@ namespace StreamDuel.Balance
         private static void WriteHelp()
         {
             Console.WriteLine("用法：dotnet run --project Tools/Balance -- [--pack original] [--games-per-streamer 200] [--seed 2026] [--level normal]");
-            Console.WriteLine("--pack：选择 " + string.Join("、", BuiltInPacks) + "；省略时依次检查四个内置包。");
+            Console.WriteLine("--pack：选择 " + string.Join("、", BuiltInPacks) + "；省略时依次检查全部内置包。");
             Console.WriteLine("--games-per-streamer：每位主播最低入队次数，正整数，默认 200；实际统计次数可能更高，此参数不是胜率分母。");
             Console.WriteLine("--seed：0..4294967295 的整数，默认 2026；每个包使用同一个给定种子。");
             Console.WriteLine("--level：easy（简单）、normal（普通）、hard（困难）、expert（专家），默认 normal；双方使用相同难度。");

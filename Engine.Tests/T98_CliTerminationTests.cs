@@ -325,10 +325,10 @@ public sealed class T98_CliTerminationTests
             // 独立读取线程不依赖测试上下文或线程池续体，避免并行计算拖延管道收尾。
             return Task.Factory.StartNew(() =>
             {
-                char[] buffer = new char[1024];
-                int count;
-                while ((count = reader.Read(buffer, 0, buffer.Length)) != 0)
-                    lock (destination) destination.Append(buffer, 0, count);
+                // 批量字符读取可能等下一段 UTF-8 字节而扣留提示；无换行提示必须立即可见。
+                int character;
+                while ((character = reader.Read()) != -1)
+                    lock (destination) destination.Append((char)character);
             }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 

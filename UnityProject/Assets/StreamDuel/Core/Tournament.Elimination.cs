@@ -9,6 +9,7 @@ namespace StreamDuel.Core
         public uint? Seed;
         public IList<int> SeedOrder;
         public bool ResetFinal = true;
+        public TournamentSeedMode SeedMode;
         public bool AutoTiebreak;
     }
 
@@ -22,7 +23,7 @@ namespace StreamDuel.Core
         public IReadOnlyList<int> SeedOrder { get; private set; }
         public bool ResetFinal { get; private set; } = true;
         public bool AutoTiebreak { get; private set; }
-        public int BestOf { get { return 1; } }
+        public int BestOf { get { return seriesRuleset?.BestOf ?? 1; } }
         public int? Champion
         {
             get
@@ -134,7 +135,8 @@ namespace StreamDuel.Core
         {
             if (!IsElimination)
             {
-                if (options != null) throw new ArgumentException("淘汰赛配置只能用于单败或双败淘汰赛。", nameof(options));
+                if (options != null && (SeedMode != TournamentSeedMode.ByRating || !options.ResetFinal || options.AutoTiebreak))
+                    throw new ArgumentException("淘汰赛配置只能用于单败或双败淘汰赛。", nameof(options));
                 return;
             }
             if (options == null) return;
@@ -155,6 +157,7 @@ namespace StreamDuel.Core
 
         int[] EffectiveEliminationSeeds(bool requireComplete = true)
         {
+            if (SeedMode == TournamentSeedMode.ByRating) return RatingSeedOrder();
             if (SeedOrder != null)
             {
                 if (requireComplete && SeedOrder.Count != players.Count)

@@ -227,6 +227,93 @@ for ($index = 0; $index -lt $invalid.Count; $index++) {
 }
 $checks.Add('比较与模拟/保存参数双顺序互斥，阈值非有限/越界、缺值/重复参数中文拒绝，无新结果或自动模拟输出')
 
+# 编码夹具保持 JSON 结构与统计有效，只改变文件字节，覆盖两个输入位置。
+$encodingValue = New-Snapshot
+$encodingValue.packs[0].streamers[0].name = '编码@测试🌟'
+$encodingJson = $encodingValue | ConvertTo-Json -Depth 32 -Compress
+$encodingPlain = Join-Path $fixtures 'encoding-utf8-plain.json'
+$encodingBom = Join-Path $fixtures 'encoding-utf8-bom.json'
+$strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+[byte[]]$plainBytes = $strictUtf8.GetBytes($encodingJson)
+[IO.File]::WriteAllBytes($encodingPlain, $plainBytes)
+[IO.File]::WriteAllBytes($encodingBom, [byte[]]([Text.UTF8Encoding]::new($true, $true).GetPreamble() + $plainBytes))
+$stringMarker = $encodingJson.IndexOf('@')
+Assert-Check ($stringMarker -ge 0) '编码夹具没有 JSON 字符串内的替换标记。'
+foreach ($kind in @('invalid-utf8-string', 'utf16-le-bom', 'utf16-be-bom', 'utf32-le-bom', 'utf32-be-bom', 'utf16-le-unpaired-surrogate', 'utf16-be-unpaired-surrogate')) {
+    if ($kind -eq 'invalid-utf8-string') {
+        [byte[]]$bytes = $plainBytes.Clone()
+        $bytes[$strictUtf8.GetByteCount($encodingJson.Substring(0, $stringMarker))] = 0xff
+    } else {
+        $bigEndian = $kind.Contains('-be-')
+        $encoding = if ($kind.StartsWith('utf32-')) { [Text.UTF32Encoding]::new($bigEndian, $true, $true) }
+                    else { [Text.UnicodeEncoding]::new($bigEndian, $true, $true) }
+        [byte[]]$bytes = $encoding.GetPreamble() + $encoding.GetBytes($encodingJson)
+        if ($kind.EndsWith('unpaired-surrogate')) {
+            # 原始编码后再注入，避免夹具写入时已经被编码器替换为合法字符。
+            $offset = $encoding.GetPreamble().Length + 2 * $stringMarker
+            $bytes[$offset] = if ($bigEndian) { 0xd8 } else { 0 }
+            $bytes[$offset + 1] = if ($bigEndian) { 0 } else { 0xd8 }
+        }
+    }
+    $encodedPath = Join-Path $fixtures ('encoding-' + $kind + '.json')
+    [IO.File]::WriteAllBytes($encodedPath, $bytes)
+    foreach ($position in @('old', 'new')) {
+        $pair = if ($position -eq 'old') { @($encodedPath, $encodingPlain) } else { @($encodingPlain, $encodedPath) }
+        $badEncoding = Invoke-Balance ("19-encoding-$kind-$position") (@('--compare-balance') + $pair) 1 @($fixtures)
+        Assert-Check ($badEncoding.Out.Length -eq 0 -and $badEncoding.Err.Contains('UTF-8') -and
+            $badEncoding.Err -match '[\u4e00-\u9fff]') '坏编码未在输出比较表前按中文 UTF-8 错误拒绝。'
+    }
+}
+$checks.Add('真实JSON字符串非法UTF8、UTF16LE/BE和UTF32LE/BE BOM、UTF16原始孤立代理项在旧/新输入位置均拒绝，保留字节和mtime')
+
+$plainComparison = Invoke-Balance '20-utf8-plain-positive' @('--compare-balance', $encodingPlain, $encodingPlain) 0 @($fixtures)
+foreach ($position in @('old', 'new')) {
+    $pair = if ($position -eq 'old') { @($encodingBom, $encodingPlain) } else { @($encodingPlain, $encodingBom) }
+    $bomComparison = Invoke-Balance ("20-utf8-bom-positive-$position") (@('--compare-balance') + $pair) 0 @($fixtures)
+    Assert-Check ($bomComparison.Out -ceq $plainComparison.Out -and [string]::IsNullOrWhiteSpace($bomComparison.Err) -and
+        $bomComparison.Out.Contains('编码@测试🌟') -and (Row-Marks $bomComparison.Out) -ceq '无变化') '合法UTF8 BOM和无BOM没有逐字相同的结果，或改变了中文/代理对名称。'
+}
+$checks.Add('UTF8无BOM及BOM两输入位置合法等价，报告逐字相同、中文与完整代理对保留，输入文件及mtime不变')
+
+$impossibleMirror = New-Snapshot 2 2
+$impossibleMirror.packs[0].battles = 1
+$impossibleMirrorPath = Save-Fixture 'impossible-one-battle-two-wins' $impossibleMirror
+foreach ($position in @('old', 'new')) {
+    $pair = if ($position -eq 'old') { @($impossibleMirrorPath, $oldPath) } else { @($oldPath, $impossibleMirrorPath) }
+    $badCounts = Invoke-Balance ("21-impossible-mirror-$position") (@('--compare-balance') + $pair) 1 @($fixtures)
+    Assert-Check ($badCounts.Out.Length -eq 0 -and $badCounts.Err -match '[\u4e00-\u9fff]') '一场镜像对战同一主播入队两次却获胜两次的坏统计未被拒绝。'
+}
+$checks.Add('不可能的单场镜像双胜统计在旧/新文件位置均中文拒绝且不改输入')
+
+$wavePath = Join-Path $fixtures 'generated-original-wave3.json'
+$waveSimulation = @('--pack', 'original_wave3', '--games-per-streamer', '2', '--seed', '130', '--level', 'easy')
+$waveSaved = Invoke-Balance '22-wave3-save' ($waveSimulation + @('--save-balance', $wavePath)) 0 @($firstPath, $secondPath)
+$waveSnapshot = [IO.File]::ReadAllText($wavePath) | ConvertFrom-Json -AsHashtable
+Assert-Check ($waveSnapshot.version -eq 1 -and $waveSnapshot.gamesPerStreamer -eq 2 -and $waveSnapshot.seed -eq 130 -and
+    $waveSnapshot.level -ceq 'easy' -and $waveSnapshot.aiVersion.StartsWith('core-mvid:') -and $waveSnapshot.packs.Count -eq 1) '第五包真实保存未保留版本、采样条件或实际Core版本。'
+$wavePack = $waveSnapshot.packs[0]
+$waveCsv = @($waveSaved.Out | ConvertFrom-Csv)
+Assert-Check ($wavePack.packId -ceq 'original_wave3' -and $wavePack.battles -gt 0 -and $wavePack.contentHash -match '^[0-9a-f]{16}$' -and
+    $wavePack.streamers.Count -gt 0 -and $waveCsv.Count -eq $wavePack.streamers.Count) '第五包CSV或快照没有完整输出实际主播和内容指纹。'
+[long]$waveAppearances = 0
+foreach ($row in $wavePack.streamers) {
+    $waveAppearances += $row.games
+    $csvRow = @($waveCsv | Where-Object { $_.streamer_id -ceq $row.id })
+    Assert-Check ($row.games -ge 2 -and $row.wins -ge 0 -and $row.draws -ge 0 -and $row.wins + $row.draws -le $row.games -and
+        [Math]::Abs($row.winRate - ($row.wins + 0.5 * $row.draws) / $row.games) -lt 1e-12 -and
+        $csvRow.Count -eq 1 -and $csvRow[0].pack_id -ceq 'original_wave3' -and $csvRow[0].content_hash -ceq $wavePack.contentHash -and
+        [Math]::Abs([double]::Parse($csvRow[0].win_rate, [Globalization.CultureInfo]::InvariantCulture) - $row.winRate) -lt 1e-12) '第五包真实计数/胜率/内容指纹与CSV不符。'
+}
+Assert-Check ($waveAppearances -eq 12 * $wavePack.battles) '第五包真实6v6入队总数不是12乘实际对战数。'
+$waveSelfExit = if (@($wavePack.streamers | Where-Object { $_.winRate -lt 0.35 -or $_.winRate -gt 0.65 }).Count -gt 0) { 1 } else { 0 }
+$waveSelf = Invoke-Balance '22-wave3-self-compare' @('--compare-balance', $wavePath, $wavePath) $waveSelfExit @($fixtures)
+Assert-Check (-not $waveSelf.Out.StartsWith('条件不同')) '第五包同一快照自比误报条件不同。'
+foreach ($row in $wavePack.streamers) {
+    $marks = Row-Marks $waveSelf.Out $row.id
+    Assert-Check ($marks.StartsWith('无变化') -and $marks.Contains('超出平衡范围') -eq ($row.winRate -lt 0.35 -or $row.winRate -gt 0.65)) '第五包自比没有保留无变化与真实越界标记。'
+}
+$checks.Add('original_wave3小样本真实保存和自比成功，CSV/计数/指纹对应，退出码随实际越界而定且自比无文件副作用')
+
 $report = [ordered]@{ Status='PASS'; Checks=$checks.ToArray(); InvocationCount=$calls.Count; Invocations=$calls.ToArray(); GeneratedSelfCompareExit=$selfExit; OutputDirectory=$run }
 [IO.File]::WriteAllText((Join-Path $run 'report.json'), ($report | ConvertTo-Json -Depth 12), $utf8)
 Write-Output "PASS：$($checks.Count)组、$($calls.Count)次真实Balance进程；证据：$run"

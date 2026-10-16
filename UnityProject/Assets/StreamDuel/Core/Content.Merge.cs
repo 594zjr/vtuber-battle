@@ -34,7 +34,8 @@ namespace StreamDuel.Core
             foreach (var item in Obj(pack, "skillNames"))
                 if (mergeRules.Skills.ContainsKey(item.Key)) mergeSkillAliases.Add(item.Key, (string)item.Value);
             foreach (var item in Obj(pack, "fieldNames"))
-                if (mergeRules.Fields.ContainsKey(item.Key)) mergeFieldAliases.Add(item.Key, (string)item.Value);
+                if (mergeRules.Fields.ContainsKey(item.Key) || item.Key == DelayedDamageFieldId)
+                    mergeFieldAliases.Add(item.Key, (string)item.Value);
             foreach (var item in Obj(pack, "statusNames"))
                 if (mergeRules.Statuses.ContainsKey(item.Key)) mergeStatusAliases.Add(item.Key, (string)item.Value);
         }
@@ -83,6 +84,9 @@ namespace StreamDuel.Core
                 // 指纹冻结来源的全部显示内容；返回的定义仍独立可变，之后每次计算指纹都会读取它们。
                 result.mergedSources.Add(source.PackId, source.ContentHash());
                 var copy = source.CopyContent();
+                result.MergeDelayedDamageField(source);
+                // 只去掉独立副本中的自动定义，源包和其它私有定义仍按原规则检查。
+                copy.Fields.Remove(DelayedDamageFieldId);
                 AddPrivate(result.Statuses, copy.Statuses, source.mergeRules.Statuses, "状态");
                 AddPrivate(result.Fields, copy.Fields, source.mergeRules.Fields, "直播间效果");
                 AddPrivate(result.Personas, copy.Personas, source.mergeRules.Personas, "人设");
@@ -171,6 +175,7 @@ namespace StreamDuel.Core
             copy.Seasons.Clear();
             copy.Statuses = RuleMembers(copy.Statuses, mergeRules.Statuses, "状态");
             copy.Fields = RuleMembers(copy.Fields, mergeRules.Fields, "直播间效果");
+            copy.delayedDamageDefinition = null;
             copy.Personas = RuleMembers(copy.Personas, mergeRules.Personas, "人设");
             copy.Skills = RuleMembers(copy.Skills, mergeRules.Skills, "技能");
             foreach (var alias in mergeSkillAliases)
@@ -180,6 +185,12 @@ namespace StreamDuel.Core
             }
             foreach (var alias in mergeFieldAliases)
             {
+                if (alias.Key == DelayedDamageFieldId)
+                {
+                    if (!Fields.TryGetValue(alias.Key, out var generated) || generated.Name != alias.Value)
+                        throw new KeyError("共用直播间效果显示名已变更：" + alias.Key);
+                    continue;
+                }
                 if (copy.Fields[alias.Key].Name != alias.Value) throw new KeyError("共用直播间效果显示名已变更：" + alias.Key);
                 copy.Fields[alias.Key].Name = mergeRules.Fields[alias.Key].Name;
             }
@@ -235,6 +246,9 @@ namespace StreamDuel.Core
                     Limited = p.Value.Limited.Select(l => new LimitedPoolDef { Max = l.Max, Ids = new List<string>(l.Ids) }).ToList()
                 })
             };
+            if (Fields.TryGetValue(DelayedDamageFieldId, out var generated)
+                && ReferenceEquals(generated, delayedDamageDefinition))
+                copy.delayedDamageDefinition = copy.Fields[DelayedDamageFieldId];
             copy.art = art?.CopyTo(copy);
             return copy;
         }

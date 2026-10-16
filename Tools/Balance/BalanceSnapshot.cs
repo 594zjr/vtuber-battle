@@ -45,6 +45,12 @@ namespace StreamDuel.Balance
                     // 镜像双方都计入队；减法比较避免实际对战数翻倍溢出。
                     Require(streamer.Games <= pack.Battles || streamer.Games - pack.Battles <= pack.Battles,
                         "实际入队次数不能超过对战数的两倍：" + streamer.Id + "。");
+                    // 一局镜像最多一胜一负或两次平局，胜负局与平局不能共用同一局。
+                    long losses = streamer.Games - streamer.Wins - streamer.Draws;
+                    long decisiveBattles = Math.Max(streamer.Wins, losses);
+                    long drawBattles = streamer.Draws / 2 + streamer.Draws % 2;
+                    Require(decisiveBattles <= pack.Battles && drawBattles <= pack.Battles - decisiveBattles,
+                        "胜负和平局计数需要的对战数超过实际局数：" + streamer.Id + "。");
                 }
             }
         }
@@ -147,7 +153,13 @@ namespace StreamDuel.Balance
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("平衡快照文件路径不能为空。", nameof(path));
             string json;
-            try { json = File.ReadAllText(path, new UTF8Encoding(false, true)); }
+            try
+            {
+                // 只跳过 UTF-8 BOM，不能让读取器自动换编码并替换损坏的字符串。
+                byte[] bytes = File.ReadAllBytes(path);
+                int offset = bytes.Length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf ? 3 : 0;
+                json = new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset);
+            }
             catch (DecoderFallbackException error) { throw Error("文件不是有效的 UTF-8 文本。", error); }
             catch (Exception error) when (error is IOException || error is UnauthorizedAccessException
                 || error is ArgumentException || error is NotSupportedException || error is System.Security.SecurityException)

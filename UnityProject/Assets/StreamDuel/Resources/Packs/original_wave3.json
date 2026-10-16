@@ -1,0 +1,416 @@
+{
+  "id": "original_wave3",
+  "name": "原创主播·第三期",
+  "notice": "本包主播、昵称、人设与文案均为本作虚构创作，不对应真实人物或公司。免费、非商业使用；内容许可见 Packs/LICENSE.md。",
+  "statuses": {
+    "og3_blink": {
+      "name": "眨眼停拍", "cat": "control", "skip": 1, "cleanse": false,
+      "desc": "跳过下 1 次行动，不能净化；结束后按通用规则获得重连保护。下场保留，后排不结算。"
+    },
+    "og3_fluff": {
+      "name": "绒絮飘飘", "cat": "weak", "turns": 3, "dot": 0.08, "cleanse": true,
+      "desc": "回合结束时失去最大人气的 8%，持续 3 回合；可被净化，重复施加刷新回合数。下场保留，后排不结算。"
+    }
+  },
+  "fields": {
+    "og3_petal_glint": {
+      "name": "花瓣微光", "kind": "turn", "when": "受到伤害时", "dispel": true,
+      "dmgTakenMul": 0.8,
+      "desc": "受到的普通技能伤害 ×0.8，不影响固定、持续、反噬和反弹伤害。回合类，可被消回合，下场清空。"
+    },
+    "og3_ribbon_echo": {
+      "name": "缎带回响", "kind": "turn", "when": "受到对手技能直接伤害后", "dispel": true,
+      "reflectDamage": 0.25,
+      "desc": "受到对手技能直接伤害后，向攻击方反弹实际扣除人气的 25%，向下取整且至少 1。包含固定伤害，不反弹持续、反噬、自伤或反弹伤害。回合类，可被消回合，下场清空。"
+    },
+    "og3_warm_cover": {
+      "name": "棉布暖罩", "kind": "turn", "when": "被施加弱化类状态时", "dispel": true,
+      "immuneWeak": true,
+      "desc": "阻止弱化类状态施加和刷新，不净化已有弱化，也不阻止控制类状态。回合类，可被消回合，下场清空。"
+    },
+    "og3_soft_fence": {
+      "name": "布景围栏", "kind": "turn", "when": "选择行动时", "dispel": true,
+      "preventSwitch": true,
+      "desc": "禁止主动换人，不影响下播后的补位。回合类，可被消回合，下场清空。"
+    },
+    "og3_paper_stars": {
+      "name": "纸星", "kind": "mark", "when": "叠层 / 被消耗时", "dispel": false,
+      "maxStacks": 3,
+      "desc": "最多 3 层，被指定技能消耗以提升威力。印记类，不能被消回合，下场清空。"
+    },
+    "og3_rest_note": {
+      "name": "静音储备", "kind": "turn", "when": "回合结束", "dispel": true,
+      "heal": 0.0625,
+      "desc": "回合结束时回复最大人气的 1/16，不超过上限。回合类，可被消回合，下场清空。"
+    }
+  },
+  "personas": {
+    "og3_toe_count": {
+      "name": "脚尖数拍", "code": "T_FIRST_TURN_PRIO", "node": "排行动顺序时",
+      "params": { "prio": 1 },
+      "desc": "上场后第一个回合，所有技能先制 +1；回合中换入时从下一回合计。人设不可消除。"
+    },
+    "og3_letter_warmth": {
+      "name": "信尾余温", "code": "T_REGEN", "node": "回合结束",
+      "params": { "frac": 0.04 },
+      "desc": "回合结束时回复最大人气的 4%，不超过上限。回复即时结算；人设不可消除。"
+    },
+    "og3_curtain_courage": {
+      "name": "幕前小勇气", "code": "T_FIRST_CONTROL_IMMUNE", "node": "被施加控制类状态时",
+      "params": {},
+      "desc": "每次登场后，第一次本来可以施加的控制类状态无效；下场再登场重新计算。已有控制或重连保护已使施加无效时不消耗机会；人设不可消除。"
+    },
+    "og3_workshop_apron": {
+      "name": "开工小围裙", "code": "T_ENTER_FIELD", "node": "登场时",
+      "params": { "turns": 3 }, "field": "og3_warm_cover",
+      "desc": "每次登场获得「棉布暖罩」3 回合，阻止弱化类状态施加和刷新，不净化已有弱化，不阻止控制。暖罩可被消回合，下场清空；人设本体不可消除。"
+    },
+    "og3_cushion_spring": {
+      "name": "软垫弹簧芯", "code": "T_INTERACT_REDUCE", "node": "受到伤害时",
+      "params": { "mul": 0.85 },
+      "desc": "受到的互动类普通技能伤害 ×0.85，不影响固定伤害。人设不可消除。"
+    },
+    "og3_tea_tray_relay": {
+      "name": "茶盘接力", "code": "T_ALLY_PP_ON_ENTER", "node": "登场时",
+      "params": { "n": 1 },
+      "desc": "登场时，己方后排所有仍在播的队友每个技能 PP +1，不超过上限；不回复自身或已下播队友。回复即时结算；人设不可消除。"
+    },
+    "og3_clean_margin": {
+      "name": "留白小习惯", "code": "T_TURNSTART_CLEANSE", "node": "回合开始",
+      "params": {},
+      "desc": "回合开始时移除自身 1 个弱化类状态，不移除控制类状态。净化即时结算；人设不可消除。"
+    },
+    "og3_finish_confetti": {
+      "name": "过线小彩纸", "code": "T_KO_HEAL", "node": "本方技能直接击倒对手后",
+      "params": { "frac": 0.12 },
+      "desc": "普通或固定技能伤害直接击倒对手后，自身回复最大人气的 12%，向下取整且不超过上限；对战已结束则不触发。持续伤害、反噬和反弹不触发；回复即时结算，人设不可消除。"
+    },
+    "og3_seat_lights": {
+      "name": "座席小灯串", "code": "T_BENCH_GUARD", "node": "受到伤害时",
+      "params": { "per": 0.03 },
+      "desc": "己方后排每有 1 位仍在播的队友，受到的普通技能伤害减少 3%；不影响固定伤害。人设不可消除。"
+    },
+    "og3_pattern_memory": {
+      "name": "拼片记形", "code": "T_STAGE_ON_HIT", "node": "受到普通技能直接伤害后",
+      "params": { "sdef": 1 },
+      "desc": "受到普通技能直接伤害、实际失去人气且仍在播时，定力 +1，最高 +6。固定、持续、反噬和反弹伤害不触发；反弹使行动方下播后也不再触发。提升可被消强化，下场清零；人设不可消除。"
+    },
+    "og3_story_coda": {
+      "name": "故事末页灯", "code": "T_EXECUTE", "node": "本方造成伤害时",
+      "params": { "below": 0.5, "mul": 1.15 },
+      "desc": "对手人气低于 1/2 时，普通技能伤害 ×1.15；在伤害结算时读取对手人气，不影响固定伤害。人设不可消除。"
+    },
+    "og3_spare_ticket": {
+      "name": "口袋留一票", "code": "T_ENDURE", "node": "受到伤害时",
+      "params": {},
+      "desc": "每场对战一次，受到会使人气归零的伤害时保留 1 点人气；下场不重置。普通、固定、持续伤害和反噬均可触发，反弹不触发；人设不可消除。"
+    }
+  },
+  "skills": {
+    "og3_bell_skip": {
+      "name": "栗铃跳音", "type": "song", "cat": "talent", "power": 55, "pp": 15, "prio": 1
+    },
+    "og3_rhythm_route": {
+      "name": "节奏跑道", "type": "game", "cat": "talent", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 25, "changes": { "spd": -1 } } ]
+    },
+    "og3_tempo_tip": {
+      "name": "拍尖预演", "type": "song", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1, "spd": 1 } } ]
+    },
+    "og3_ribbon_rest": {
+      "name": "缎带歇拍", "type": "song", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "HEAL", "frac": 0.3 } ]
+    },
+    "og3_spark_chorus": {
+      "name": "踏拍满星", "type": "song", "cat": "talent", "power": 85, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.25, "cond": { "kind": "actedFirst" } } ]
+    },
+    "og3_envelope_wave": {
+      "name": "信笺轻浪", "type": "talk", "cat": "talent", "power": 70, "pp": 15,
+      "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.35 } ]
+    },
+    "og3_paper_rustle": {
+      "name": "折页沙沙", "type": "asmr", "cat": "talent", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "og3_fluff", "chance": 25 } ]
+    },
+    "og3_petals_cover": {
+      "name": "花瓣封签", "type": "talk", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "og3_petal_glint", "turns": 3 } ]
+    },
+    "og3_slow_letter": {
+      "name": "慢邮落款", "type": "talk", "cat": "status", "pp": 5, "acc": 90,
+      "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "og3_fluff" } ]
+    },
+    "og3_mailbox_reply": {
+      "name": "邮筒回甘", "type": "talk", "cat": "talent", "power": 85, "pp": 5,
+      "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.4 } ]
+    },
+    "og3_shadow_peek": {
+      "name": "绒角探幕", "type": "horror", "cat": "talent", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "og3_blink", "chance": 20 } ]
+    },
+    "og3_lantern_paint": {
+      "name": "灯片涂鸦", "type": "art", "cat": "talent", "power": 80, "pp": 15
+    },
+    "og3_scene_hold": {
+      "name": "布景定格", "type": "horror", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "foe", "field": "og3_soft_fence", "turns": 2 } ]
+    },
+    "og3_curtain_soft": {
+      "name": "幕布缓冲", "type": "art", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 1, "sdef": 1 } } ]
+    },
+    "og3_shadow_parade": {
+      "name": "团影游园", "type": "horror", "cat": "talent", "power": 90, "pp": 5,
+      "effects": [ { "at": "pre", "code": "STATUS", "target": "foe", "status": "og3_blink", "chance": 25, "cond": { "kind": "foeHpAbove", "value": 0.5 } } ]
+    },
+    "og3_bubble_gauge": {
+      "name": "泡泡标尺", "type": "tech", "cat": "talent", "power": 80, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 20, "changes": { "spd": -1 } } ]
+    },
+    "og3_color_circuit": {
+      "name": "彩线灯路", "type": "art", "cat": "talent", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "DISPEL_TURNS", "target": "foe" } ]
+    },
+    "og3_scale_tuning": {
+      "name": "刻度试调", "type": "tech", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1, "spd": 1 } } ]
+    },
+    "og3_cushion_patch": {
+      "name": "软塞补丁", "type": "tech", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "HEAL", "frac": 0.25 } ]
+    },
+    "og3_workshop_bloom": {
+      "name": "工坊花火", "type": "tech", "cat": "talent", "power": 95, "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 25, "changes": { "sdef": -1 } } ]
+    },
+    "og3_pillow_bounce": {
+      "name": "软垫弹跳", "type": "meme", "cat": "interact", "power": 75, "pp": 15,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.3, "cond": { "kind": "actedSecond" } } ]
+    },
+    "og3_button_tap": {
+      "name": "纽扣点检", "type": "tech", "cat": "interact", "power": 80, "pp": 15
+    },
+    "og3_ribbon_mirror": {
+      "name": "回声软镜", "type": "tech", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "og3_ribbon_echo", "turns": 3 } ]
+    },
+    "og3_fuzzy_brace": {
+      "name": "绒圈垫稳", "type": "meme", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "def": 1, "sdef": 1 } } ]
+    },
+    "og3_round_trip": {
+      "name": "咚咚折返", "type": "meme", "cat": "interact", "power": 90, "pp": 5,
+      "effects": [ { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ]
+    },
+    "og3_teacup_ripple": {
+      "name": "茶帽涟音", "type": "asmr", "cat": "talent", "power": 80, "pp": 15
+    },
+    "og3_sugar_chat": {
+      "name": "绵糖小叙", "type": "talk", "cat": "talent", "power": 70, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 30, "changes": { "atk": -1 } } ]
+    },
+    "og3_warm_sip": {
+      "name": "温杯小憩", "type": "asmr", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "HEAL", "frac": 0.4 } ]
+    },
+    "og3_cozy_wrap": {
+      "name": "暖茶棉巾", "type": "asmr", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "FIELD", "target": "self", "field": "og3_warm_cover", "turns": 3 } ]
+    },
+    "og3_froth_circle": {
+      "name": "奶沫圆舞", "type": "asmr", "cat": "talent", "power": 85, "pp": 5,
+      "effects": [ { "at": "post", "code": "DRAIN", "frac": 0.35 } ]
+    },
+    "og3_kite_line": {
+      "name": "纸鸢描线", "type": "art", "cat": "talent", "power": 70, "pp": 15,
+      "effects": [ { "at": "post", "code": "ADD_MARK", "target": "self", "field": "og3_paper_stars", "n": 1 } ]
+    },
+    "og3_petal_signal": {
+      "name": "花贴讯号", "type": "song", "cat": "talent", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "DISPEL_TURNS", "target": "foe" } ]
+    },
+    "og3_wind_palette": {
+      "name": "风色调盘", "type": "art", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "spa": 1, "spd": 1 } } ]
+    },
+    "og3_fold_reset": {
+      "name": "折痕抚平", "type": "art", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "HEAL", "frac": 0.25 } ]
+    },
+    "og3_sky_scroll": {
+      "name": "长空画卷", "type": "art", "cat": "talent", "power": 85, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_PER_MARK", "field": "og3_paper_stars", "per": 0.2, "consume": true } ]
+    },
+    "og3_jelly_hop": {
+      "name": "果冻连跳", "type": "game", "cat": "interact", "power": 85, "pp": 15
+    },
+    "og3_spin_stamp": {
+      "name": "转盘盖章", "type": "meme", "cat": "interact", "power": 70, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 20, "changes": { "def": -1 } } ]
+    },
+    "og3_pad_charge": {
+      "name": "软键蓄势", "type": "game", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "atk": 2 } } ]
+    },
+    "og3_fruit_pause": {
+      "name": "果片暂停", "type": "meme", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "HEAL", "frac": 0.3 } ]
+    },
+    "og3_rotary_finish": {
+      "name": "旋转过线", "type": "game", "cat": "interact", "power": 95, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.2, "cond": { "kind": "foeWeak" } } ]
+    },
+    "og3_star_chime": {
+      "name": "星罐叮咚", "type": "song", "cat": "talent", "power": 80, "pp": 15
+    },
+    "og3_feather_echo": {
+      "name": "羽梢回音", "type": "asmr", "cat": "talent", "power": 70, "pp": 15,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.35, "cond": { "kind": "actedSecond" } } ]
+    },
+    "og3_night_cushion": {
+      "name": "小夜垫音", "type": "song", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "og3_petal_glint", "turns": 3 } ]
+    },
+    "og3_quiet_reserve": {
+      "name": "静音储罐", "type": "asmr", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "og3_rest_note", "turns": 4 } ]
+    },
+    "og3_glow_cadence": {
+      "name": "微光收拍", "type": "song", "cat": "talent", "power": 90, "pp": 5,
+      "effects": [ { "at": "post", "code": "HEAL", "frac": 0.15 } ]
+    },
+    "og3_cloud_click": {
+      "name": "云扣轻合", "type": "tech", "cat": "talent", "power": 80, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 30, "changes": { "spd": -1 } } ]
+    },
+    "og3_tile_trace": {
+      "name": "拼片描边", "type": "art", "cat": "talent", "power": 75, "pp": 15
+    },
+    "og3_pattern_reset": {
+      "name": "纹样归零", "type": "tech", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "DISPEL_BOOST", "target": "foe" }, { "at": "post", "code": "CLEANSE", "target": "self" } ]
+    },
+    "og3_fold_cover": {
+      "name": "叠云护角", "type": "art", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "FIELD", "target": "self", "field": "og3_petal_glint", "turns": 3 } ]
+    },
+    "og3_mosaic_complete": {
+      "name": "拼图晴窗", "type": "tech", "cat": "talent", "power": 90, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.25, "cond": { "kind": "foeBuffed" } }, { "at": "post", "code": "DISPEL_BOOST", "target": "foe" } ]
+    },
+    "og3_mushroom_step": {
+      "name": "蘑笛踮步", "type": "horror", "cat": "interact", "power": 50, "pp": 15, "prio": 1
+    },
+    "og3_story_lantern": {
+      "name": "故事手灯", "type": "talk", "cat": "interact", "power": 80, "pp": 15,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "foe", "chance": 30, "changes": { "atk": -1 } } ]
+    },
+    "og3_curiosity_pause": {
+      "name": "好奇停格", "type": "horror", "cat": "status", "pp": 5, "acc": 85,
+      "effects": [ { "at": "post", "code": "STATUS", "target": "foe", "status": "og3_blink" } ]
+    },
+    "og3_path_breath": {
+      "name": "巡游换气", "type": "horror", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "HEAL", "frac": 0.3 } ]
+    },
+    "og3_puppet_encore": {
+      "name": "木偶谢幕", "type": "horror", "cat": "interact", "power": 95, "pp": 5,
+      "effects": [ { "at": "post", "code": "PP_REDUCE", "target": "foe", "n": 1 } ]
+    },
+    "og3_ticket_dash": {
+      "name": "橘票滑步", "type": "game", "cat": "interact", "power": 80, "pp": 15
+    },
+    "og3_sail_clap": {
+      "name": "小帆合拍", "type": "song", "cat": "interact", "power": 75, "pp": 15,
+      "effects": [ { "at": "post", "code": "DISPEL_TURNS", "target": "foe" } ]
+    },
+    "og3_crease_sprint": {
+      "name": "折角助跑", "type": "game", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "STAGE", "target": "self", "changes": { "atk": 1, "spd": 1 } } ]
+    },
+    "og3_juice_break": {
+      "name": "橘汁补给", "type": "song", "cat": "status", "pp": 5,
+      "effects": [ { "at": "post", "code": "CLEANSE", "target": "self" }, { "at": "post", "code": "HEAL", "frac": 0.25 } ]
+    },
+    "og3_sunny_landing": {
+      "name": "晴空落票", "type": "game", "cat": "interact", "power": 85, "pp": 5,
+      "effects": [ { "at": "pre", "code": "POWER_MUL", "mul": 1.2, "cond": { "kind": "actedFirst" } } ]
+    }
+  },
+  "streamers": [
+    {
+      "id": "og3_liling", "name": "栗铃踏拍", "org": "原创", "type": "song", "type2": "game",
+      "stats": { "hp": 365, "atk": 210, "def": 255, "spa": 235, "sdef": 260, "spd": 330 },
+      "persona": "og3_toe_count", "skills": [ "og3_bell_skip", "og3_rhythm_route", "og3_tempo_tip", "og3_ribbon_rest" ], "fifth": "og3_spark_chorus",
+      "blurb": "快攻：戴栗子铃跳节奏游戏，把每次踩拍唱成小曲。"
+    },
+    {
+      "id": "og3_yaye", "name": "芽页邮筒", "org": "原创", "type": "talk", "type2": "asmr",
+      "stats": { "hp": 420, "atk": 210, "def": 280, "spa": 285, "sdef": 300, "spd": 220 },
+      "persona": "og3_letter_warmth", "skills": [ "og3_envelope_wave", "og3_paper_rustle", "og3_petals_cover", "og3_slow_letter" ], "fifth": "og3_mailbox_reply",
+      "blurb": "消耗：住在纸邮筒里的读信主播，用折页声慢慢续航。"
+    },
+    {
+      "id": "og3_rongjiao", "name": "绒角投影", "org": "原创", "type": "horror", "type2": "art",
+      "stats": { "hp": 390, "atk": 210, "def": 260, "spa": 315, "sdef": 285, "spd": 285 },
+      "persona": "og3_curtain_courage", "skills": [ "og3_shadow_peek", "og3_lantern_paint", "og3_scene_hold", "og3_curtain_soft" ], "fifth": "og3_shadow_parade",
+      "blurb": "控制：画软绒小怪演灯影剧，让惊喜在眨眼间停一拍。"
+    },
+    {
+      "id": "og3_paochi", "name": "泡尺工坊", "org": "原创", "type": "tech",
+      "stats": { "hp": 390, "atk": 200, "def": 270, "spa": 320, "sdef": 285, "spd": 275 },
+      "persona": "og3_workshop_apron", "skills": [ "og3_bubble_gauge", "og3_color_circuit", "og3_scale_tuning", "og3_cushion_patch" ], "fifth": "og3_workshop_bloom",
+      "blurb": "强化：直播制作泡泡测量仪，调好刻度再展示彩色花火。"
+    },
+    {
+      "id": "og3_ruandian", "name": "软垫咚咚", "org": "原创", "type": "meme", "type2": "tech",
+      "stats": { "hp": 430, "atk": 300, "def": 315, "spa": 190, "sdef": 280, "spd": 190 },
+      "persona": "og3_cushion_spring", "skills": [ "og3_pillow_bounce", "og3_button_tap", "og3_ribbon_mirror", "og3_fuzzy_brace" ], "fifth": "og3_round_trip",
+      "blurb": "反击：给小发明装软垫的整活主播，慢半拍也能弹回惊喜。"
+    },
+    {
+      "id": "og3_miantang", "name": "绵糖茶帽", "org": "原创", "type": "asmr",
+      "stats": { "hp": 415, "atk": 200, "def": 285, "spa": 290, "sdef": 310, "spd": 220 },
+      "persona": "og3_tea_tray_relay", "skills": [ "og3_teacup_ripple", "og3_sugar_chat", "og3_warm_sip", "og3_cozy_wrap" ], "fifth": "og3_froth_circle",
+      "blurb": "辅助：戴茶杯帽直播温柔拟音，为队友接力备好茶点。"
+    },
+    {
+      "id": "og3_zhiyuan", "name": "纸鸢卷卷", "org": "原创", "type": "art",
+      "stats": { "hp": 385, "atk": 200, "def": 260, "spa": 325, "sdef": 275, "spd": 300 },
+      "persona": "og3_clean_margin", "skills": [ "og3_kite_line", "og3_petal_signal", "og3_wind_palette", "og3_fold_reset" ], "fifth": "og3_sky_scroll",
+      "blurb": "强化：边画风筝边收集纸星，攒好灵感再铺开长空画卷。"
+    },
+    {
+      "id": "og3_guodong", "name": "果冻转盘", "org": "原创", "type": "game", "type2": "meme",
+      "stats": { "hp": 380, "atk": 315, "def": 260, "spa": 200, "sdef": 260, "spd": 320 },
+      "persona": "og3_finish_confetti", "skills": [ "og3_jelly_hop", "og3_spin_stamp", "og3_pad_charge", "og3_fruit_pause" ], "fifth": "og3_rotary_finish",
+      "blurb": "快攻：用果冻按键直播跳跃游戏，过线后抛开彩纸再出发。"
+    },
+    {
+      "id": "og3_xingguan", "name": "星罐慢音", "org": "原创", "type": "song", "type2": "asmr",
+      "stats": { "hp": 420, "atk": 200, "def": 280, "spa": 310, "sdef": 310, "spd": 210 },
+      "persona": "og3_seat_lights", "skills": [ "og3_star_chime", "og3_feather_echo", "og3_night_cushion", "og3_quiet_reserve" ], "fifth": "og3_glow_cadence",
+      "blurb": "消耗：把晚安小调装进星罐，留住余音等待温柔回合。"
+    },
+    {
+      "id": "og3_yunkou", "name": "云扣拼拼", "org": "原创", "type": "tech", "type2": "art",
+      "stats": { "hp": 395, "atk": 205, "def": 275, "spa": 315, "sdef": 280, "spd": 275 },
+      "persona": "og3_pattern_memory", "skills": [ "og3_cloud_click", "og3_tile_trace", "og3_pattern_reset", "og3_fold_cover" ], "fifth": "og3_mosaic_complete",
+      "blurb": "反击：直播拼装会变色的云窗，记住来招再整理对手强化。"
+    },
+    {
+      "id": "og3_modi", "name": "蘑笛巡游", "org": "原创", "type": "horror",
+      "stats": { "hp": 385, "atk": 310, "def": 265, "spa": 215, "sdef": 260, "spd": 310 },
+      "persona": "og3_story_coda", "skills": [ "og3_mushroom_step", "og3_story_lantern", "og3_curiosity_pause", "og3_path_breath" ], "fifth": "og3_puppet_encore",
+      "blurb": "控制：提蘑菇灯直播木偶探秘，用好奇停拍接上轻快谢幕。"
+    },
+    {
+      "id": "og3_jufan", "name": "橘帆飞票", "org": "原创", "type": "game",
+      "stats": { "hp": 370, "atk": 260, "def": 260, "spa": 210, "sdef": 265, "spd": 320 },
+      "persona": "og3_spare_ticket", "skills": [ "og3_ticket_dash", "og3_sail_clap", "og3_crease_sprint", "og3_juice_break" ], "fifth": "og3_sunny_landing",
+      "blurb": "快攻：折橘色纸帆直播竞速，口袋里总留一张再试票。"
+    }
+  ]
+}
