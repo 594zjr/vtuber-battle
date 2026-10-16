@@ -55,7 +55,7 @@ namespace StreamDuel.Game
         float deadline;
         ScreenRouter router;
         UIDocument document;
-        BattleScreen legacy;
+        LocalBattleSession legacy;
         Keyboard keyboard, previousKeyboard;
         Gamepad gamepad, previousGamepad;
 
@@ -168,12 +168,12 @@ namespace StreamDuel.Game
             Require(routers.Length == 1 && documents.Length == 1, "必须只有一个 ScreenRouter 和一个 UIDocument。");
             router = routers[0];
             document = documents[0];
-            legacy = router.GetComponent<BattleScreen>();
+            legacy = router.GetComponent<LocalBattleSession>();
             Require(legacy != null && router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled,
                 "普通启动没有进入正式主菜单。");
             Require(document.rootVisualElement.panel != null, "UIDocument 未连接运行时面板。");
             Require(legacy.MenuPacks.Count > 0 && legacy.MenuPackErrors.Count == 0, "内容包读取不完整。");
-            report.steps.Add("正式菜单为默认入口；只有一个 UIDocument，旧画面暂停，内置包载入无错误。");
+            report.steps.Add("正式菜单为默认入口；只有一个 UIDocument，对战会话暂停，内置包载入无错误。");
 
             previousKeyboard = Keyboard.current;
             previousGamepad = Gamepad.current;
@@ -280,14 +280,14 @@ namespace StreamDuel.Game
 
             FieldInfo Field(string name)
             {
-                var field = typeof(BattleScreen).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-                Require(field != null, "重名内容包检查找不到旧组件字段：" + name);
+                var field = typeof(LocalBattleSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+                Require(field != null, "重名内容包检查找不到会话组件字段：" + name);
                 return field;
             }
 
             // 夹具只替换本次冒烟的内存来源；真实回调会更新选择、组队和滚动位置，结束后一并还原。
             var saved = new Dictionary<FieldInfo, object>();
-            foreach (string name in new[] { "packs", "db", "pick", "teamDetail", "rosterScroll", "teamDetailScroll" })
+            foreach (string name in new[] { "packs", "db", "pick" })
             {
                 var field = Field(name);
                 saved.Add(field, field.GetValue(legacy));
@@ -484,14 +484,16 @@ namespace StreamDuel.Game
                 document.rootVisualElement.Q<Foldout>("developer-tools").value = true;
                 yield return Settle();
             }
-            Submit("open-legacy");
+            Require(document.rootVisualElement.Q<Button>("open-legacy") == null,
+                "T67 移除旧画面后开发区仍保留旧版入口。");
+            Submit("open-team");
             yield return Settle();
-            Require(router.CurrentScreenId == ScreenIds.Legacy && legacy.enabled, "旧版对战开发入口失效。");
-            Require(legacy.MainMenuRequested != null, "旧版缺少返回菜单回调。");
+            Require(router.CurrentScreenId == ScreenIds.Team && !legacy.enabled, "正式组队入口失效或错误启动对战计时。");
+            Require(legacy.MainMenuRequested != null, "本地会话缺少返回菜单回调。");
             legacy.MainMenuRequested();
             yield return Settle();
-            Require(router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "旧版返回菜单失效。");
-            report.steps.Add(Size + "：开发折叠、两个开发预览路由及旧版往返均通过。");
+            Require(router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "会话返回菜单没有保持暂停。");
+            report.steps.Add(Size + "：开发折叠、两个开发预览路由、正式组队往返均通过；旧版入口已删除。");
         }
 
         IEnumerator CheckDisposal()
@@ -510,11 +512,11 @@ namespace StreamDuel.Game
 
         IEnumerator CheckMissingContentGuard()
         {
-            Require(!legacy.enabled, "内容恢复检查须在旧组件停用时运行。");
+            Require(!legacy.enabled, "内容恢复检查须在会话组件停用时运行。");
             var previousPack = legacy.MenuPack;
             var previousPacks = legacy.MenuPacks;
-            var field = typeof(BattleScreen).GetField("db", BindingFlags.Instance | BindingFlags.NonPublic);
-            Require(field != null, "内容恢复检查找不到旧组件的内容库字段。");
+            var field = typeof(LocalBattleSession).GetField("db", BindingFlags.Instance | BindingFlags.NonPublic);
+            Require(field != null, "内容恢复检查找不到会话组件的内容库字段。");
             // 只模拟内容库遗失以覆盖恢复 guard；不把这一检查当作真实脚本域重载验收。
             field.SetValue(legacy, null);
             legacy.EnsureMenuContentLoaded();
@@ -532,7 +534,7 @@ namespace StreamDuel.Game
             Require(router.CurrentScreenId == ScreenIds.Team, "内容恢复后菜单不能导航。");
             Submit("back-button");
             yield return Settle();
-            report.steps.Add("模拟 db 遗失：停用的旧组件可经 EnsureMenuContentLoaded 恢复内容，包数量/顺序/选择保留且新菜单可用；这不是实际域重载证明。");
+            report.steps.Add("模拟 db 遗失：停用的会话组件可经 EnsureMenuContentLoaded 恢复内容，包数量/顺序/选择保留且新菜单可用；这不是实际域重载证明。");
         }
 
         void Submit(string name)

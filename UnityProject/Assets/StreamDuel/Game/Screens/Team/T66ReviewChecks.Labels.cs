@@ -10,7 +10,7 @@ namespace StreamDuel.Game
 {
     internal static partial class T66ReviewChecks
     {
-        public static IEnumerator RunLabels(ScreenRouter router, BattleScreen legacy)
+        public static IEnumerator RunLabels(ScreenRouter router, LocalBattleSession legacy)
         {
             var first = LabelContent("a〕〔b", "甲", "第一包声明：应可切换到另一包。");
             var second = LabelContent("b", "甲〔a〕", "第二包声明：当前选择必须对应此包。");

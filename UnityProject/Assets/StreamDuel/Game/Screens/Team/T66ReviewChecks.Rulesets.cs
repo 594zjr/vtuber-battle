@@ -11,7 +11,7 @@ namespace StreamDuel.Game
 {
     internal static partial class T66ReviewChecks
     {
-        public static IEnumerator RunRulesets(ScreenRouter router, BattleScreen legacy, Action<string> capture)
+        public static IEnumerator RunRulesets(ScreenRouter router, LocalBattleSession legacy, Action<string> capture)
         {
             RulesetRequire(Environment.GetCommandLineArgs().Contains("--t66-smoke-test"), "赛制回归仅供隔离验收。");
             var save = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
@@ -35,7 +35,7 @@ namespace StreamDuel.Game
                 capture("ruleset-" + definition.Id + "-team");
                 RulesetSubmit(router, "team-start");
                 yield return new WaitForEndOfFrame();
-                RulesetRequire(router.CurrentScreenId == ScreenIds.Legacy && legacy.enabled, "赛制没有由真实开始按钮交接到对战页。");
+                RulesetRequire(router.CurrentScreenId == ScreenIds.Battle && legacy.enabled, "赛制没有由真实开始按钮交接到对战页。");
                 var match = RulesetField<Match>(legacy, "teamMatch");
                 var applied = RulesetField<Ruleset>(legacy, "teamRuleset");
                 var expectedRule = Ruleset.FromJson(definition.ToJson()); expectedRule.Season = season;
@@ -100,7 +100,7 @@ namespace StreamDuel.Game
                             "菜单隐藏期间仍扣除赛制时间。");
                         // 模拟任意长的隐藏经过时间；重新启用只修正时钟基线，不重建预算或选择。
                         RulesetSetField(legacy, "teamClockTimestamp", 0L);
-                        router.Show(ScreenIds.Legacy);
+                        router.Show(ScreenIds.Battle, legacy.CreateBattleScreenArgs());
                         RulesetRequire(RulesetField<long>(legacy, "teamClockTimestamp") > 0
                             && clock.TurnLeft(0) == pausedTurn && clock.BankLeft(0) == pausedBank
                             && RulesetField<BattleAction>(legacy, "teamClockComputerAction").ToString() == cached.ToString()
@@ -153,7 +153,7 @@ namespace StreamDuel.Game
                     RulesetRequire(completed.Count == games && match.Wins.SequenceEqual(score) && match.Draws == draws,
                         "重复播放完成回调重复上报或重复计分。");
                     RulesetReplay(current);
-                    yield return new WaitForEndOfFrame();
+                    yield return AwaitBattleFinal(router, legacy);
                     if (games == 1 || match.Over) capture("ruleset-" + definition.Id + "-result-" + games);
                     if (match.Over) break;
                     RulesetInvoke(legacy, "ContinueTeamMatch");
@@ -185,12 +185,12 @@ namespace StreamDuel.Game
                 yield return new WaitForEndOfFrame(); capture("ruleset-ranked-fan-lead");
                 legacy.CurrentTeamBattle.ResolveSurrenders(false, true);
                 RulesetInvoke(legacy, "SkipPlayback");
-                yield return new WaitForEndOfFrame(); capture("ruleset-ranked-fan-result");
+                yield return AwaitBattleFinal(router, legacy); capture("ruleset-ranked-fan-result");
                 router.Show(ScreenIds.Menu);
             }
         }
 
-        static IEnumerator RulesetScoreCases(ScreenRouter router, BattleScreen legacy, ContentDb db, string season)
+        static IEnumerator RulesetScoreCases(ScreenRouter router, LocalBattleSession legacy, ContentDb db, string season)
         {
             // 只用公开的 Core 终止入口造胜/负/平局，检查界面的整场推进；不伪造 Winner 或比分。
             foreach (int[] winners in new[] { new[] { 0, 0 }, new[] { 0, 1, -1 } })
@@ -226,7 +226,7 @@ namespace StreamDuel.Game
             yield return null;
         }
 
-        static void RulesetShow(ScreenRouter router, BattleScreen legacy, ContentDb db, string season)
+        static void RulesetShow(ScreenRouter router, LocalBattleSession legacy, ContentDb db, string season)
         {
             router.Show(ScreenIds.Team, new TeamScreenArgs
             {
@@ -236,6 +236,48 @@ namespace StreamDuel.Game
                 StartBattle = legacy.StartTeamBattle, NavigateToBattle = true,
                 ReadClipboard = () => "", WriteClipboard = value => { }, Return = () => router.Show(ScreenIds.Menu)
             });
+        }
+
+        public static IEnumerator AwaitBattleFinal(ScreenRouter router, LocalBattleSession legacy)
+        {
+            var battle = legacy.CurrentTeamBattle;
+            RulesetRequire(battle != null && battle.Phase == Phase.Over, "终局画面等待必须从实际已结束的会话开始。");
+            string record = battle.Record.ToJson(), score = legacy.MatchScoreText;
+            ulong hash = battle.StateHash();
+            string expectedOutcome = battle.Winner < 0 ? "平局"
+                : TextInput.ForDisplay(battle).Sides[battle.Winner].Name + " 获胜";
+            float until = Time.realtimeSinceStartup + 5;
+            for (int frame = 0; frame < 60; frame++)
+            {
+                var screen = BattleScreen.ActiveInstance;
+                RulesetRequire(router.CurrentScreenId == ScreenIds.Battle && screen != null
+                    && ReferenceEquals(screen.CurrentBattle, battle), "终局截图等待期间丢失了当前正式对战页。");
+                // 验收桥可以在一帧推进多步，先完成可见旧批次，再让正式 Tick 接收当前会话快照。
+                if (screen.IsBusy) screen.SkipPlayback();
+                screen.Tick(0);
+                yield return null;
+                yield return new WaitForEndOfFrame();
+                RulesetRequire(battle.StateHash() == hash && battle.Record.ToJson() == record
+                    && legacy.MatchScoreText == score, "等待终局显示时重复结算、计分或改写了最终录像。");
+                var root = router.Document.rootVisualElement;
+                var outcome = root.Q("battle-outcome");
+                var turn = root.Q<Label>("battle-turn");
+                var phase = root.Q<Label>("battle-phase");
+                var displayedScore = root.Q<Label>("battle-match-score");
+                var winner = root.Q<Label>("battle-outcome-text");
+                bool shown = outcome != null && outcome.worldBound.width > 0 && outcome.worldBound.height > 0;
+                for (var element = outcome; element != null && shown; element = element.hierarchy.parent)
+                    shown = element.visible && element.resolvedStyle.display != DisplayStyle.None;
+                if (!screen.IsBusy && !legacy.IsPlaybackPending && shown
+                    && turn != null && turn.text == "开播对决 · 第 " + battle.Turn + " 回合"
+                    && phase != null && phase.text == "对局结束。"
+                    && screen.Stage.FieldBanner.text == "对局结束"
+                    && displayedScore != null && displayedScore.text == score
+                    && winner != null && winner.text == expectedOutcome)
+                    yield break;
+                RulesetRequire(Time.realtimeSinceStartup < until, "正式终局弹层、回合、阶段或比分未追上已结束的会话。");
+            }
+            throw new InvalidOperationException("正式终局画面在限定帧数内未同步，不能保存为终局证据。");
         }
 
         static void RulesetReplay(Battle game)
@@ -249,23 +291,23 @@ namespace StreamDuel.Game
             RulesetRequire(game.Record.ToJson() == record && game.StateHash() == hash, "验证回放改动了源对局。");
         }
 
-        static T RulesetField<T>(BattleScreen target, string name)
+        static T RulesetField<T>(LocalBattleSession target, string name)
         {
-            var field = typeof(BattleScreen).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            var field = typeof(LocalBattleSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             RulesetRequire(field != null, "缺少赛制桥字段：" + name);
             return (T)field.GetValue(target);
         }
 
-        static void RulesetSetField<T>(BattleScreen target, string name, T value)
+        static void RulesetSetField<T>(LocalBattleSession target, string name, T value)
         {
-            var field = typeof(BattleScreen).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            var field = typeof(LocalBattleSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             RulesetRequire(field != null, "缺少赛制桥字段：" + name);
             field.SetValue(target, value);
         }
 
-        static void RulesetInvoke(BattleScreen target, string name, params object[] args)
+        static void RulesetInvoke(LocalBattleSession target, string name, params object[] args)
         {
-            var method = typeof(BattleScreen).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            var method = typeof(LocalBattleSession).GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             RulesetRequire(method != null, "缺少赛制桥入口：" + name);
             try { method.Invoke(target, args); }
             catch (TargetInvocationException error) { throw error.InnerException ?? error; }

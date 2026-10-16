@@ -17,7 +17,7 @@ namespace StreamDuel.Game
         sealed class Report
         {
             public string unityVersion, outputDirectory, failure, finalHash;
-            public string inputScope = "DropdownField / TextField 变更与 NavigationSubmitEvent 驱动真实 UI 回调；不是人工鼠标验收。完整对局从组队按钮交接后经 BattleScreen 的公开验收桥推进。";
+            public string inputScope = "DropdownField / TextField 变更与 NavigationSubmitEvent 驱动真实 UI 回调；不是人工鼠标验收。完整对局从组队按钮交接后经 LocalBattleSession 的公开验收桥推进。";
             public string storageScope = "最早 SmokeRequested 分支禁止读取和写入玩家设置；常规预设和剪贴板为内存注入；坏档回归仅使用本工程 Logs/T-66 下独占文件，证据也只写此目录。";
             public string layoutScope = "两种分辨率检查文字测量、控件边界、滚动裁切和非祖先文字重叠；长队伍码允许在输入框内横向滚动。截图需独立视觉复核。";
             public bool completed;
@@ -64,7 +64,7 @@ namespace StreamDuel.Game
 
         Report report;
         ScreenRouter router;
-        BattleScreen legacy;
+        LocalBattleSession legacy;
         PortraitProvider portraits;
         TeamScreenArgs context;
         TeamBattleRequest requestedBattle;
@@ -195,7 +195,7 @@ namespace StreamDuel.Game
             var routers = FindObjectsByType<ScreenRouter>(FindObjectsInactive.Include);
             Require(routers.Length == 1, "组队验收必须只有一个界面路由。");
             router = routers[0];
-            legacy = router.GetComponent<BattleScreen>();
+            legacy = router.GetComponent<LocalBattleSession>();
             Require(legacy != null && router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "默认入口没有进入正式主菜单。");
             var saveField = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
             var memoryStoreType = typeof(GameRuntimeSettings).GetNestedType("MemorySaveStore", BindingFlags.NonPublic);
@@ -564,12 +564,12 @@ namespace StreamDuel.Game
                 Element<DropdownField>("team-level").index = (int)levels[index];
                 Submit("team-start");
                 yield return Settle();
-                requestedBattle = router.CurrentArgs as TeamBattleRequest;
+                requestedBattle = (router.CurrentArgs as BattleScreenArgs)?.OriginalRequest;
                 Require(requestedBattle != null && requestedBattle.Settings.AiLevel == levels[index], "电脑难度没有通过开战按钮传给 Battle 参数。");
                 Require(requestedBattle.Team.Check(db, requestedBattle.SeasonId).Count == 0 && requestedBattle.Content == db,
                     "开战交接的阵容或内容包不合法。");
                 var current = legacy.CurrentTeamBattle;
-                Require(current != null && legacy.enabled && router.CurrentScreenId == ScreenIds.Legacy,
+                Require(current != null && legacy.enabled && router.CurrentScreenId == ScreenIds.Battle,
                     "实际组队按钮没有交接到可玩的对战页面。");
                 Require(legacy.CurrentTeamAiLevel == levels[index], "对战桥没有使用组队页选择的电脑难度。");
                 Require(current.Sides[0].Team.Select(fighter => fighter.Def.Id).SequenceEqual(selected), "实际对局的玩家阵容与 UI 请求不同。");
@@ -611,6 +611,7 @@ namespace StreamDuel.Game
             legacy.AdvanceTeamSmoke();
             yield return Settle();
             Require(captured && battle.Log.Count > 0 && battle.Record.Events.Count > 0, "缺少完整对局日志或中途画面。");
+            yield return T66ReviewChecks.AwaitBattleFinal(router, legacy);
             Capture("battle-finished");
             File.WriteAllText(Path.Combine(report.outputDirectory, "battle-record.json"), battle.Record.ToJson());
             var replayed = Replay.Run(db, BattleRecord.FromJson(battle.Record.ToJson()));
@@ -619,7 +620,7 @@ namespace StreamDuel.Game
             report.turns = battle.Turn;
             report.winner = battle.Winner;
             report.finalHash = battle.StateHash().ToString("x16");
-            report.checks.Add("四档电脑难度经真实开战按钮传递；普通难度实际桥接进入对战，按既有提交/补位接口自动完成整局并保存原始记录。");
+            report.checks.Add("四档电脑难度经真实开战按钮传递；普通难度实际桥接进入对战，按既有提交/补位接口自动完成整局并保存原始记录；终局截图前由正式页面完成旧播放，核对终局弹层、回合、阶段、胜者与比分和会话一致，状态与录像不变。");
         }
 
         void CheckPortraits()

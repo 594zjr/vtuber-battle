@@ -7,16 +7,13 @@ using UnityEngine;
 
 namespace StreamDuel.Game
 {
-    public sealed partial class BattleScreen
+    public sealed partial class LocalBattleSession
     {
-        public Action TeamScreenRequested;
         TeamBattleRequest teamBattleRequest;
         ITeamPresetStore teamPresetStore;
         PackPolicy teamPolicySnapshot = PackPolicy.Empty;
         readonly Dictionary<string, TeamPreset> teamSelections = new Dictionary<string, TeamPreset>(StringComparer.Ordinal);
         readonly Dictionary<string, string> teamSeasons = new Dictionary<string, string>(StringComparer.Ordinal);
-        public Battle CurrentTeamBattle => b;
-        public AiLevel CurrentTeamAiLevel => settings == null ? AiLevel.Normal : settings.AiLevel;
 
         public TeamScreenArgs CreateTeamScreenArgs()
         {
@@ -26,11 +23,9 @@ namespace StreamDuel.Game
                 string name = teamSelections.TryGetValue(db.PackId, out var remembered) ? remembered.Name : "";
                 teamSelections[db.PackId] = new TeamPreset { Name = name, PackId = db.PackId, Ids = new List<string>(pick) };
             }
-            // 菜单跳转不会启用旧画面，须在这里取设置页刚保存的默认值。
+            // 每次进入组队都取设置页刚保存的默认值，本局开始后再复制快照。
             settings = GameRuntimeSettings.Current;
-            fast = settings.FastPlay;
             timerOn = settings.TurnTimer;
-            timerSeconds = settings.TurnSeconds;
             var preferred = packs.FirstOrDefault(content => content.PackId == settings.DefaultPack);
             if (preferred != null && !ReferenceEquals(preferred, db))
             {
@@ -40,10 +35,8 @@ namespace StreamDuel.Game
             }
             b = null;
             teamBattleRequest = null;
-            view = View.Team;
             ClearTeamMatch();
             playing = false;
-            pending = null;
             if (teamPresetStore == null) teamPresetStore = SmokeRequested
                 ? (ITeamPresetStore)new MemoryTeamPresetStore() : new FileTeamPresetStore(Application.persistentDataPath);
             return new TeamScreenArgs
@@ -88,7 +81,7 @@ namespace StreamDuel.Game
             var next = GameSettings.FromJson(chosenSettings.ToJson());
             next.DefaultPack = db.PackId;
             bool changed = settings == null || settings.ToJson() != next.ToJson();
-            settings = next; fast = settings.FastPlay; timerOn = settings.TurnTimer;
+            settings = next; timerOn = settings.TurnTimer;
             if (changed || !string.IsNullOrEmpty(settingsNotice))
             {
                 SaveSettingsSafely();
@@ -113,7 +106,6 @@ namespace StreamDuel.Game
             db = request.Content;
             pick = new List<string>(request.Team.Ids);
             settings = selectedSettings;
-            fast = settings.FastPlay;
             timerOn = settings.TurnTimer;
             teamBattleRequest = new TeamBattleRequest
             {
@@ -122,18 +114,8 @@ namespace StreamDuel.Game
             };
             lastTeams = teams;
             b = nextBattle;
-            view = View.Battle;
-            shown = 0; logCountDrawn = 0; playing = false; timerLeft = settings.TurnSeconds;
-            timerSeconds = settings.TurnSeconds;
-            detailKind = "pet"; detailSide = 1; detailIdx = 0; detailScroll = Vector2.zero;
-        }
-
-        bool RestartTeamBattle(List<string>[] teams)
-        {
-            if (teamBattleRequest == null) return false;
-            if (!ReferenceEquals(teams, lastTeams)) { teamBattleRequest = null; return false; }
-            StartTeamBattle(teamBattleRequest);
-            return true;
+            playing = false;
+            ResetLocalClock();
         }
 
         void RequestTeamScreen()
@@ -141,27 +123,9 @@ namespace StreamDuel.Game
             b = null;
             teamBattleRequest = null;
             ClearTeamMatch();
-            view = View.Team;
             playing = false;
-            pending = null;
             if (TeamScreenRequested != null) TeamScreenRequested();
         }
 
-        public bool AdvanceTeamSmoke()
-        {
-            if (!SmokeRequested) throw new InvalidOperationException("自动推进仅供隔离验收使用。");
-            if (b == null) return false;
-            if (playing) { SkipPlayback(); return b.Phase != Phase.Over; }
-            if (b.Phase == Phase.Over) return false;
-            if (b.Phase == Phase.Ban) SubmitTeamBan(Ai.ChooseBan(b, 0));
-            else if (b.Phase == Phase.Lead) SubmitLead(Ai.ChooseLead(b, 0));
-            else if (b.Phase == Phase.Replace)
-            {
-                if (b.Need[0]) DoReplace(Ai.ChooseReplacement(b, 0, settings.AiLevel));
-                else AfterPlayback();
-            }
-            else if (b.Phase == Phase.Choose) Submit(Ai.Choose(b, 0, settings.AiLevel));
-            return b.Phase != Phase.Over;
-        }
     }
 }

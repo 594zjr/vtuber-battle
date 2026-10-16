@@ -185,7 +185,12 @@ namespace StreamDuel.Game
             bool navigate = options.NavigateToBattle;
             var activeRouter = router;
             Remember(); callback(request);
-            if (navigate) activeRouter.Show(ScreenIds.Legacy, request);
+            if (navigate)
+            {
+                var session = legacy ?? callback.Target as LocalBattleSession;
+                if (session == null) throw new InvalidOperationException("当前页面未连接本地对战会话。");
+                activeRouter.Show(ScreenIds.Battle, session.CreateBattleScreenArgs());
+            }
             else Message("队伍和设置已交给对战界面。");
         }
     }

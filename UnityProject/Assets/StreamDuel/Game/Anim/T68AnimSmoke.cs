@@ -114,8 +114,8 @@ namespace StreamDuel.Game
             yield return null;
             router = FindAnyObjectByType<ScreenRouter>();
             Require(router != null && router.CurrentScreenId == ScreenIds.Menu, "默认入口未启动。");
-            var legacy = router.GetComponent<BattleScreen>();
-            Require(legacy != null && !legacy.enabled, "正式菜单启动时旧画面没有停用。");
+            var legacy = router.GetComponent<LocalBattleSession>();
+            Require(legacy != null && !legacy.enabled, "正式菜单启动时对战会话没有停用。");
             yield return Resize(1280, 720);
             yield return new WaitForEndOfFrame();
             ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
@@ -254,7 +254,7 @@ namespace StreamDuel.Game
 
         IEnumerator CheckMenuPreviewRoundTrip()
         {
-            var legacy = router.GetComponent<BattleScreen>();
+            var legacy = router.GetComponent<LocalBattleSession>();
             Require(legacy != null && !legacy.enabled && !legacy.MenuPackLocked,
                 "菜单往返检查必须从未锁定的正式菜单开始。");
             string previousPackId = legacy.MenuPack.PackId;
@@ -326,7 +326,7 @@ namespace StreamDuel.Game
                 Require(!legacy.enabled && ReferenceEquals(legacy.MenuPack, fanPack)
                     && restoredDropdown != null && restoredDropdown.index == fanIndex
                     && restoredNotice != null && restoredNotice.text == fanPack.PackNotice,
-                    "动画预览往返改变了菜单同人包选择、声明或旧画面停用状态。");
+                    "动画预览往返改变了菜单同人包选择、声明或对战会话停用状态。");
                 ValidateLayout(router.Document.rootVisualElement.Q("menu-screen"));
                 report.checks.Add("T81 整合：同人包与菜单参数经真实开发按钮进入固定原创预览；播放中返回释放对象、旧按钮失效，包选择/声明/参数保持。");
             }

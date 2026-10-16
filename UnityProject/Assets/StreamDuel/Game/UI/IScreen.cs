@@ -22,7 +22,6 @@ namespace StreamDuel.Game
         public const string Replay = "replay";
         public const string Settings = "settings";
         public const string Online = "online";
-        public const string Legacy = "legacy";
     }
 
     public sealed class ScreenArgs

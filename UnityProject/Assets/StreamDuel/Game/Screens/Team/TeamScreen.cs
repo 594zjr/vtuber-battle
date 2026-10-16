@@ -11,7 +11,7 @@ namespace StreamDuel.Game
 {
     public sealed partial class TeamScreen : IScreen
     {
-        readonly BattleScreen legacy;
+        readonly LocalBattleSession legacy;
         readonly List<Action> unbind = new List<Action>();
         readonly List<Action> rosterUnbind = new List<Action>();
         readonly Dictionary<string, Button> pickButtons = new Dictionary<string, Button>(StringComparer.Ordinal);
@@ -40,7 +40,7 @@ namespace StreamDuel.Game
         IVisualElementScheduledItem focus;
         public string Id => ScreenIds.Team;
 
-        public TeamScreen(BattleScreen battleScreen = null) { legacy = battleScreen; }
+        public TeamScreen(LocalBattleSession session = null) { legacy = session; }
 
         public VisualElement Build(ScreenRouter screenRouter, object args)
         {

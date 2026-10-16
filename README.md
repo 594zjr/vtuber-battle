@@ -32,13 +32,13 @@
 3. 第一次打开会花几分钟导入。打开 `Assets/Scenes/Main.unity` 后按顶部的 ▶ Play；空场景中的画面由 `GameBoot` 自动创建，无需摆放对象。
 4. 组队页顶部可以切换内容包；选 6 位主播，点「开播！」，和电脑打一局。
 
-顶部「主菜单」可进入 UI Toolkit 的组队、设置、联网与录像回看页面；本地对局结束后可查看结算。对战画面保留独立入口等待 T-67 接入。「旧版对战」返回原有可玩界面，打开菜单期间原对战暂停。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。当前 Input System 1.20.1 使用 Both 兼容旧 IMGUI，待 T-67 替换旧画面后切为 New。Unity 6000.6.5f1 启动时仍会提示旧输入系统弃用；用户于 2026-10-15 批准仅此提示暂留至 T-67，其他错误和警告仍须修复。
+主菜单可进入 UI Toolkit 的组队、设置、联网与录像回看页面；组队后直接进入正式对战画面，本地对局结束后可查看结算。对战中打开主菜单会暂停计时，点击「返回对战」继续原局。界面统一使用随工程提供的 Noto Sans SC 字体，来源与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。输入使用 Input System Package (New)；旧 IMGUI 对战与旧输入兼容模式已移除，完整启动日志和 Play 中均要求零错误、零警告。
 
 设置页可保存动画倍速或跳过、本机回合限时、窗口模式和分辨率、色弱模式、默认电脑难度及内容包。联网页选择内容包与六人阵容后，可开房广播、扫描局域网房间，或输入对方地址及端口加入；连接成功后直接进行六对六对战。对战支持快捷语与屏蔽、房主计时、投降与和局，以及原会话断线重连；断线等待最多 60 秒，期间暂停行动计时。双方完成终局校验与连接收尾后尝试保存录像和本机战绩，成功时显示排位变化，写入失败显示中文提示。双方需使用相同协议及内容版本；连接失败或内容不一致会显示中文原因，并可取消或返回。当前使用可信本机或局域网 TCP，不提供公网匹配或账号服务。
 
 结算页显示双方每位主播的统计与 Core 评选的 MVP，可保存录像、复制可读战报或返回组队；显式多局赛制保留比分并可继续下一局。回看支持前后逐回合、跳转、倍速、程序动画与 SD1 分享码。观战模式连接可信本机或局域网的独立观战端口，只显示发送端已公开的延迟数据，不保存个人战绩。
 
-编辑器 Play 中重编译脚本时，纯 C# 对战状态不能跨域重载恢复，画面会重新接线并回到旧版组队页；普通菜单切换或组件停用再启用仍保留当前页面参数。
+编辑器 Play 中重编译脚本时，纯 C# 对战状态不能跨域重载恢复，画面会重新接线并回到主菜单；普通菜单切换或组件停用再启用仍保留当前页面参数。
 
 ## Windows 打包
 
@@ -57,14 +57,15 @@ Unity.exe -batchmode -quit -projectPath UnityProject -executeMethod UiProjectSet
 Windows 包的自动冒烟验收（需要正常图形桌面，不加 `-batchmode` / `-nographics`）：
 
 ```powershell
-UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./Build/player.log
+$smokeOutput = Join-Path (Resolve-Path UnityProject/Build/Windows) 'Logs/T67'
+UnityProject/Build/Windows/StreamDuel.exe --battle-ui-smoke $smokeOutput -logFile ./Build/player.log
 ```
 
-它通过现有界面入口切换内容包、选择首发并完成一局，截图和回放保存在指定目录新建的 `run-*` 子目录；`result.json` 记录结果，成功退出 0，失败或 180 秒超时退出 1。验收中的内容包切换和自动组队不覆盖玩家已保存的包选择与队伍。运行截图需要检查中文与排版；报告只统计 `BattleScreen.Start` 之后的日志，启动错误还须检查完整 Player 日志。此入口不替代鼠标、滚动和限时操作的人工验收；不传参数时正常进入组队页。
+它通过正式组队和对战按钮，在 1280×720、1920×1080 下验证完整对局、时间线动画、提示浮层和边界情况；截图、录像与 `result.json` 写入指定绝对目录中新建的 `run-*` 子目录。成功退出 0，失败或 540 秒超时退出 1。输出目录须位于该游戏目录的 `Logs/T67` 或 `Logs/T-67` 内。验收使用内存设置和阵容，不覆盖玩家存档；报告从 `BeforeSceneLoad` 记录警告和错误，更早的启动诊断仍须检查完整 Player 日志。程序触发的按钮事件不等同于人工鼠标验收，截图须复核中文与排版；不传参数时正常进入主菜单。
 
 `--ui-smoke-test <绝对输出目录>` 单独验证新界面路由、返回、生命周期与 1280×720 / 1920×1080 布局，保存实际渲染截图和报告；使用程序触发的导航事件，不等同于人工鼠标验收。两种验收模式均只加载内置包，使用内存设置，不读写玩家档案或 PlayerPrefs 阵容。
 
-编辑器验收可用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`，整局对战则将参数改为 `--smoke-test <绝对输出目录>`，可另加 `--smoke-size 1920x1080`（默认 `1280x720`，不加 `-batchmode` / `-quit`）；它先在 Edit 模式初始化 Unity 搜索索引，再打开主场景进入 Play。完成后和停止 Play 清理后均采集 Console，写入 `UnityProject/Logs/T59/editor-console.json` 并退出。Console 红黄计数任一非零或清理等待超时都返回失败，不清除或过滤日志；更早的启动提示另查完整 Editor 日志，截图仍须复核。
+编辑器路由验收使用 `-executeMethod UiSmokeEditor.Run --ui-smoke-test <绝对输出目录>`。正式对战验收使用 `-executeMethod T67SmokeEditor.Run --battle-ui-smoke <本工程 UnityProject/Logs/T67 内的绝对目录>`，自动覆盖上述两种分辨率。两者均不加 `-batchmode` / `-quit`，先在 Edit 模式初始化搜索索引，再进入 Play；完成后和停止 Play 清理后均采集 Console。对战报告的 `editor-console.json` 写入指定目录，路由报告写入 `UnityProject/Logs/T59/editor-console.json`。Console 红黄计数任一非零或清理等待超时都返回失败，不清除或过滤日志；更早的启动提示另查完整 Editor 日志，截图仍须复核。
 
 ## 结构
 
@@ -73,7 +74,7 @@ UnityProject/Build/Windows/StreamDuel.exe --smoke-test ./Build/Smoke -logFile ./
 | `UnityProject/Assets/StreamDuel/Core/` | 对战规则引擎，纯 C#，不依赖 Unity（以后也能放到服务器上） |
 | `UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json` | 规则数据：技能、状态、直播间效果、人设、赛道克制 |
 | `UnityProject/Assets/StreamDuel/Resources/Packs/*.json` | 内容包：主播名单，可给技能、状态、人设换显示名，机制不变 |
-| `UnityProject/Assets/StreamDuel/Game/` | UI Toolkit 路由、分目录占位界面、舞台接口，以及迁移期间保留的 IMGUI 对战 |
+| `UnityProject/Assets/StreamDuel/Game/` | UI Toolkit 页面与路由、本地对局会话、舞台与动画接口 |
 | `Engine/`、`Engine.Tests/` | 不开 Unity 也能编译和测试规则：`dotnet test Engine.Tests` |
 
 模糊测试：`dotnet test Engine.Tests --filter FullyQualifiedName~FuzzTests` 默认对每个内容包跑 300 局随机合法组队、随机禁用/首发、六项修饰器的随机组合和任意回合行动（包括非法选择），逐步检查人气、PP、能力、控制状态、阶段与结束节点，再完整回放并比较状态哈希。启用 `stage_cap_3` 时，能力等级还须满足 ±3 上限；每包必须覆盖每项修饰器的启用和关闭、无修饰器与多项组合，以及换到已下播者、受控出招和零 PP 出招，计数写入测试输出。设置环境变量 `SD_FUZZ=2000` 可跑每包 2000 局；变量必须是不小于 300 的整数，运行后清除即可恢复默认。失败断言包含内容包、固定种子、当时操作和记录 JSON。

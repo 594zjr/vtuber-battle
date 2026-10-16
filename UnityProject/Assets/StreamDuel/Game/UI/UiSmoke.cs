@@ -14,7 +14,7 @@ namespace StreamDuel.Game
         sealed class Report
         {
             public string unityVersion, outputDirectory, failure;
-            public string navigation = "NavigationSubmitEvent 程序触发现有按钮回调；不代表人工鼠标验收。旧版返回菜单调用既有 MainMenuRequested 回调。";
+            public string navigation = "NavigationSubmitEvent 程序触发现有按钮回调；不代表人工鼠标验收。对战页面通过组队配置进入正式 HUD。";
             public string layoutScope = "检查当前可见按钮、文字、头像及血条的屏幕边界、滚动视口边界、文字测量和非祖先元素交叠；截图仍需人工复核视觉效果。";
             public string logScope = "从 BeforeSceneLoad 开始收集；更早的 Unity 启动诊断须另查完整 Player 日志。";
             public bool completed, providersChecked;
@@ -45,7 +45,7 @@ namespace StreamDuel.Game
         float deadline;
         ScreenRouter router;
         UIDocument document;
-        BattleScreen legacy;
+        LocalBattleSession legacy;
         SolidColorPortraitProvider portraits;
 
         sealed class LifecycleProbe : IScreen
@@ -187,11 +187,11 @@ namespace StreamDuel.Game
             Require(routers.Length == 1 && documents.Length == 1, "必须只有一个 ScreenRouter 和一个 UIDocument。");
             router = routers[0];
             document = documents[0];
-            legacy = router.GetComponent<BattleScreen>();
-            Require(legacy != null && router.CurrentScreenId == ScreenIds.Legacy && legacy.enabled,
-                "默认入口没有保持可用的旧版对战。");
+            legacy = router.GetComponent<LocalBattleSession>();
+            Require(legacy != null && !legacy.enabled, "菜单入口没有暂停本地对战会话。");
+            Require(router.CurrentScreenId == ScreenIds.Menu, "默认入口没有进入主菜单。");
             Require(document.rootVisualElement.panel != null, "UIDocument 未连接到运行时面板。");
-            report.steps.Add("单一 UIDocument，默认旧版对战入口已启用。");
+            report.steps.Add("单一 UIDocument，默认主菜单已启用。");
 
             if (Array.IndexOf(Environment.GetCommandLineArgs(), "--t70-smoke") >= 0)
             {
@@ -245,53 +245,72 @@ namespace StreamDuel.Game
 
                 foreach (string page in pages)
                 {
-                    // 正式菜单不再提供纯开发用的对战/结算占位入口，基础页面仍由路由直接验收。
-                    bool developmentPage = page == ScreenIds.Battle || page == ScreenIds.Result;
-                    if (developmentPage)
+                    // 对战从正式组队进入，结算空态仍由显式路由检查。
+                    bool developmentPage = page == ScreenIds.Result;
+                    if (page == ScreenIds.Battle)
+                    {
+                        Submit("open-team"); yield return null;
+                        Submit("team-auto"); Submit("team-start");
+                    }
+                    else if (developmentPage)
                         router.Show(page, new ScreenArgs { ReturnScreenId = ScreenIds.Menu });
                     else Submit("open-" + page);
                     yield return null;
                     yield return new WaitForEndOfFrame();
-                    Require(router.CurrentScreenId == page && !legacy.enabled, "菜单按钮未进入界面：" + page);
+                    string actualPage = page;
+                    Require(router.CurrentScreenId == actualPage, "菜单按钮未进入界面：" + page);
+                    if (page == ScreenIds.Battle)
+                    {
+                        Require(BattleScreen.ActiveInstance != null && BattleScreen.ActiveInstance.CurrentBattle != null,
+                            "对战配置按钮未创建可玩的对战。");
+                        yield return WaitFormalBattlePlayback();
+                        yield return new WaitForEndOfFrame();
+                    }
                     Capture(page);
-                    ValidatePage(page);
+                    ValidatePage(actualPage);
                     if (page == ScreenIds.Team) yield return CheckTeamScrollEnds();
                     if (page == ScreenIds.Battle) ValidateStage();
-                    Submit("back-button");
+                    Submit(page == ScreenIds.Battle ? "battle-menu" : page == ScreenIds.Result ? "result-return-team" : "back-button");
+                    if (page == ScreenIds.Result) { yield return null; Submit("back-button"); }
                     yield return null;
                     yield return new WaitForEndOfFrame();
                     Require(router.CurrentScreenId == ScreenIds.Menu, "返回按钮未返回菜单：" + page);
                     report.steps.Add(RequestedWidth + "×" + RequestedHeight + "："
-                        + (developmentPage ? "路由直接进入基础占位→" : "菜单按钮→") + page
+                        + (developmentPage ? "路由直接进入结算空态→" : "菜单按钮→") + page
                         + "→返回菜单（按钮使用 NavigationSubmitEvent）。");
                 }
 
-                var development = document.rootVisualElement.Q<Foldout>("developer-tools");
-                if (Application.isEditor || Debug.isDebugBuild)
-                {
-                    Require(development != null, "Editor/Development 菜单缺少开发折叠区。");
-                    development.value = true;
-                    yield return null;
-                    Submit("open-legacy");
-                }
-                else
-                {
-                    Require(development == null, "发布 Player 不应显示开发入口。");
-                    router.Show(ScreenIds.Legacy);
-                }
-                yield return null;
+                Require(document.rootVisualElement.Q<Button>("open-legacy") == null,
+                    "菜单仍保留已删除的旧版入口。");
+                Submit("open-team"); yield return null;
+                Submit("team-auto"); Submit("team-start"); yield return null;
+                yield return WaitFormalBattlePlayback();
+                var resumed = BattleScreen.ActiveInstance?.CurrentBattle;
+                Require(resumed != null && legacy.enabled, "正式组队没有建立活动会话。");
+                ulong resumedHash = resumed.StateHash();
+                Submit("battle-menu"); yield return null;
+                Require(router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "离开对战没有暂停会话。");
+                Submit("resume-battle"); yield return null;
+                Require(router.CurrentScreenId == ScreenIds.Battle && legacy.enabled
+                    && ReferenceEquals(BattleScreen.ActiveInstance?.CurrentBattle, resumed)
+                    && resumed.StateHash() == resumedHash, "继续对战丢失了同一局或改写了状态。");
                 yield return new WaitForEndOfFrame();
-                Require(router.CurrentScreenId == ScreenIds.Legacy && legacy.enabled
-                    && document.rootVisualElement.resolvedStyle.display == DisplayStyle.None,
-                    "旧版对战按钮未隐藏 UI Toolkit 并恢复旧版画面。");
-                Capture(ScreenIds.Legacy);
-                Require(legacy.MainMenuRequested != null, "旧版画面没有菜单回调。");
-                legacy.MainMenuRequested();
-                yield return null;
-                Require(router.CurrentScreenId == ScreenIds.Menu && !legacy.enabled, "旧版菜单回调未恢复 UI Toolkit 菜单。");
-                report.steps.Add(RequestedWidth + "×" + RequestedHeight + "：菜单→旧版→既有菜单回调。");
+                Capture("battle-resumed");
+                Submit("battle-menu"); yield return null;
+                report.steps.Add(RequestedWidth + "×" + RequestedHeight + "：正式组队→对战→菜单暂停→继续同一局；旧版入口不存在。");
             }
             report.completed = true;
+        }
+
+        IEnumerator WaitFormalBattlePlayback()
+        {
+            float until = Time.realtimeSinceStartup + 30;
+            while (BattleScreen.ActiveInstance != null && BattleScreen.ActiveInstance.IsBusy)
+            {
+                Require(Time.realtimeSinceStartup < until, "正式对战开场动画未完成。");
+                yield return null;
+            }
+            Require(BattleScreen.ActiveInstance != null, "等待开场动画期间正式对战页面被替换。");
         }
 
         IEnumerator CheckLifecycle()
@@ -333,7 +352,7 @@ namespace StreamDuel.Game
                 ValidatePage(ScreenIds.Menu);
                 Submit("open-team");
                 yield return null;
-                Require(router.CurrentScreenId == ScreenIds.Team, "恢复后的菜单按钮无法导航。");
+                Require(router.CurrentScreenId == ScreenIds.Team, "恢复后的菜单按钮无法进入正式组队。");
                 Submit("back-button");
                 yield return null;
                 Require(router.CurrentScreenId == ScreenIds.Menu && ReferenceEquals(router.CurrentArgs, args),
@@ -376,7 +395,7 @@ namespace StreamDuel.Game
         void ValidateStage()
         {
             var stage = document.rootVisualElement.Q<BattleStage>();
-            Require(stage != null, "对战占位页缺少 BattleStage。");
+            Require(stage != null, "正式对战页缺少 BattleStage。");
             foreach (string name in new[] { StageNames.Fighter0, StageNames.Fighter1 })
             {
                 var fighter = stage.Q<VisualElement>(name);
@@ -444,8 +463,21 @@ namespace StreamDuel.Game
         void ValidatePage(string screenId)
         {
             Require(document.rootVisualElement.resolvedStyle.display != DisplayStyle.None, "UI Toolkit 根节点不可见。");
-            var page = document.rootVisualElement.Q<VisualElement>(screenId + "-screen");
+            var page = screenId == ScreenIds.Battle
+                ? document.rootVisualElement.Q<VisualElement>("battle-hud") ?? document.rootVisualElement.Q<VisualElement>("battle-setup")
+                : document.rootVisualElement.Q<VisualElement>(screenId + "-screen");
             Require(page != null, "界面根节点缺失：" + screenId);
+            if (screenId == ScreenIds.Battle)
+            {
+                // 正式 HUD 的日志可以滚动，只有当前渲染的行参与视口与交叠检查。
+                var tooltip = page.Q("battle-tooltip");
+                var outcome = page.Q("battle-outcome");
+                var top = outcome != null && outcome.resolvedStyle.display != DisplayStyle.None ? outcome
+                    : tooltip != null && tooltip.resolvedStyle.display != DisplayStyle.None ? tooltip : page;
+                BattleUiSmoke.ValidateLayout(top, document.rootVisualElement.worldBound);
+                report.steps.Add(RequestedWidth + "×" + RequestedHeight + "：正式对战/配置控件边界、文字及交叠检查通过。");
+                return;
+            }
             var elements = new List<VisualElement>();
             CollectVisible(page, elements);
             Rect rootBounds = document.rootVisualElement.worldBound;

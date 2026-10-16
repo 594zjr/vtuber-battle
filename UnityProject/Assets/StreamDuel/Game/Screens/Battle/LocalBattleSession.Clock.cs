@@ -2,11 +2,10 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using StreamDuel.Core;
-using UnityEngine;
 
 namespace StreamDuel.Game
 {
-    public sealed partial class BattleScreen
+    public sealed partial class LocalBattleSession
     {
         TurnClock teamClock;
         Battle teamClockBattle;
@@ -20,7 +19,6 @@ namespace StreamDuel.Game
         long teamClockTimestamp;
 
         void PauseTeamClock() { teamClockTimestamp = Stopwatch.GetTimestamp(); }
-        void OnDisable() { PauseTeamClock(); }
 
         void ResetTeamClock()
         {
@@ -76,7 +74,7 @@ namespace StreamDuel.Game
         void PumpTeamClock(double? elapsedSeconds, BattleAction? action, int? replacement)
         {
             if (!ReferenceEquals(teamClockBattle, b)) ResetTeamClock();
-            if (!isActiveAndEnabled || b == null || view != View.Battle || playing || (b.Phase != Phase.Choose && b.Phase != Phase.Replace))
+            if (!isActiveAndEnabled || b == null || playing || (b.Phase != Phase.Choose && b.Phase != Phase.Replace))
             {
                 teamClockTimestamp = Stopwatch.GetTimestamp();
                 return;
@@ -101,7 +99,6 @@ namespace StreamDuel.Game
                 teamClock?.Submit(0);
                 b.ResolveTurn(selected, teamClockComputerAction);
                 CloseTeamClockDecision();
-                detailKind = null;
                 Play();
                 return;
             }
@@ -122,7 +119,6 @@ namespace StreamDuel.Game
             if (replacePlayer && b.Phase == Phase.Replace && b.Need[0]) b.Replace(0, selectedReplacement);
             if (replaceComputer && b.Phase == Phase.Replace && b.Need[1]) b.Replace(1, computerReplacement);
             CloseTeamClockDecision();
-            detailKind = null;
             Play();
         }
 
@@ -191,20 +187,14 @@ namespace StreamDuel.Game
             teamClock.Tick(1, seconds);
         }
 
-        bool DrawTeamClockHeader()
+        string TeamClockText()
         {
-            if (teamRuleset == null) return false;
-            if (teamClock == null)
-            {
-                GUI.Label(new Rect(1020, 20, 170, 32), "赛制计时：关闭", sSmall);
-                return true;
-            }
+            if (teamClock == null) return "赛制计时：关闭";
             string suffix = playing ? "（播放暂停计时）" : b != null && b.Phase == Phase.Over ? "（本局结束）" : "";
-            GUI.Label(new Rect(1020, 8, 170, 46), "本方基本 " + TeamClockSeconds(teamClock.TurnLeft(0))
-                + " 秒\n总时间 " + TeamClockSeconds(teamClock.BankLeft(0)) + " 秒", sSmall);
-            GUI.Label(new Rect(1340, 8, 236, 46), "电脑基本 " + TeamClockSeconds(teamClock.TurnLeft(1))
-                + " 秒 / 总时间 " + TeamClockSeconds(teamClock.BankLeft(1)) + " 秒\n" + suffix, sSmall);
-            return true;
+            return "本方基本 " + TeamClockSeconds(teamClock.TurnLeft(0))
+                + " 秒 / 总时间 " + TeamClockSeconds(teamClock.BankLeft(0))
+                + " 秒；电脑基本 " + TeamClockSeconds(teamClock.TurnLeft(1))
+                + " 秒 / 总时间 " + TeamClockSeconds(teamClock.BankLeft(1)) + " 秒" + suffix;
         }
 
         static string TeamClockSeconds(double seconds)

@@ -304,9 +304,9 @@ namespace StreamDuel.Game
 
         void CheckBattleQuickSettings()
         {
-            var legacy = FindObjectsByType<BattleScreen>(FindObjectsInactive.Include).Single();
-            var field = typeof(BattleScreen).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic);
-            var callback = typeof(BattleScreen).GetMethod("SaveBattleQuickSettings", BindingFlags.Instance | BindingFlags.NonPublic);
+            var legacy = FindObjectsByType<LocalBattleSession>(FindObjectsInactive.Include).Single();
+            var field = typeof(LocalBattleSession).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic);
+            var callback = typeof(LocalBattleSession).GetMethod("SaveBattleQuickSettings", BindingFlags.Instance | BindingFlags.NonPublic);
             Require(field != null && callback != null, "没有找到战中快捷设置真实保存回调。");
             object prior = field.GetValue(legacy);
             var latest = GameSettings.FromJson(GameRuntimeSettings.Current.ToJson());

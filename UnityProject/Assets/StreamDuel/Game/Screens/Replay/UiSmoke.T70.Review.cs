@@ -225,22 +225,22 @@ namespace StreamDuel.Game
                 rule.index = ranked ? Rulesets.All.ToList().FindIndex(value => value.Id == "ranked") + 1 : 0;
                 yield return T70Submit("team-auto");
                 yield return T70Submit("team-start");
-                Require(router.CurrentScreenId == ScreenIds.Legacy, "真实组队开始未交接到对战页。");
+                Require(router.CurrentScreenId == ScreenIds.Battle, "真实组队开始未交接到对战页。");
                 var first = legacy.CurrentTeamBattle;
                 var match = T70LegacyField<Match>("teamMatch");
                 Require((match != null) == ranked && legacy.ResultRequested != null, "组队赛制或结算路由没有接好。");
                 first.ResolveSurrenders(false, true);
                 T70InvokeLegacy("SkipPlayback");
-                // IMGUI 按钮委托的真实入口，不替换 GameBoot 回调；此处不声称人工鼠标点击。
+                // 正式结算按钮委托的真实入口，不替换 GameBoot 回调；此处不声称人工鼠标点击。
                 legacy.ResultRequested(first);
                 yield return T70Ready();
                 Require(router.CurrentScreenId == ScreenIds.Result && ReferenceEquals(((ResultScreenArgs)router.CurrentArgs).Battle, first),
-                    "旧版查看结算回调没有打开真实本局。");
+                    "正式查看结算回调没有打开真实本局。");
                 Require(T70Button("result-rematch").text == (ranked ? "继续下一局" : "再来一局"), "结算再战文案未区分整场比赛。");
                 ulong firstHash = first.StateHash(); string firstRecord = first.Record.ToJson();
                 yield return T70Submit("result-rematch");
                 var second = legacy.CurrentTeamBattle;
-                Require(router.CurrentScreenId == ScreenIds.Legacy && second != null && !ReferenceEquals(first, second)
+                Require(router.CurrentScreenId == ScreenIds.Battle && second != null && !ReferenceEquals(first, second)
                     && first.StateHash() == firstHash && first.Record.ToJson() == firstRecord, "结算再战没有新建本局或改写上局。");
                 if (ranked)
                 {
@@ -261,7 +261,7 @@ namespace StreamDuel.Game
                 Require(router.CurrentScreenId == ScreenIds.Team && legacy.CurrentTeamBattle == null, "真实结算返回组队未清理旧对局。");
             }
             report.steps.Add(RequestedWidth + "×" + RequestedHeight
-                + "：零完成回合投降/和局无 MVP、乙方报告视角；真实 Team 开始→Legacy.ResultRequested→Result→再战/返回组队；排位继续保留 1:0、2:0 完赛后新 Match 归零通过。IMGUI 结算入口以真实委托调用，按钮采用 NavigationSubmitEvent。");
+                + "：零完成回合投降/和局无 MVP、乙方报告视角；真实 Team 开始→LocalBattleSession.ResultRequested→Result→再战/返回组队；排位继续保留 1:0、2:0 完赛后新 Match 归零通过。正式结算入口以真实委托调用，按钮采用 NavigationSubmitEvent。");
         }
 
         static void T70AdvanceBattle(Battle battle)
@@ -306,15 +306,15 @@ namespace StreamDuel.Game
 
         T T70LegacyField<T>(string name)
         {
-            var field = typeof(BattleScreen).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            Require(field != null, "缺少真实旧对战字段：" + name);
+            var field = typeof(LocalBattleSession).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Require(field != null, "缺少真实本地对战字段：" + name);
             return (T)field.GetValue(legacy);
         }
 
         void T70InvokeLegacy(string name)
         {
-            var method = typeof(BattleScreen).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
-            Require(method != null, "缺少真实旧对战入口：" + name);
+            var method = typeof(LocalBattleSession).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Require(method != null, "缺少真实本地对战入口：" + name);
             try { method.Invoke(legacy, null); }
             catch (TargetInvocationException error) { throw error.InnerException ?? error; }
         }

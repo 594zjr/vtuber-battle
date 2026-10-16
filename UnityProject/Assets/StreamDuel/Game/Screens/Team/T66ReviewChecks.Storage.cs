@@ -16,11 +16,11 @@ namespace StreamDuel.Game
     {
         static readonly UTF8Encoding StorageUtf8 = new UTF8Encoding(false, true);
 
-        public static IEnumerator RunStorage(ScreenRouter router, BattleScreen legacy, string outputDirectory)
+        public static IEnumerator RunStorage(ScreenRouter router, LocalBattleSession legacy, string outputDirectory)
         {
             StorageRequire(router != null && legacy != null, "存储回归需要已启动的真实界面。");
             StorageRequire(Environment.GetCommandLineArgs().Contains("--t66-smoke-test"), "存储回归仅允许 T66 隔离验收模式。");
-            var smoke = typeof(BattleScreen).GetProperty("SmokeRequested", BindingFlags.Static | BindingFlags.NonPublic);
+            var smoke = typeof(LocalBattleSession).GetProperty("SmokeRequested", BindingFlags.Static | BindingFlags.NonPublic);
             var save = typeof(GameRuntimeSettings).GetField("store", BindingFlags.Static | BindingFlags.NonPublic);
             var memoryStoreType = typeof(GameRuntimeSettings).GetNestedType("MemorySaveStore", BindingFlags.NonPublic);
             StorageRequire(smoke != null && (bool)smoke.GetValue(null)

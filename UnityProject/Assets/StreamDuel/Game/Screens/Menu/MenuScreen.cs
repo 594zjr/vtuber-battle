@@ -8,7 +8,7 @@ namespace StreamDuel.Game
 {
     public sealed class MenuScreen : IScreen
     {
-        readonly BattleScreen legacy;
+        readonly LocalBattleSession session;
         readonly List<Action> unbind = new List<Action>();
         VisualElement root;
         DropdownField packField;
@@ -21,9 +21,9 @@ namespace StreamDuel.Game
 
         public string Id => ScreenIds.Menu;
 
-        public MenuScreen(BattleScreen battleScreen)
+        public MenuScreen(LocalBattleSession battleSession)
         {
-            legacy = battleScreen ?? throw new ArgumentNullException(nameof(battleScreen));
+            session = battleSession ?? throw new ArgumentNullException(nameof(battleSession));
         }
 
         public VisualElement Build(ScreenRouter router, object args)
@@ -54,6 +54,11 @@ namespace StreamDuel.Game
             var buttons = MakeElement("menu-actions", "sd-menu__actions", body);
             var primary = AddPage(router, buttons, "open-team", ScreenIds.Team, "对电脑", args);
             primary.AddToClassList("sd-menu__button--primary");
+            var navigation = args as ScreenArgs;
+            object resumeArgs = navigation?.ReturnScreenId == ScreenIds.Battle ? navigation.ReturnArgs
+                : session.CurrentTeamBattle != null ? session.CreateBattleScreenArgs() : null;
+            if (resumeArgs != null)
+                AddButton(buttons, "resume-battle", "返回对战", () => router.Show(ScreenIds.Battle, resumeArgs));
             AddPage(router, buttons, "open-online", ScreenIds.Online, "联网对战", args);
             AddPage(router, buttons, "open-replay", ScreenIds.Replay, "录像", args);
             AddPage(router, buttons, "open-settings", ScreenIds.Settings, "设置", args);
@@ -82,7 +87,7 @@ namespace StreamDuel.Game
             MakeLabel("menu-pack-label", "当前内容包", "sd-menu__pack-label", panel);
             var choices = new List<string>();
             packIds = new List<string>();
-            IReadOnlyList<ContentDb> packs = legacy.MenuPacks;
+            IReadOnlyList<ContentDb> packs = session.MenuPacks;
             // 先保留原始名称，避免重名项的包 id 后缀占用另一包本来就有的名称。
             var reservedLabels = new HashSet<string>(StringComparer.Ordinal);
             foreach (var pack in packs)
@@ -117,10 +122,10 @@ namespace StreamDuel.Game
             packField = new DropdownField { name = "menu-pack", choices = choices, focusable = true };
             packField.AddToClassList("sd-menu__pack-field");
             panel.Add(packField);
-            packField.SetEnabled(choices.Count > 0 && !legacy.MenuPackLocked);
+            packField.SetEnabled(choices.Count > 0 && !session.MenuPackLocked);
             packStatus = MakeLabel("menu-pack-status", "", "sd-menu__pack-status", panel);
 
-            if (legacy.MenuPackErrors.Count > 0)
+            if (session.MenuPackErrors.Count > 0)
             {
                 MakeLabel("menu-pack-errors-title", "部分内容包加载失败", "sd-menu__pack-status", panel);
                 var errors = new ScrollView(ScrollViewMode.Vertical)
@@ -132,7 +137,7 @@ namespace StreamDuel.Game
                 };
                 errors.AddToClassList("sd-menu__pack-errors");
                 panel.Add(errors);
-                MakeLabel("menu-pack-errors-text", string.Join("\n", legacy.MenuPackErrors), "sd-menu__pack-error-text", errors);
+                MakeLabel("menu-pack-errors-text", string.Join("\n", session.MenuPackErrors), "sd-menu__pack-error-text", errors);
             }
             EventCallback<ChangeEvent<string>> onChange = evt =>
             {
@@ -140,7 +145,7 @@ namespace StreamDuel.Game
                 if (index < 0 || index >= packIds.Count) return;
                 try
                 {
-                    legacy.SelectMenuPack(packIds[index]);
+                    session.SelectMenuPack(packIds[index]);
                     selectionError = null;
                     RefreshPack();
                 }
@@ -158,12 +163,12 @@ namespace StreamDuel.Game
         void RefreshPack()
         {
             var notices = new List<string>();
-            if (legacy.MenuPackLocked) notices.Add("返回旧版组队后可切换内容包");
+            if (session.MenuPackLocked) notices.Add("返回组队后可切换内容包");
             else if (packIds.Count == 0) notices.Add("没有可用内容包");
-            if (!string.IsNullOrEmpty(legacy.MenuSettingsNotice)) notices.Add(legacy.MenuSettingsNotice);
+            if (!string.IsNullOrEmpty(session.MenuSettingsNotice)) notices.Add(session.MenuSettingsNotice);
             if (!string.IsNullOrEmpty(selectionError)) notices.Add(selectionError);
             packStatus.text = string.Join("\n", notices);
-            ContentDb pack = legacy.MenuPack;
+            ContentDb pack = session.MenuPack;
             if (pack == null) return;
             int index = packIds.IndexOf(pack.PackId);
             if (index >= 0) packField.SetValueWithoutNotify(packField.choices[index]);
@@ -187,7 +192,6 @@ namespace StreamDuel.Game
             shell.Add(developer);
             MakeLabel("developer-note", "特效预览入口暂为占位界面。", "sd-menu__developer-note", developer);
             var buttons = MakeElement("developer-actions", "sd-menu__developer-actions", developer);
-            AddPage(router, buttons, "open-legacy", ScreenIds.Legacy, "旧版对战", args);
             AddPage(router, buttons, "open-animation-preview", ScreenIds.AnimationPreview, "动画预览", args);
             AddPage(router, buttons, "open-effect-preview", ScreenIds.EffectPreview, "特效预览", args);
         }

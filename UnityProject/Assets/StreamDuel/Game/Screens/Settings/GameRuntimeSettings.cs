@@ -27,7 +27,8 @@ namespace StreamDuel.Game
 
         public static bool IsSmokeTest => Environment.GetCommandLineArgs().Any(argument =>
             argument == "--smoke-test" || argument == "--ui-smoke-test" || argument == "--menu-smoke-test"
-            || argument == "--anim-smoke-test" || argument == "--t66-smoke-test" || argument == "--t71-smoke-test");
+            || argument == "--anim-smoke-test" || argument == "--t66-smoke-test" || argument == "--t71-smoke-test"
+            || argument == "--battle-ui-smoke");
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void Reset()
