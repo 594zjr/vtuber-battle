@@ -95,7 +95,7 @@ namespace StreamDuel.Ladder
                 SchemaVersion = 1, Protocol, PackId, Seed = options.Seed, GamesPerArm = options.Games,
                 Fixtures = fixtures
             };
-            string fixtureJson = JsonSerializer.Serialize(fixtureReport, JsonOptions) + "\n";
+            string fixtureJson = ReportJson(fixtureReport);
             var report = new
             {
                 SchemaVersion = 1, Protocol, PackId, SourceContentHash = sourceHash,
@@ -113,7 +113,7 @@ namespace StreamDuel.Ladder
             // 先完成全部对局，再输出结果，异常对局不能留下看似完整的比较报告。
             Directory.CreateDirectory(options.OutputDirectory);
             File.WriteAllText(Path.Combine(options.OutputDirectory, "fixtures.json"), fixtureJson, new UTF8Encoding(false));
-            File.WriteAllText(Path.Combine(options.OutputDirectory, "comparison.json"), JsonSerializer.Serialize(report, JsonOptions) + "\n", new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(options.OutputDirectory, "comparison.json"), ReportJson(report), new UTF8Encoding(false));
             File.WriteAllText(Path.Combine(options.OutputDirectory, "games.csv"), Csv(games), new UTF8Encoding(false));
             PrintScore("有风格目标队", styled);
             PrintScore("无风格目标队", baseline);
@@ -232,6 +232,12 @@ namespace StreamDuel.Ladder
                     ? value : "\"" + value.Replace("\"", "\"\"") + "\""))).Append('\n');
             }
             return output.ToString();
+        }
+
+        static string ReportJson(object value)
+        {
+            // 缩进序列化在不同系统使用不同换行，规范化后再计算摘要和保存。
+            return JsonSerializer.Serialize(value, JsonOptions).Replace("\r\n", "\n") + "\n";
         }
 
         static string Hash(string text)

@@ -12,7 +12,10 @@ namespace StreamDuel.Core
         string terminationRequest;
         double terminationWaitSeconds;
 
-        public int SessionProtocolVersion { get { return terminationEnabled ? TerminationProtocolVersion : ProtocolVersion; } }
+        public int SessionProtocolVersion
+        {
+            get { return enableReconnect ? ReconnectProtocolVersion : terminationEnabled ? TerminationProtocolVersion : ProtocolVersion; }
+        }
         public bool DrawOffered { get { return Battle != null && Battle.HasDrawOffer(1 - MySide); } }
         public bool DrawOfferPending { get { return Battle != null && Battle.HasDrawOffer(MySide); } }
         public bool CanSurrender { get { return CanRequestTermination; } }
@@ -23,7 +26,7 @@ namespace StreamDuel.Core
         {
             get
             {
-                return terminationEnabled && Battle != null && !Terminal && !terminationFrozen && hashes.Count == 0
+                return terminationEnabled && Battle != null && !Terminal && !IsDisconnected && !terminationFrozen && hashes.Count == 0
                     && (Battle.Phase == Phase.Choose || Battle.Phase == Phase.Replace);
             }
         }
@@ -56,6 +59,9 @@ namespace StreamDuel.Core
 
         void ReceiveTerminationHello(Dictionary<string, object> obj)
         {
+            // v5 同时支持两种终止能力，必须显式拒绝不同配置，不能开局后才发现控制消息不兼容。
+            if (enableReconnect && !terminationEnabled && obj.ContainsKey("terminationVersion"))
+                throw new FormatException("双方终止协议能力不一致。");
             if (!terminationEnabled) return;
             if (!obj.TryGetValue("terminationVersion", out var value) || !(value is double version) || version != 1)
                 throw new FormatException("对方未声明终止协议能力 terminationVersion 1。");
@@ -211,6 +217,7 @@ namespace StreamDuel.Core
             Battle.RestoreReplayRng(rngCheckpoint);
             State = HasSubmitted ? NetState.Waiting : phase == Phase.Choose ? NetState.Choose
                 : needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
+            if (IsDisconnected) State = NetState.Waiting;
             if (Clock != null) TimerRevision++;
         }
 

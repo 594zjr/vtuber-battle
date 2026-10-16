@@ -113,7 +113,7 @@ dotnet run -c Release --project Tools/Ladder -- --compare-styles --games 300 --s
 
 ### T-136 验收记录
 
-2026-10-16 在 `0390edb` 基线上，以预先固定的种子 `20261016`、普通难度运行上述命令；未按结果调参或更换种子。第三期内容指纹为 `35de9f384c31c938`。
+2026-10-16 在 `940f9bd` 基线上整合 T-136，并统一报告为 LF 后，以预先固定的种子 `20261016`、普通难度运行上述命令；未按结果调参或更换种子。第三期内容指纹为 `35de9f384c31c938`。
 
 | 目标队配置 | 场数 | 胜 / 平 / 负 | 胜率 | 得分率 |
 |---|---:|---|---:|---:|
@@ -122,4 +122,4 @@ dotnet run -c Release --project Tools/Ladder -- --compare-styles --games 300 --s
 
 胜率和得分率均下降 **0.666667 个百分点**，满足不超过 3 点的门槛；十二位主播在有风格目标队中各入队 128～180 场，两组均为 side 0、side 1 各 150 场。此结果只代表该固定普通难度样本，不是统计显著性或所有难度强度保证。
 
-独立重跑后 `fixtures.json`、`comparison.json`、`games.csv` 三份文件逐字一致。SHA-256 分别为 `1d7a4d36f6818069025d8a974839846d5d2d6fbbf21f58d068ecae661f811308`、`42e8940200ec7d41959e7c428dc5e1bd8a7dc54576e5d04074b6e90fa677f6a6`、`f90663ee56ae06085d9655df5db81f7575de029a97924fbcd3e2cc021c3ec667`；Core 程序集 SHA-256 为 `ba82975216eb4d078c7a3097b38aae98fde4a977a121db4aa189052f39b571d4`。本地证据保存在 `Tools/Ladder/obj/T136/formal/` 和 `repeat/`，机器输出不随源码提交。
+独立重跑后 `fixtures.json`、`comparison.json`、`games.csv` 三份文件逐字一致且均为 UTF-8 无 BOM、LF 换行。SHA-256 分别为 `0f1fcb68963d092612cf20b5fcbf14e247dc989d439b18d212cd1148e514f2ab`、`6b7176a576eaa1af1f15459ec511bd73da7c889386dd1f1beb5a559d24b3c08f`、`f90663ee56ae06085d9655df5db81f7575de029a97924fbcd3e2cc021c3ec667`；Core 程序集 SHA-256 为 `b4a52bebd6a454faa664db887ad6c91b8e71c146a83eda5ae5f93e29ab31d5bb`。本地证据保存在审查工作树 `Tools/Ladder/obj/t136-review/final-main-bb6d2177752f4ff7b0c5c8a15a3fee9f/first/` 和 `repeat/`，机器输出不随源码提交。

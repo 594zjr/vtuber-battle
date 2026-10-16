@@ -12,6 +12,7 @@ namespace StreamDuel.Core
         internal string Key;
         internal int PairingId;
         internal int? Attempt;
+        internal bool HasRuleset;
     }
 
     internal sealed class TournamentReplaySnapshot
@@ -77,10 +78,17 @@ namespace StreamDuel.Core
             RequireWritable();
             if (tournament == null) throw new ArgumentNullException(nameof(tournament), "赛事不能为空。");
             tournament.ValidateGame(pairing, battle, attempt);
-            var archive = new TournamentArchiveTag { Key = tournament.ReportKey, PairingId = pairing.Id, Attempt = attempt };
+            var archive = new TournamentArchiveTag
+            {
+                Key = tournament.ReportKey, PairingId = pairing.Id, Attempt = attempt, HasRuleset = tournament.HasRuleset
+            };
             string note = "赛事录像：第 " + pairing.Round.ToString(CultureInfo.InvariantCulture)
                 + " 轮，对局 " + (pairing.Id + 1).ToString(CultureInfo.InvariantCulture)
-                + (attempt == 0 ? "，原局" : "，加赛 " + attempt.ToString(CultureInfo.InvariantCulture));
+                + (tournament.HasRuleset
+                    ? "，第 " + (attempt + 1).ToString(CultureInfo.InvariantCulture) + " 局"
+                        + (attempt < tournament.BestOf ? "（正规局）" : "（加赛 "
+                            + (attempt - tournament.BestOf + 1).ToString(CultureInfo.InvariantCulture) + "）")
+                    : attempt == 0 ? "，原局" : "，加赛 " + attempt.ToString(CultureInfo.InvariantCulture));
             return SaveCore(battle.Record, BattleSummary.From(battle), note, archive, tournament);
         }
 
@@ -101,6 +109,7 @@ namespace StreamDuel.Core
                 if (existingId != null)
                     throw new InvalidOperationException("本场对阵已有多份关联录像，不能任选一份作为归档成功结果。");
                 if (snapshot.Record == null || snapshot.Entry.IsCorrupt || snapshot.Entry.IsUnavailable
+                    || snapshot.Entry.TournamentArchive.HasRuleset != archive.HasRuleset
                     || snapshot.Record.ToJson() != recordJson || snapshot.Entry.Winner != summary.Winner
                     || snapshot.Entry.Turns != summary.Turns)
                     throw new InvalidOperationException("本场对阵已有不同或不可用的归档录像，不能覆盖或重复关联。");
@@ -140,6 +149,8 @@ namespace StreamDuel.Core
                 if (tag == null || tag.Key != key) continue;
                 try
                 {
+                    if (tag.HasRuleset != tournament.HasRuleset)
+                        throw new FormatException("逐局录像标签版本与赛事赛制不一致。");
                     var entry = ParseEntry(id, json, out var record);
                     result.Add(new TournamentReplaySnapshot(tag.PairingId, entry,
                         entry.IsUnavailable ? null : record, entry.IsUnavailable ? "录像内容已下架，不能用于战报统计。" : null));
@@ -164,8 +175,8 @@ namespace StreamDuel.Core
         {
             if (!metadata.TryGetValue("tournament", out var value)) return null;
             if (!(value is Dictionary<string, object> source)) throw new FormatException("赛事录像关联必须为对象。");
-            int version = Integer(source, "version", 1, 2);
-            if (version == 2 && (source.Count != 4 || !source.ContainsKey("attempt")))
+            int version = Integer(source, "version", 1, 3);
+            if (version >= 2 && (source.Count != 4 || !source.ContainsKey("attempt")))
                 throw new FormatException("逐局赛事录像关联字段不完整。");
             string key = Text(source, "key");
             if (key.Length != 64 || !key.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f'))
@@ -173,14 +184,15 @@ namespace StreamDuel.Core
             return new TournamentArchiveTag
             {
                 Key = key, PairingId = Integer(source, "pairingId", 0, int.MaxValue),
-                Attempt = version == 2 ? (int?)Integer(source, "attempt", 0, 3) : null
+                Attempt = version >= 2 ? (int?)Integer(source, "attempt", 0, version == 3 ? 7 : 3) : null,
+                HasRuleset = version == 3
             };
         }
 
         static string TournamentMetadata(TournamentArchiveTag archive)
         {
             if (archive == null) return "";
-            return ",\"tournament\":{\"version\":" + (archive.Attempt.HasValue ? "2" : "1") + ",\"key\":" + Quote(archive.Key)
+            return ",\"tournament\":{\"version\":" + (archive.HasRuleset ? "3" : archive.Attempt.HasValue ? "2" : "1") + ",\"key\":" + Quote(archive.Key)
                 + ",\"pairingId\":" + archive.PairingId.ToString(CultureInfo.InvariantCulture)
                 + (archive.Attempt.HasValue ? ",\"attempt\":" + archive.Attempt.Value.ToString(CultureInfo.InvariantCulture) : "") + "}";
         }

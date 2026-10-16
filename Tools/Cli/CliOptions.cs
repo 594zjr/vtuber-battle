@@ -74,6 +74,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadTournamentRulesetOption(args, ref i)) continue;
                 if (options.ReadBranchCompareOption(args, ref i)) continue;
                 if (options.ReadTournamentSeedOption(args, ref i)) continue;
                 if (option == "--no-auto-tiebreak")
@@ -402,6 +403,7 @@ namespace StreamDuel.Cli
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
+            ValidateTournamentRulesetOptions(options, provided);
             ValidateRulesetOptions(options, provided);
             if (!options.Help)
             {
@@ -452,10 +454,10 @@ namespace StreamDuel.Cli
             {
                 var unsupported = provided.Where(option => option != "--tournament" && option != "--format" && option != "--seed-by" && option != "--pack"
                     && option != "--pack-dir" && option != "--auto" && option != "--help" && option != "-h"
-                    && option != "--tournament-seed" && option != "--no-auto-tiebreak")
+                    && option != "--tournament-seed" && option != "--no-auto-tiebreak" && option != "--tournament-ruleset")
                     .Distinct().ToArray();
                 if (unsupported.Length > 0)
-                    throw new ArgumentException("赛事模式仅支持搭配 --format、--seed-by、--pack、--pack-dir、--auto、--tournament-seed、--no-auto-tiebreak；不能与 "
+                    throw new ArgumentException("赛事模式仅支持搭配 --format、--seed-by、--pack、--pack-dir、--auto、--tournament-seed、--no-auto-tiebreak、--tournament-ruleset；不能与 "
                         + string.Join("、", unsupported) + " 同用。自动代打固定使用普通 AI；--seed 不用于赛事。");
             }
             if (!options.Help)
