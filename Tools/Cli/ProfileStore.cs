@@ -18,7 +18,7 @@ namespace StreamDuel.Cli
 
         private static PlayerRating CopyRating(PlayerRating rating)
         {
-            return new PlayerRating { Rating = rating.Rating, Games = rating.Games };
+            return rating.Clone();
         }
     }
 }

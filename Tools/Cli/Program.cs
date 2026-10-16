@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.RatingMode) return RunRatingCommand(options);
                 if (options.CardMode) return PrintCards(options);
                 if (options.BranchReplay != null) return PlayBranch(options);
                 if (options.TournamentReportFile != null) return PrintTournamentReport(options);
@@ -237,6 +238,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --spectate-port 端口  主机另开观战端口，固定延迟 2 回合；0 自动分配，可搭配 --host 或 --lan-host。");
             Console.WriteLine("  --watch 地址:端口  只读观看，使用匹配的 --pack/--packs、--pack-dir，可用 --hash；收到结束标记后退出，不写存档。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");
+            Console.WriteLine("  --new-season      手动开始默认赛制的下个排位赛季，归档旧赛季并软重置分数；已定级资格保留。");
+            Console.WriteLine("  --rating-history  只读查看各赛制的当前赛季和历史最终分数、最高分数、段位、场数。");
+            Console.WriteLine("                    两个赛季命令互斥，仅可搭配 --save-dir；不开始对局，切季不会同步到其他玩家。");
             Console.WriteLine("  --replays         列出 --save-dir/replay-library 中的编号、时间、双方、阵容、胜方、回合及备注；坏文件会标记。只列出，不开局。");
             Console.WriteLine("  --replay 编号/文件 从 --save-dir 的录像库按编号回看，或读取现有文件；按记录中的内容包回看，回车下一回合，q 或输入结束退出；不累计战绩或保存新录像。");
             Console.WriteLine("  --branch 编号/文件 --turn 回合 --side 0|1  从原录像已记录的第 N 个行动回合开始接手一方，另一方由电脑操作。");
