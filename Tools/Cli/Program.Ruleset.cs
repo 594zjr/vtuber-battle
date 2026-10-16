@@ -11,9 +11,7 @@ namespace StreamDuel.Cli
     {
         private static int PlayRuleset(ContentDb db, CliOptions options, TeamPreset imported)
         {
-            var ruleset = Rulesets.All.FirstOrDefault(item => string.Equals(item.Id, options.RulesetId, StringComparison.Ordinal));
-            if (ruleset == null)
-                throw new ArgumentException("未知赛制：" + options.RulesetId + "；可用赛制：" + string.Join("、", Rulesets.All.Select(item => item.Id)) + "。");
+            var ruleset = ResolveRuleset(options);
             ruleset.Validate(db);
             if (options.Advice && !ruleset.BanOne && !ruleset.LeadPick)
                 throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
@@ -37,10 +35,11 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 赛制对战");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            Console.WriteLine("赛制：" + ruleset.Name + "（" + ruleset.Id + "）；最多 " + ruleset.BestOf + " 局，先赢 " + (ruleset.BestOf / 2 + 1) + " 局结束");
+            Console.WriteLine("赛制：" + TextInput.Clean(ruleset.Name, TextInputKind.RulesetName).Text
+                + "（" + RulesetDisplayId(ruleset.Id) + "）；最多 " + ruleset.BestOf + " 局，先赢 " + (ruleset.BestOf / 2 + 1) + " 局结束");
             Console.WriteLine("种子：" + options.Seed + "；电脑难度：" + LevelName(options.Level)
                 + "；模式：" + (options.Auto ? "双方自动" : "手动"));
-            if (ruleset.Season != null) Console.WriteLine("赛季：" + ruleset.Season);
+            if (ruleset.Season != null) Console.WriteLine("赛季：" + TextInput.Clean(ruleset.Season, TextInputKind.Note).Text);
             if (ruleset.TurnSeconds > 0 || ruleset.BankSeconds > 0)
                 Console.WriteLine("计时配置：每阶段基本 " + ruleset.TurnSeconds + " 秒，每方总时间 " + ruleset.BankSeconds
                     + " 秒；禁用与首发不计时，每局重置预算。");
@@ -85,7 +84,8 @@ namespace StreamDuel.Cli
             string path = ValidateReportPath(options);
             if (path == null) return;
             var markdown = new StringBuilder();
-            markdown.Append("# 赛制战报\n\n赛制：").Append(ruleset.Name).Append("（").Append(ruleset.Id).Append("）\n\n")
+            markdown.Append("# 赛制战报\n\n赛制：").Append(TextInput.Clean(ruleset.Name, TextInputKind.RulesetName).Text)
+                .Append("（").Append(RulesetDisplayId(ruleset.Id)).Append("）\n\n")
                 .Append("种子：").Append(options.Seed).Append("；完成局数：").Append(completed.Count).Append('\n')
                 .Append("\n比分：你 ").Append(match.Wins[0]).Append(" : ").Append(match.Wins[1]).Append(" 电脑；平局 ").Append(match.Draws).Append("\n");
             for (int index = 0; index < completed.Count; index++)

@@ -6,7 +6,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum TextInputKind { PlayerName, TeamName, RoomName, Note }
+    public enum TextInputKind { PlayerName, TeamName, RoomName, Note, RulesetName }
 
     public sealed class TextInputResult
     {
@@ -36,6 +36,7 @@ namespace StreamDuel.Core
                 case TextInputKind.TeamName: limit = 16; fallback = "我的队伍"; break;
                 case TextInputKind.RoomName: limit = 24; fallback = "对战房间"; break;
                 case TextInputKind.Note: limit = 60; fallback = "无备注"; break;
+                case TextInputKind.RulesetName: limit = 16; fallback = "我的赛制"; break;
                 default: throw new ArgumentOutOfRangeException(nameof(kind), "未知的文字输入类型");
             }
 

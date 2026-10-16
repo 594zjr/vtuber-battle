@@ -26,6 +26,7 @@ namespace StreamDuel.Cli
                 }
 
                 if (options.RatingMode) return RunRatingCommand(options);
+                if (options.RulesetCommand != null) return RunRulesetStorageCommand(options);
                 if (options.CardMode) return PrintCards(options);
                 if (options.BranchReplay != null) return PlayBranch(options);
                 if (options.TournamentReportFile != null) return PrintTournamentReport(options);
@@ -104,10 +105,15 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack/--packs 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
-            Console.WriteLine("  --ruleset 编号    本地赛制：casual（休闲一局）、ranked（禁用、首发、计时三局两胜）、chaos（双修饰器一局）。");
+            Console.WriteLine("  --ruleset 名称    本地赛制：casual/休闲、ranked/排位、chaos/乱斗，或「我的赛制」的保存名称。");
             Console.WriteLine("                    每个完成局独立保存回放、录像库与战绩；仅整场完成时导出一份汇总 --report，提前退出保留已完成局。");
             Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
             Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");
+            Console.WriteLine("  --ruleset-save 名称 JSON或码  保存新赛制；支持 JSON 文本、UTF-8 JSON 文件路径或 SDRULE1- 分享码。");
+            Console.WriteLine("  --ruleset-list    只读列出内置预设和最多 20 个我的赛制。");
+            Console.WriteLine("  --ruleset-code 名称 / --ruleset-import 码  只读导出或校验后导入；同名拒绝，复制预设请用 --ruleset-save 新名 码。");
+            Console.WriteLine("  --ruleset-rename 旧名 新名 / --ruleset-delete 名称  改名或删除我的赛制；内置预设只读。");
+            Console.WriteLine("                    管理命令每次只用一种，仅可搭配 --save-dir、--pack、--packs、--pack-dir；按所选内容包校验赛季。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
             Console.WriteLine("                    可搭配 --format、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("  --format single|double  仅用于赛事：直接创建单败或双败淘汰赛；续赛时必须与已存赛制一致。");

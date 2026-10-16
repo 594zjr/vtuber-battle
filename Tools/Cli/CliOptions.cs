@@ -81,6 +81,7 @@ namespace StreamDuel.Cli
                     continue;
                 }
                 if (options.ReadRatingOption(option)) continue;
+                if (options.ReadRulesetStorageOption(args, ref i)) continue;
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
                 {
@@ -212,7 +213,7 @@ namespace StreamDuel.Cli
                 {
                     case "--ruleset":
                         if (options.RulesetId != null) throw new ArgumentException("--ruleset 不能重复指定。");
-                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空赛制编号。");
+                        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("--ruleset 需要非空赛制编号或保存名称。");
                         options.RulesetId = value;
                         break;
                     case "--branch":
@@ -395,6 +396,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateRulesetStorageOptions(options, provided);
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);
