@@ -100,25 +100,7 @@ namespace StreamDuel.Core
             if (string.IsNullOrWhiteSpace(json)) return new Profile();
             try
             {
-                ValidateTokens(json);
-                var root = ReadObject(MiniJson.Parse(json));
-                var packs = ReadObject(Required(root, "packs"));
-                var profile = new Profile();
-                foreach (var pair in packs)
-                {
-                    var source = ReadObject(pair.Value);
-                    profile.Packs.Add(pair.Key, new PackStats
-                    {
-                        Wins = ReadCount(Required(source, "wins")),
-                        Losses = ReadCount(Required(source, "losses")),
-                        Draws = ReadCount(Required(source, "draws")),
-                        Picks = ReadCounts(Required(source, "picks")),
-                        PickWins = ReadCounts(Required(source, "pickWins"))
-                    });
-                }
-                if (root.TryGetValue("ratings", out var ratings))
-                    foreach (var pair in ReadObject(ratings)) profile.Ratings.Add(pair.Key, PlayerRating.ReadValue(pair.Value));
-                return profile;
+                return FromJsonStrict(json);
             }
             catch (Exception e) when (e is FormatException || e is ArgumentException ||
                 e is IndexOutOfRangeException || e is OverflowException)
@@ -126,6 +108,30 @@ namespace StreamDuel.Core
                 // 存档损坏不能阻止开局；整份失败，避免部分导入被误当作完整战绩。
                 return new Profile();
             }
+        }
+
+        internal static Profile FromJsonStrict(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) throw new FormatException("档案文件内容不能为空。");
+            ValidateTokens(json);
+            var root = ReadObject(MiniJson.Parse(json));
+            var packs = ReadObject(Required(root, "packs"));
+            var profile = new Profile();
+            foreach (var pair in packs)
+            {
+                var source = ReadObject(pair.Value);
+                profile.Packs.Add(pair.Key, new PackStats
+                {
+                    Wins = ReadCount(Required(source, "wins")),
+                    Losses = ReadCount(Required(source, "losses")),
+                    Draws = ReadCount(Required(source, "draws")),
+                    Picks = ReadCounts(Required(source, "picks")),
+                    PickWins = ReadCounts(Required(source, "pickWins"))
+                });
+            }
+            if (root.TryGetValue("ratings", out var ratings))
+                foreach (var pair in ReadObject(ratings)) profile.Ratings.Add(pair.Key, PlayerRating.ReadValue(pair.Value));
+            return profile;
         }
 
         static void WriteCounts(StringBuilder sb, Dictionary<string, int> counts)
