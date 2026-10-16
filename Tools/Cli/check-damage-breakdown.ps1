@@ -127,8 +127,13 @@ function Assert-NoSave([string]$Name) {
     Assert-Check (-not (Test-Path -LiteralPath (Join-Path $runDirectory ($Name + '-saves')))) "$Name 不应保存未完成对局。"
 }
 function Reject([string]$Name, [string[]]$Parameters) {
-    $result = Run-Cli $Name $Parameters '' 1
-    Assert-Check ($result.Err -match '[\u4e00-\u9fff]') "$Name 没有中文错误。"
+    # 不追加存档选项，避免因其它互斥参数被拒绝而掩盖拆解选项本身的问题。
+    $child = Start-Cli $Name $Parameters
+    $child.Process.StandardInput.Close()
+    $result = Wait-Cli $child 1
+    $explainsConflict = $result.Err.Contains('--explain-damage') -or
+        ($Parameters -contains '--lan-list' -and $result.Err.Contains('--lan-list 是独立的 5 秒搜索操作'))
+    Assert-Check ($result.Err -match '[\u4e00-\u9fff]' -and $explainsConflict) "$Name 没有解释选项冲突的中文错误。"
     Assert-NoSave $Name
 }
 
@@ -240,6 +245,8 @@ try {
         @('--explain-damage', '--explain-damage'), @('--list-packs', '--explain-damage'),
         @('--replays', '--explain-damage'), @('--lan-list', '--explain-damage'),
         @('--glossary', '--explain-damage'), @('--calc', 'enka', '1', 'kei', '--explain-damage'),
+        @('--card', 'enka', '--explain-damage'), @('--explain-damage', '--card', 'enka'),
+        @('--cards', 'original', '--explain-damage'), @('--explain-damage', '--cards', 'original'),
         @('--tournament', (Join-Path $runDirectory 'invalid-event.json'), '--explain-damage'),
         @('--tournament-report', (Join-Path $runDirectory 'invalid-event.json'), '--explain-damage')
     )

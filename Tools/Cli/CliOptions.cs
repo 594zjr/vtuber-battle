@@ -74,6 +74,7 @@ namespace StreamDuel.Cli
                     options.ExplainDamage = true;
                     continue;
                 }
+                if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
                 {
                     if (options.Json) throw new ArgumentException("--json 不能重复指定。");
@@ -313,6 +314,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateCardOptions(options, provided);
             if (!options.Help)
             {
                 if (options.Json && options.TournamentReportFile == null)
