@@ -1,0 +1,65 @@
+.sd-menu {
+    flex-grow: 1;
+    align-items: center;
+    background-color: #0c1124;
+    padding: 44px 64px 24px 64px;
+    color: #e8ebfa;
+    white-space: normal;
+}
+.sd-menu__shell { width: 100%; max-width: 1640px; flex-grow: 1; }
+.sd-menu__header { flex-direction: row; justify-content: space-between; flex-shrink: 0; padding-bottom: 28px; }
+.sd-menu__brand { flex-grow: 1; padding-right: 30px; }
+.sd-menu__title { font-size: 64px; color: #ffb547; }
+.sd-menu__muted { font-size: 24px; color: #98a1c8; margin-top: 10px; }
+.sd-menu__pack-panel { width: 640px; flex-shrink: 0; }
+.sd-menu__pack-label { font-size: 22px; color: #98a1c8; margin-bottom: 10px; }
+.sd-menu__pack-field { margin: 0; min-height: 58px; font-size: 24px; }
+.sd-menu__pack-field > .unity-base-field__input {
+    background-color: #1c2549;
+    color: #e8ebfa;
+    border-color: #536590;
+    border-width: 2px;
+    border-radius: 10px;
+    padding: 10px 16px;
+}
+.sd-menu__pack-field:focus > .unity-base-field__input { border-color: #ffb547; }
+.sd-menu__pack-field .unity-base-popup-field__text { color: #e8ebfa; }
+.sd-menu__pack-status { font-size: 20px; color: #ffce82; margin-top: 8px; }
+.sd-menu__body { flex-direction: row; align-items: center; flex-grow: 1; min-height: 360px; padding-top: 16px; padding-bottom: 24px; }
+.sd-menu__introduction { width: 44%; padding-right: 42px; }
+.sd-menu__eyebrow { color: #84d7dd; font-size: 25px; }
+.sd-menu__matchup { font-size: 76px; margin-top: 8px; margin-bottom: 14px; }
+.sd-menu__description { font-size: 25px; color: #bdc6e5; white-space: normal; }
+.sd-menu__tracks { flex-direction: row; flex-wrap: wrap; margin-top: 22px; }
+.sd-menu__track { font-size: 20px; color: #0c1124; padding: 5px 15px; margin-right: 10px; margin-bottom: 10px; border-radius: 6px; }
+.sd-menu__actions { width: 56%; flex-direction: row; flex-wrap: wrap; }
+.sd-menu__button {
+    width: 47%;
+    min-height: 86px;
+    margin: 9px 1.5%;
+    padding: 16px 24px;
+    background-color: #1c2549;
+    border-color: #455682;
+    border-width: 2px;
+    border-radius: 12px;
+    color: #e8ebfa;
+    font-size: 30px;
+    white-space: normal;
+}
+.sd-menu__button:hover { background-color: #293863; border-color: #86a4de; }
+.sd-menu__button:focus { background-color: #31436f; border-color: #ffcf86; border-width: 4px; }
+.sd-menu__button--primary { background-color: #ffb547; color: #17213e; border-color: #ffb547; }
+.sd-menu__button--primary:hover { background-color: #ffcb79; border-color: #ffe0b0; }
+.sd-menu__button--primary:focus { background-color: #ffcb79; color: #17213e; border-color: #fff1d3; }
+.sd-menu__notice-panel { flex-shrink: 0; background-color: #151c38; border-left-width: 4px; border-left-color: #6276a2; border-radius: 8px; padding: 18px 24px; margin-top: 12px; }
+.sd-menu__notice-title { font-size: 21px; color: #bdc6e5; margin-bottom: 8px; }
+.sd-menu__notice { font-size: 22px; color: #98a1c8; white-space: normal; }
+.sd-menu__developer { flex-shrink: 0; font-size: 22px; color: #98a1c8; margin-top: 12px; margin-left: 0; }
+.sd-menu__developer > .unity-foldout__toggle { min-height: 42px; margin-left: 0; }
+.sd-menu__developer > .unity-foldout__toggle:focus { background-color: #293863; }
+.sd-menu__developer-actions { flex-direction: row; flex-wrap: wrap; }
+.sd-menu__developer-actions > .sd-menu__button { width: 28%; min-height: 52px; font-size: 23px; padding: 8px 16px; margin: 6px 12px 6px 0; }
+.sd-menu__footer { flex-shrink: 0; font-size: 20px; color: #98a1c8; margin-top: 16px; -unity-text-align: middle-center; }
+.sd-menu__developer-note { font-size: 20px; color: #98a1c8; margin-top: 4px; margin-bottom: 4px; }
+.sd-menu__pack-errors { max-height: 84px; margin-top: 6px; background-color: #151c38; border-radius: 6px; padding: 6px; }
+.sd-menu__pack-error-text { font-size: 20px; color: #ffce82; white-space: normal; }

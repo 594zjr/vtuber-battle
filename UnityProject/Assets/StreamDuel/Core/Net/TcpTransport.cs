@@ -37,6 +37,12 @@ namespace StreamDuel.Core
             get { lock (stateGate) return receiveFailure is TcpDisconnectedException; }
         }
 
+        public bool ReceiveDrained
+        {
+            // EOF 与队列必须一起检查，分批 Poll 时关闭前的错误可能还在队列中。
+            get { lock (stateGate) return receiveFailure is TcpDisconnectedException && incoming.Count == 0; }
+        }
+
         internal TcpTransport(TcpClient client)
         {
             this.client = client;

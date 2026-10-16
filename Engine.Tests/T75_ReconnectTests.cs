@@ -81,8 +81,8 @@ public class T75_ReconnectTests
             var db = BattleTests.LoadPack("original");
             if (reconnect)
             {
-                Host = new NetSession(db, A, true, HostTeam, "主机", 19, true);
-                Guest = new NetSession(db, B, false, GuestTeam, "客机", null, true);
+                Host = new NetSession(db, A, true, HostTeam, "主机", 19, enableReconnect: true);
+                Guest = new NetSession(db, B, false, GuestTeam, "客机", null, enableReconnect: true);
             }
             else
             {
@@ -533,8 +533,8 @@ public class T75_ReconnectTests
         using var hostTransport = listener.Accept(5000);
         Assert.NotNull(hostTransport);
         var db = BattleTests.LoadPack("original");
-        var host = new NetSession(db, hostTransport, true, HostTeam, "主机", 19, true);
-        var guest = new NetSession(db, guestTransport, false, GuestTeam, "客机", null, true);
+        var host = new NetSession(db, hostTransport, true, HostTeam, "主机", 19, enableReconnect: true);
+        var guest = new NetSession(db, guestTransport, false, GuestTeam, "客机", null, enableReconnect: true);
         Action pump = () =>
         {
             host.Poll();
@@ -580,7 +580,7 @@ public class T75_ReconnectTests
         Assert.NotNull(transport);
         var db = BattleTests.LoadPack("original");
         var host = enableReconnect
-            ? new NetSession(db, transport, true, HostTeam, "主机", 19, true)
+            ? new NetSession(db, transport, true, HostTeam, "主机", 19, enableReconnect: true)
             : new NetSession(db, transport, true, HostTeam, "主机", 19);
         string hello = JsonSerializer.Serialize(new
         {

@@ -8,7 +8,7 @@ namespace StreamDuel.Core
 {
     public sealed partial class NetSession
     {
-        public const int ReconnectProtocolVersion = 3;
+        public const int ReconnectProtocolVersion = 5;
         public const double ReconnectTimeoutSeconds = 60;
         public string SessionId { get; private set; }
         public bool IsDisconnected { get; private set; }
@@ -151,24 +151,24 @@ namespace StreamDuel.Core
                 throw new FormatException("内容不一致：会话进行中本端内容已变化。");
         }
 
-        void ReceiveReconnectMessage(string message)
+        bool ReceiveReconnectMessage(string message)
         {
             var obj = NetJson.Object(message);
             string type = NetJson.Text(obj, "type");
             // 尚未建立 Battle 的对方可能因握手校验失败而发送原始 error。
             if (type == "error" && sentMessages.Count == 0 && !IsDisconnected)
             {
-                Receive(message);
-                return;
+                return Receive(message);
             }
             ValidateIdentity(obj);
-            if (type == "packet") ReceivePacket(obj);
+            if (type == "packet") return ReceivePacket(obj);
             else if (type == "resume") ReceiveResume(obj);
             else if (type == "resumed") ReceiveResumed(obj);
             else throw new FormatException("重连协议收到未知消息类型：" + type);
+            return false;
         }
 
-        void ReceivePacket(Dictionary<string, object> obj)
+        bool ReceivePacket(Dictionary<string, object> obj)
         {
             int sequence = (int)NetJson.Integer(obj, "sequence", 1, int.MaxValue);
             string payload = NetJson.Text(obj, "payload");
@@ -176,11 +176,11 @@ namespace StreamDuel.Core
             {
                 if (!IsReconnecting || receivedMessages[sequence - 1] != payload)
                     throw new FormatException("收到重复或被更改的协议消息。");
-                return;
+                return false;
             }
             if (sequence != receivedMessages.Count + 1) throw new FormatException("协议消息序号不连续。");
             receivedMessages.Add(payload);
-            Receive(payload);
+            return Receive(payload);
         }
 
         void ReceiveResume(Dictionary<string, object> obj)
@@ -233,7 +233,7 @@ namespace StreamDuel.Core
             IsDisconnected = IsReconnecting = false;
             disconnectedSeconds = 0;
             Battle.RestoreReplayRng(rngCheckpoint);
-            if (hashes.Count > 0) State = NetState.Waiting;
+            if (hashes.Count > 0 || terminationFrozen) State = NetState.Waiting;
             else if (phase == Phase.Over) State = NetState.Over;
             else if (HasSubmitted) State = NetState.Waiting;
             else if (phase == Phase.Choose) State = NetState.Choose;

@@ -12,6 +12,8 @@ namespace StreamDuel.Core
         // 被控制时保留足够人气才考虑撤退，避免把残血队友反复送回后排。
         public double ControlledSwitchMinHpRatio = 0.3;
         public double ControlledSwitchProbability = 0.35;
+        // 默认保留原伤害估值；风格可以单独增加非斩杀输出的吸引力。
+        public double DamageScoreMultiplier = 1;
         // 对已经能击倒的招式单独加分，优先处理先手和当前受到的致命威胁。
         public double KnockoutScore = 1.6;
         public double FirstKnockoutBonus = 0.6;
@@ -47,6 +49,8 @@ namespace StreamDuel.Core
         public double StealBoostBaseScore = 0.12;
         public double StealBoostPerStageScore = 0.08;
         public double CleanseScore = 0.4;
+        // 旧策略不为削 PP 额外加分，花招风格按实际可削除的占比估值。
+        public double PpReduceScore = 0;
         // 扰动只改变决策分，不增加或减少原有的随机抽取次数。
         public double RandomScoreRange = 0.08;
         // 高威胁且现有行动价值较低时，才比较换人带来的对位改善。
@@ -61,7 +65,100 @@ namespace StreamDuel.Core
         static readonly Dictionary<string, FieldInfo> fieldsByName = fields.ToDictionary(field => field.Name, StringComparer.Ordinal);
 
         // 每次取得独立值，调用者调整一组参数不会污染后续默认决策。
-        public static AiWeights Default { get { return new AiWeights(); } }
+        public static AiWeights Default
+        {
+            get
+            {
+                return new AiWeights
+                {
+                    CleanseScore = 0.02423097948387277,
+                    ControlStatusScore = 0.5,
+                    ControlledSwitchMinHpRatio = 0.3,
+                    ControlledSwitchProbability = 0.3950236379401758,
+                    DamageScoreMultiplier = 1,
+                    DispelBoostScore = 0.11334177173674106,
+                    DispelFieldScore = 0.2906405037388181,
+                    DispelTrapScore = -0.15242178002372386,
+                    FieldMaxThreatRatio = 0.023707336247747294,
+                    FieldSafeScore = 0.4061274227499962,
+                    FieldThreatenedScore = 0.12,
+                    FirstKnockoutBonus = 0.6,
+                    FoeStageScore = 0.27323309727944434,
+                    HealMaxHpRatio = 0.5,
+                    HealMissingHpScore = 0.5042902272048184,
+                    KnockoutScore = 1.6110160760163208,
+                    MatchupSlowerPenalty = 0.1234392335638404,
+                    PpReduceScore = 0,
+                    RandomScoreRange = 0.018714221035685166,
+                    ReflectDamageScoreMultiplier = 3.638111127540469,
+                    ReflectScoreCap = 1.3452172131697242,
+                    StageBoostTarget = 1.2371078999713063,
+                    StageMaxThreatRatio = 0.13156853383406997,
+                    StageMinHpRatio = 0.1318834670819342,
+                    StageScore = 0.36439369353465734,
+                    StealBoostBaseScore = 0.1905173104070127,
+                    StealBoostPerStageScore = 0.07360851850360632,
+                    SwitchMaxActionScore = 0.8061283407732844,
+                    SwitchMinMatchupGain = 0.9996142959577979,
+                    SwitchMinThreatRatio = 0.40619952888228,
+                    SwitchProbability = 0.9869777296632414,
+                    ThreatenedFirstKnockoutBonus = 0.26332098292186856,
+                    TrapAfflictedScore = 0.07886135518028639,
+                    TrapScore = 0.22,
+                    WeakImmunityScore = 0.29198976811021565,
+                    WeakStatusScore = 0.07546347704913973
+                };
+            }
+        }
+
+        public static AiWeights HardDefault
+        {
+            get
+            {
+                return new AiWeights
+                {
+                    CleanseScore = 0.049886425584554674,
+                    ControlStatusScore = 2.429317989741801,
+                    ControlledSwitchMinHpRatio = 0.3,
+                    ControlledSwitchProbability = 0.35,
+                    DamageScoreMultiplier = 1,
+                    DispelBoostScore = 0.06763436414301395,
+                    DispelFieldScore = 0.08074422972276807,
+                    DispelTrapScore = -0.1935823234729469,
+                    FieldMaxThreatRatio = 0.0619278185069561,
+                    FieldSafeScore = 0.3589015503227711,
+                    FieldThreatenedScore = 0.12,
+                    FirstKnockoutBonus = 0.7162418285384774,
+                    FoeStageScore = 0.3594077047985047,
+                    HealMaxHpRatio = 0.9378378209657967,
+                    HealMissingHpScore = 0.9,
+                    KnockoutScore = 1.6,
+                    MatchupSlowerPenalty = 0.2,
+                    PpReduceScore = 0,
+                    RandomScoreRange = 0.08,
+                    ReflectDamageScoreMultiplier = 2.972268307581544,
+                    ReflectScoreCap = 0.5476419548504055,
+                    StageBoostTarget = 0.08502477686852217,
+                    StageMaxThreatRatio = 0.7602220241025459,
+                    StageMinHpRatio = 1.204126205329767,
+                    StageScore = 0.19832700082109678,
+                    StealBoostBaseScore = 0.12,
+                    StealBoostPerStageScore = 0.1460947121307254,
+                    SwitchMaxActionScore = 0.5,
+                    SwitchMinMatchupGain = 0.5,
+                    SwitchMinThreatRatio = 0.9,
+                    SwitchProbability = 0.6,
+                    ThreatenedFirstKnockoutBonus = 2.167632253910571,
+                    TrapAfflictedScore = 0.4668673884123564,
+                    TrapScore = 0.22,
+                    WeakImmunityScore = 0.34047039952129127,
+                    WeakStatusScore = 0.5736655336339026
+                };
+            }
+        }
+
+        // 固定历史策略供 Easy 和可复现的调参对照使用，不随新默认值迁移。
+        public static AiWeights Legacy { get { return new AiWeights(); } }
 
         public AiWeights Copy() { return (AiWeights)MemberwiseClone(); }
 

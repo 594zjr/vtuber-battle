@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using StreamDuel.Core;
 
 namespace StreamDuel.Cli
@@ -13,32 +13,93 @@ namespace StreamDuel.Cli
     {
         static int PlayNetwork(ContentDb db, IList<string> team, CliOptions options)
         {
+            var rating = ProfileStore.LoadRating(options.SaveDir);
+            bool host = options.HostPort.HasValue;
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            using (var network = new NetworkConnection(db, team, options))
+            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value, options.SpectatorChat) : null;
+            using (var network = new NetworkConnection(db, team, options, rating, () => spectators?.Pump()))
             {
                 var session = network.Session;
+                if (session == null) return Quit();
                 Console.WriteLine("等待对手握手……");
                 var handshake = Stopwatch.StartNew();
                 while (session.State == NetState.Handshake)
                 {
                     network.Poll();
+                    spectators?.Pump();
                     if (session.State != NetState.Handshake) break;
                     if (handshake.ElapsedMilliseconds >= 10000) throw new IOException("等待对手握手超时。");
                     Thread.Sleep(10);
                 }
                 CheckNetwork(session);
                 var battle = session.Battle;
-                Console.WriteLine("连接成功；本方：" + battle.Sides[session.MySide].Name + "；房主种子：" + battle.Seed);
-                PrintTeams(battle);
+                ValidateRandomNetworkTeams(db, battle, options);
+                spectators?.Start(battle);
+                Console.WriteLine("连接成功；本方：" + session.DisplayNames[session.MySide] + "；房主种子：" + battle.Seed);
+                Console.WriteLine("本方自报排位分：" + rating.Rating + "；对手自报排位分：" + session.OpponentRating.Rating
+                    + "（仅用于本机显示，无防作弊）");
+                var nameInputs = session.NameInputs;
+                for (int side = 0; side < nameInputs.Count; side++)
+                    if (nameInputs[side].Changed)
+                        Console.WriteLine((side == session.MySide ? "本方" : "对方") + "昵称提示：" + nameInputs[side].Message);
+                if (session.Clock != null)
+                    Console.WriteLine("已启用房主计时：每阶段 " + session.Clock.TurnLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture)
+                        + " 秒；总时间 " + session.Clock.BankLeft(session.MySide).ToString("R", CultureInfo.InvariantCulture) + " 秒。");
+                else if (!host && options.TurnSeconds.HasValue)
+                    Console.WriteLine("房主未启用计时，客机 --timer 不改变本局设置。");
+                PrintTeams(TextInput.ForDisplay(battle));
+                PrintMixedNotices(db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
+                PrintTerminationCommands(network: true);
+                var input = new ConsoleInput();
+                var pump = new NetworkPump(session, network.Poll);
+                bool drawNotified = false;
+                bool terminalCommand = false;
+                int awaitingDrawResponse = -1;
+                bool disconnectedInput = false;
+                Action poll = () =>
+                {
+                    pump.Pump();
+                    battle = session.Battle;
+                    spectators?.Pump();
+                    if (session.IsDisconnected || disconnectedInput)
+                    {
+                        // 恢复窗口里完成的旧选择不能用于恢复后的局面；仍保留 EOF 和 q。
+                        input.DiscardCompleted();
+                        disconnectedInput = session.IsDisconnected;
+                    }
+                    if (!session.IsDisconnected) ShowNetworkDraw(session, options.Auto, ref drawNotified);
+                };
+                Func<string, bool> command = line => HandleNetworkCommand(session, line,
+                    () => terminalCommand = true, () => awaitingDrawResponse = battle.Record.Events.Count);
+                ChoiceStamp? inputStage = null;
+                Action prepareInput = () =>
+                {
+                    if (options.Auto || terminalCommand || battle.Phase == Phase.Over) return;
+                    if (!inputStage.HasValue || !inputStage.Value.Matches(battle))
+                    {
+                        input.DiscardCompleted(preserveCommands: true);
+                        inputStage = new ChoiceStamp(battle);
+                    }
+                    input.Start();
+                };
                 int logIndex = 0;
                 int hashEventCount = -1;
                 bool waitingPrinted = false;
                 while (true)
                 {
-                    network.Poll();
-                    battle = session.Battle;
+                    poll();
+                    if (awaitingDrawResponse >= 0 && battle.Record.Events.Skip(awaitingDrawResponse)
+                        .Any(entry => entry.Type == BattleRecordEventType.DrawResponse && entry.Side == 1 - session.MySide))
+                        awaitingDrawResponse = -1;
+                    if (!options.Auto)
+                    {
+                        prepareInput();
+                        // 已发出的终局操作必须等双方确认，输入管道随命令结束不能漏记结果。
+                        if (input.EndRequested && (!input.EndOfInput
+                            || !terminalCommand && awaitingDrawResponse < 0 && !session.DrawOfferPending && battle.Phase != Phase.Over)) return LeaveNetwork(session);
+                    }
                     PrintNewLog(battle, ref logIndex);
                     if (options.Hash && !session.IsDisconnected && session.State != NetState.Waiting
                         && battle.Record.Events.Count != hashEventCount)
@@ -51,6 +112,16 @@ namespace StreamDuel.Cli
                     {
                         if (!waitingPrinted && !session.IsDisconnected) Console.WriteLine("等待对手……");
                         waitingPrinted = true;
+                        if (!session.IsDisconnected && !options.Auto && !terminalCommand && input.TryTake(out string line))
+                        {
+                            if (line != null && !line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase) && !command(line))
+                                Console.WriteLine("已提交选择，等待对手；仍可输入 /surrender 或 /draw 指令。");
+                        }
+                        Thread.Sleep(10);
+                        continue;
+                    }
+                    if (!options.Auto && input.EndOfInput && (awaitingDrawResponse >= 0 || session.DrawOfferPending))
+                    {
                         Thread.Sleep(10);
                         continue;
                     }
@@ -58,39 +129,46 @@ namespace StreamDuel.Cli
                     waitingPrinted = false;
                     Console.WriteLine();
                     Console.WriteLine("===== 第 " + battle.Turn + " 回合 =====");
-                    PrintFighter(battle, 1 - session.MySide);
-                    PrintFighter(battle, session.MySide);
-                    var promptState = new NetworkPromptState(session);
+                    var displayBattle = TextInput.ForDisplay(battle);
+                    PrintFighter(displayBattle, 1 - session.MySide);
+                    PrintFighter(displayBattle, session.MySide);
+                    var stamp = new ChoiceStamp(battle);
+                    int recoveryRevision = network.RecoveryRevision;
+                    NetState choosingState = session.State;
+                    Func<bool> expired = () => network.RecoveryRevision != recoveryRevision || session.IsDisconnected
+                        || !stamp.Matches(battle) || session.HasSubmitted || session.State != choosingState;
                     try
                     {
-                        if (session.State == NetState.Choose)
+                        if (choosingState == NetState.Choose)
                         {
                             BattleAction? action = options.Auto ? Ai.Choose(battle, session.MySide, options.Level)
-                                : ReadAction(battle, session.MySide, prompt => ReadNetworkNumber(network, promptState, prompt));
+                                : ReadAction(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, poll, expired, command));
                             if (!action.HasValue) return LeaveNetwork(session);
-                            session.Submit(action.Value);
+                            poll();
+                            if (!expired()) session.Submit(action.Value);
                         }
-                        else if (session.State == NetState.Replace)
+                        else if (choosingState == NetState.Replace)
                         {
                             int? to = options.Auto ? Ai.ChooseReplacement(battle, session.MySide, options.Level)
-                                : ReadReplacement(battle, session.MySide, prompt => ReadNetworkNumber(network, promptState, prompt));
+                                : ReadReplacement(battle, session.MySide, prompt => ReadPumpedNumber(input, prompt, poll, expired, command));
                             if (!to.HasValue) return LeaveNetwork(session);
-                            session.SubmitReplace(to.Value);
+                            poll();
+                            if (!expired()) session.SubmitReplace(to.Value);
                         }
                     }
-                    catch (NetworkPromptChangedException)
+                    catch (ChoiceExpiredException) { }
+                    finally
                     {
-                        Console.WriteLine("重连后对战状态已更新，请按新的选项重新选择。");
-                        continue;
+                        input.DiscardCompleted(preserveCommands: true);
                     }
                     CheckNetwork(session);
                     Console.WriteLine("等待对手……");
                     waitingPrinted = true;
                 }
-                FinishNetwork(network);
-                battle = session.Battle;
+                FinishNetwork(network, spectators);
+                spectators?.Finish();
                 Console.WriteLine("最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-                return SaveCompletedBattle(battle, options, session.MySide);
+                return SaveCompletedBattle(battle, options, session.MySide, session.OpponentRating);
             }
         }
 
@@ -106,8 +184,9 @@ namespace StreamDuel.Cli
 
             public TcpTransport Connection { get; private set; }
             public NetSession Session { get; private set; }
+            public int RecoveryRevision { get; private set; }
 
-            public NetworkConnection(ContentDb db, IList<string> team, CliOptions options)
+            public NetworkConnection(ContentDb db, IList<string> team, CliOptions options, PlayerRating rating, Action poll)
             {
                 this.options = options;
                 bool host = options.HostPort.HasValue;
@@ -117,10 +196,8 @@ namespace StreamDuel.Cli
                     {
                         // 监听器持续到整局退出，随机端口也能接受同一会话的后续连接。
                         listener = TcpTransport.Listen(options.HostPort.Value, out int actualPort);
-                        Console.WriteLine("监听端口：" + actualPort);
-                        Console.WriteLine("等待对手连接……（Ctrl+C 退出）");
-                        Console.Out.Flush();
-                        do { Connection = listener.Accept(250); } while (Connection == null);
+                        Connection = WaitForNetworkGuest(db, options, listener, actualPort, poll);
+                        if (Connection == null) return;
                     }
                     else
                     {
@@ -128,7 +205,8 @@ namespace StreamDuel.Cli
                         Connection = TcpTransport.Connect(options.JoinHost, options.JoinPort, 10000);
                     }
                     Session = new NetSession(db, Connection, host, team, host ? "房主" : "客机",
-                        host ? options.Seed : (uint?)null, enableReconnect: true);
+                        host ? options.Seed : (uint?)null, turnSeconds: options.TurnSeconds, bankSeconds: options.BankSeconds,
+                        enableTermination: true, rating: rating, enableReconnect: true);
                     lastPollSeconds = clock.Elapsed.TotalSeconds;
                 }
                 catch
@@ -153,6 +231,7 @@ namespace StreamDuel.Cli
                 }
                 if (Session.Battle == null || string.IsNullOrEmpty(Session.SessionId))
                     throw new IOException("握手尚未完成，对方已断开，无法恢复本局。");
+                if (!wasDisconnected) RecoveryRevision++;
                 wasDisconnected = true;
                 int remaining = (int)Math.Ceiling(Math.Max(0, Session.ReconnectSecondsRemaining));
                 if (remaining != printedSeconds)
@@ -208,32 +287,6 @@ namespace StreamDuel.Cli
             }
         }
 
-        sealed class NetworkPromptChangedException : Exception { }
-
-        sealed class NetworkPromptState
-        {
-            readonly Battle battle;
-            readonly NetState state;
-            readonly Phase phase;
-            readonly int turn;
-            readonly int eventCount;
-
-            public NetworkPromptState(NetSession session)
-            {
-                battle = session.Battle;
-                state = session.State;
-                phase = battle.Phase;
-                turn = battle.Turn;
-                eventCount = battle.Record.Events.Count;
-            }
-
-            public bool Matches(NetSession session)
-            {
-                return ReferenceEquals(battle, session.Battle) && session.State == state && !session.HasSubmitted
-                    && battle.Phase == phase && battle.Turn == turn && battle.Record.Events.Count == eventCount;
-            }
-        }
-
         static int LeaveNetwork(NetSession session)
         {
             session.Leave("对方已断开（主动退出，对局未完成）。");
@@ -246,7 +299,7 @@ namespace StreamDuel.Cli
                 throw new IOException(session.Error);
         }
 
-        static void FinishNetwork(NetworkConnection network)
+        static void FinishNetwork(NetworkConnection network, SpectatorHost spectators)
         {
             var session = network.Session;
             Console.WriteLine("等待对手完成终局校验……");
@@ -255,6 +308,7 @@ namespace StreamDuel.Cli
             while (true)
             {
                 network.Poll();
+                spectators?.Pump();
                 if (session.IsDisconnected)
                 {
                     completingConnection = null;
@@ -268,7 +322,7 @@ namespace StreamDuel.Cli
                     session.PrepareClose();
                     CheckNetwork(session);
                     if (session.IsDisconnected) continue;
-                    // 关闭发送方向后仍接收数据，保证对端最终哈希报错先于 EOF 被处理。
+                    // 最终哈希和 goodbye 先于半关闭，关闭后仍排空完整消息和远端错误。
                     try { connection.CompleteSending(); }
                     catch (IOException)
                     {
@@ -279,11 +333,12 @@ namespace StreamDuel.Cli
                     completingConnection = connection;
                     completion.Restart();
                 }
-                if (connection.PeerClosed)
+                if (connection.ReceiveDrained)
                 {
-                    // EOF 可能刚好在前一次 Poll 返回后到达，再排空关闭前的完整消息。
+                    // 接收线程可能在上次 Poll 后才发布 EOF，交给会话验证对方确已完成。
                     network.Poll();
-                    if (!session.IsDisconnected && ReferenceEquals(connection, network.Connection)) return;
+                    if (!session.IsDisconnected && ReferenceEquals(connection, network.Connection)
+                        && session.State == NetState.Over && connection.ReceiveDrained) return;
                     continue;
                 }
                 if (completion.ElapsedMilliseconds >= 10000)
@@ -292,41 +347,16 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int? ReadNetworkNumber(NetworkConnection network, NetworkPromptState promptState, string prompt)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null,
+            bool exportReport = true)
         {
-            while (true)
-            {
-                Console.Write(prompt);
-                // 断线重连期间保留同一个输入任务，避免多个 ReadLine 抢走下一次输入。
-                var input = Task.Run(() => Console.ReadLine());
-                string line;
-                while (true)
-                {
-                    bool ready = input.Wait(10);
-                    network.Poll();
-                    if (!ready) continue;
-                    line = input.Result;
-                    if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
-                    if (network.Session.IsDisconnected)
-                    {
-                        Thread.Sleep(10);
-                        continue;
-                    }
-                    if (!promptState.Matches(network.Session)) throw new NetworkPromptChangedException();
-                    break;
-                }
-                int value;
-                if (int.TryParse(line.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out value)) return value;
-                Console.WriteLine("请输入数字，或输入 q 退出。");
-            }
-        }
-
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide)
-        {
+            var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
-            Console.WriteLine("对局结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
-            PrintTeams(battle);
-            Console.WriteLine(BattleSummary.From(battle).ToText());
+            Console.WriteLine("对局结束：" + (display.Winner < 0 ? "平局" : display.Sides[display.Winner].Name + " 获胜"));
+            PrintTeams(display);
+            var summary = BattleSummary.From(battle);
+            Console.WriteLine(BattleSummary.From(display).ToText());
+            PrintReview(display, mySide);
             bool shareFailed = false;
             try
             {
@@ -341,7 +371,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options);
+                if (exportReport) SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
@@ -361,11 +391,35 @@ namespace StreamDuel.Cli
                 replayWarning = "回放保存失败：" + ex.Message;
             }
             if (replayWarning != null) Console.Error.WriteLine("警告：" + replayWarning);
-            var profile = ProfileStore.Record(battle, options.SaveDir, mySide);
+            bool libraryFailed = false;
+            try
+            {
+                new ReplayLibrary(ReplayLibraryDirectory(options), policy: battle.Db.Policy).Save(battle.Record, summary);
+                Console.WriteLine("录像库已更新：" + ReplayLibraryDirectory(options));
+            }
+            catch (ReplayLibraryMaintenanceException ex)
+            {
+                Console.Error.WriteLine("警告：录像已写入，但录像库维护失败：" + ex.Message);
+                libraryFailed = true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                || ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)
+            {
+                // 独立录像库的故障不能影响旧版回放和档案，已完成的对局仍须累计战绩。
+                Console.Error.WriteLine("警告：录像库保存失败：" + ex.Message);
+                libraryFailed = true;
+            }
+            var profile = ProfileStore.Record(battle, options.SaveDir, mySide, opponentRating);
             var stats = profile.Packs[battle.Db.PackId];
             Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
+            if (opponentRating != null)
+            {
+                var rating = profile.Ratings[Profile.DefaultRatingFormat];
+                Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
+                    + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+            }
             Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
-            return replayWarning == null && !reportFailed && !shareFailed ? 0 : 1;
+            return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
         }
     }
 }

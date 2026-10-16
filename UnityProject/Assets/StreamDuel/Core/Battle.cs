@@ -16,7 +16,7 @@ namespace StreamDuel.Core
     }
 
     public enum Phase { Choose, Replace, Over, Lead, Ban }
-    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
+    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled, Surrender }
 
     public partial struct BattleAction
     {
@@ -24,12 +24,13 @@ namespace StreamDuel.Core
         public static BattleAction Skill(int i) { return new BattleAction { Type = ActionType.Skill, Index = i }; }
         public static BattleAction SwitchTo(int i) { return new BattleAction { Type = ActionType.Switch, Index = i }; }
         public static BattleAction Pass() { return new BattleAction { Type = ActionType.Pass }; }
+        public static BattleAction Surrender() { return new BattleAction { Type = ActionType.Surrender }; }
         public override string ToString() { return Type + ":" + Index; }
     }
 
     public sealed class SkillSlot { public string Id; public int Pp, Max; public bool Fifth; }
     public sealed class StatusInst { public string Id; public int Left; }
-    public sealed class FieldInst { public string Id; public int Turns; public int Stacks; } // Turns = -1：直到下场
+    public sealed class FieldInst { public string Id; public int Turns; public int Stacks; public int PendingDamage; } // Turns = -1：直到下场
 
     public sealed class Fighter
     {
@@ -269,6 +270,7 @@ namespace StreamDuel.Core
             StatsFor(Active(1 - p.Side)).Kos++;
             Add(node, p.Name + " 下播了", "faint", p.Side);
             Emit(BattleEventKind.Faint, p, p.Def.Id);
+            ClearDelayedDamageOnFaint(p, node);
             if (action != null && action.P == p && !action.Interrupted)
             {
                 action.Interrupted = true;
@@ -343,6 +345,10 @@ namespace StreamDuel.Core
             {
                 case "STATUS": ApplyStatus(tgt, e.Status, ctx.Node); break;
                 case "STAGE": ChangeStages(tgt, e.Changes, ctx.Node); break;
+                case "STAGE_SWAP": SwapStages(ctx, tgt); break;
+                case "STAGE_COPY": CopyStages(ctx, tgt); break;
+                case "PP_RESTORE": RestorePp(ctx, e.N); break;
+                case "DELAYED_DAMAGE": AddDelayedDamage(ctx, tgt, e.Turns, e.N); break;
                 case "HEAL": Heal(ctx.P, (int)(ctx.P.MaxHp * e.Frac), ctx.Node); break;
                 case "RECOIL": if (ctx.Dealt > 0) Damage(ctx.P, Math.Max(1, (int)(ctx.Dealt * e.Frac)), ctx.Node, ctx.P.Name + " 受到反噬 {n}", false, action: ctx); break;
                 case "DRAIN": if (ctx.Dealt > 0) Heal(ctx.P, (int)(ctx.Dealt * e.Frac), ctx.Node, "吸粉："); break;
@@ -597,6 +603,12 @@ namespace StreamDuel.Core
             }
             foreach (var fl in p.Fields.ToList())
             {
+                if (fl.Id == ContentDb.DelayedDamageFieldId)
+                {
+                    TickDelayedDamage(p, fl);
+                    if (p.Fainted || Phase == Phase.Over) return;
+                    continue;
+                }
                 var fd = Db.Fields[fl.Id];
                 if (fd.Heal > 0) Heal(p, (int)(p.MaxHp * fd.Heal), Node.TurnEnd, "「" + fd.Name + "」：");
                 if (fd.Dot > 0) Damage(p, Math.Max(1, (int)(p.MaxHp * fd.Dot)), Node.TurnEnd, p.Name + " 因「" + fd.Name + "」人气 -{n}", false);
@@ -610,6 +622,11 @@ namespace StreamDuel.Core
         // ================= 主流程 =================
         public void ResolveTurn(BattleAction a0, BattleAction a1)
         {
+            if (a0.Type == ActionType.Surrender || a1.Type == ActionType.Surrender)
+            {
+                ResolveSurrenders(a0.Type == ActionType.Surrender, a1.Type == ActionType.Surrender);
+                return;
+            }
             if (Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
             Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Turn, A0 = a0, A1 = a1, RngState = rng.State });
             var acts = new[] { Normalize(0, a0), Normalize(1, a1) };
