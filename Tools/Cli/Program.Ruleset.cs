@@ -82,12 +82,20 @@ namespace StreamDuel.Cli
 
         private static void SaveRulesetReport(Ruleset ruleset, Match match, IList<Battle> completed, CliOptions options)
         {
+            SaveRulesetReport(ruleset, match.Wins, match.Draws, completed, options, "你", "电脑");
+        }
+
+        private static void SaveRulesetReport(Ruleset ruleset, int[] wins, int draws, IList<Battle> completed,
+            CliOptions options, string nameA, string nameB)
+        {
             string path = ValidateReportPath(options);
             if (path == null) return;
             var markdown = new StringBuilder();
             markdown.Append("# 赛制战报\n\n赛制：").Append(ruleset.Name).Append("（").Append(ruleset.Id).Append("）\n\n")
                 .Append("种子：").Append(options.Seed).Append("；完成局数：").Append(completed.Count).Append('\n')
-                .Append("\n比分：你 ").Append(match.Wins[0]).Append(" : ").Append(match.Wins[1]).Append(" 电脑；平局 ").Append(match.Draws).Append("\n");
+                .Append("\n比分：").Append(TextInput.Clean(nameA, TextInputKind.PlayerName).Text).Append(' ')
+                .Append(wins[0]).Append(" : ").Append(wins[1]).Append(' ')
+                .Append(TextInput.Clean(nameB, TextInputKind.PlayerName).Text).Append("；平局 ").Append(draws).Append("\n");
             for (int index = 0; index < completed.Count; index++)
                 markdown.Append("\n---\n\n## 第 ").Append(index + 1).Append(" 局\n\n")
                     .Append(BattleReport.Markdown(TextInput.ForDisplay(completed[index])));

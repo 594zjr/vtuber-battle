@@ -77,7 +77,7 @@ namespace StreamDuel.Cli
             return SaveCompletedBattle(session.CloneCompletedBattle(), options, 0);
         }
 
-        private static bool ConfirmHotseatHandover(HotseatSession session, CliOptions options)
+        private static bool ConfirmHotseatHandover(HotseatSession session, CliOptions options, Func<string> readLine = null)
         {
             if (!Console.IsOutputRedirected)
             {
@@ -92,7 +92,7 @@ namespace StreamDuel.Cli
             while (true)
             {
                 Console.Write("接手后按回车确认（q 退出）> ");
-                string line = ReadHotseatLine();
+                string line = readLine == null ? ReadHotseatLine() : readLine();
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return false;
                 if (line.Trim().Length == 0)
                 {
@@ -133,12 +133,12 @@ namespace StreamDuel.Cli
             return result;
         }
 
-        private static int? ReadHotseatNumber(string prompt, HotseatSession session)
+        private static int? ReadHotseatNumber(string prompt, HotseatSession session, Func<string> readLine = null)
         {
             while (true)
             {
                 Console.Write(prompt);
-                string line = ReadHotseatLine();
+                string line = readLine == null ? ReadHotseatLine() : readLine();
                 if (line == null || line.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) return null;
                 if (HandleHotseatCommand(session, line)) continue;
                 int number;
@@ -147,7 +147,8 @@ namespace StreamDuel.Cli
             }
         }
 
-        private static int? ReadHotseatMember(SideView team, string purpose, IList<int> targets, HotseatSession session)
+        private static int? ReadHotseatMember(SideView team, string purpose, IList<int> targets, HotseatSession session,
+            Func<string> readLine = null)
         {
             Console.WriteLine(purpose + "（当前队伍号位）：");
             var choices = targets ?? Enumerable.Range(0, team.Team.Count).ToList();
@@ -159,14 +160,15 @@ namespace StreamDuel.Cli
             }
             while (true)
             {
-                var number = ReadHotseatNumber(purpose + "（私密输入，q 退出）> ", session);
+                var number = ReadHotseatNumber(purpose + "（私密输入，q 退出）> ", session, readLine);
                 if (!number.HasValue) return null;
                 if (choices.Contains(number.Value - 1)) return number.Value - 1;
                 Console.WriteLine("该号位当前不可选，请选择列表中的主播。");
             }
         }
 
-        private static BattleAction? ReadHotseatAction(BattleViewModel view, int side, HotseatSession session)
+        private static BattleAction? ReadHotseatAction(BattleViewModel view, int side, HotseatSession session,
+            Func<string> readLine = null)
         {
             Console.WriteLine("技能：");
             foreach (var skill in view.Skills)
@@ -190,7 +192,7 @@ namespace StreamDuel.Cli
             else if (view.Struggle) Console.WriteLine("  [0] 所有技能无 PP，使用「" + view.StruggleName + "」");
             while (true)
             {
-                var number = ReadHotseatNumber("选择行动（私密输入，q 退出）> ", session);
+                var number = ReadHotseatNumber("选择行动（私密输入，q 退出）> ", session, readLine);
                 if (!number.HasValue) return null;
                 var skill = view.Skills.FirstOrDefault(option => option.Index + 1 == number.Value && option.Usable);
                 if (skill != null) return BattleAction.Skill(skill.Index);
