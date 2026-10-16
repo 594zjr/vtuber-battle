@@ -15,12 +15,12 @@ namespace StreamDuel.Cli
             {
                 "--ruleset", "--pack", "--packs", "--pack-dir", "--level", "--seed", "--team", "--team-b",
                 "--team-code", "--export-team", "--random-teams", "--save-dir", "--auto", "--hash",
-                "--share", "--report", "--advice"
+                "--share", "--report", "--advice", "--host", "--join", "--lan-host"
             };
             var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
             if (unsupported.Length > 0)
-                throw new ArgumentException("--ruleset 用于本地赛制对战，不能与 " + string.Join("、", unsupported)
-                    + " 同用；禁用、首发和计时由赛制决定，联网、赛事及查询入口请单独使用。");
+                throw new ArgumentException("--ruleset 不能与 " + string.Join("、", unsupported)
+                    + " 同用；禁用、首发和计时由赛制决定，赛事及查询入口请单独使用；联网赛制暂不支持单局观战端口。");
         }
     }
 }

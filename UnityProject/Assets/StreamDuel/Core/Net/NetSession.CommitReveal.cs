@@ -27,7 +27,7 @@ namespace StreamDuel.Core
             HasSubmitted = true;
             Clock?.Submit(MySide);
             State = NetState.Waiting;
-            if (Send("{\"type\":\"commit\",\"turn\":" + Number(turn)
+            if (Send("{\"type\":\"commit\",\"turn\":" + Number(turn) + GameField
                 + ",\"kind\":" + NetJson.Quote(kind) + ",\"digest\":" + NetJson.Quote(digest) + "}"))
             {
                 BeginRevealTimerIfReady();
@@ -64,18 +64,21 @@ namespace StreamDuel.Core
         private void ValidateSelectionKind(Dictionary<string, object> obj)
         {
             string kind = NetJson.Text(obj, "kind");
-            if ((phase != Phase.Choose && phase != Phase.Replace) || kind != SelectionKind)
+            if ((phase != Phase.Choose && phase != Phase.Replace && (!rulesetProtocol || phase != Phase.Ban && phase != Phase.Lead)) || kind != SelectionKind)
                 throw new FormatException("承诺或公开的类型与当前阶段不匹配。");
             if (phase == Phase.Replace && !needsReplacement[1 - MySide])
                 throw new FormatException("对方本阶段无需补位，不能发送补位承诺或公开。");
         }
 
-        private string SelectionKind { get { return phase == Phase.Choose ? "action" : "replace"; } }
+        private string SelectionKind
+        {
+            get { return phase == Phase.Choose ? "action" : phase == Phase.Ban ? "ban" : phase == Phase.Lead ? "lead" : "replace"; }
+        }
 
         private bool AllCommitmentsReady()
         {
             for (int side = 0; side < 2; side++)
-                if ((phase == Phase.Choose || needsReplacement[side]) && commitments[side] == null) return false;
+                if ((phase == Phase.Choose || phase == Phase.Ban || phase == Phase.Lead || needsReplacement[side]) && commitments[side] == null) return false;
             return true;
         }
 
@@ -84,7 +87,7 @@ namespace StreamDuel.Core
             if (!HasSubmitted || revealSent || !AllCommitmentsReady()) return;
             revealSent = true;
             // 先发公开消息再登记本方选择，单方补位也必须遵守 commit → reveal → hash 的顺序。
-            if (Send("{\"type\":\"reveal\",\"turn\":" + Number(turn)
+            if (Send("{\"type\":\"reveal\",\"turn\":" + Number(turn) + GameField
                 + ",\"kind\":" + NetJson.Quote(SelectionKind) + ",\"action\":" + NetJson.Quote(localWire)
                 + ",\"nonce\":" + NetJson.Quote(localNonce) + "}")) StoreRevealedSelection(MySide, localWire);
         }
@@ -95,6 +98,12 @@ namespace StreamDuel.Core
             if (action.Type == ActionType.Surrender)
                 throw new FormatException("投降必须通过已协商的终止协议提交，不能伪装成普通行动公开。");
             if (phase == Phase.Choose) actions[side] = action;
+            else if (phase == Phase.Ban || phase == Phase.Lead)
+            {
+                if (action.Type != ActionType.Switch || !ValidOpening(side, action.Index))
+                    throw new FormatException("公开的禁用或首发必须是当前名单中的有效 W 位置编码。");
+                openingChoices[side] = action.Index;
+            }
             else
             {
                 if (action.Type != ActionType.Switch || !ValidReplacement(side, action.Index))

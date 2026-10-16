@@ -19,6 +19,11 @@ namespace StreamDuel.Cli
                 throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
             var preset = PrepareTeam(db, options, imported, ruleset.Season);
             var player = preset.Ids.ToArray();
+            if (options.Network)
+            {
+                if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
+                return PlayNetworkRuleset(db, player, ruleset, options);
+            }
             var opponent = PrepareOpponent(db, player, options);
             // 保留旧的对手选择顺序；赛季限制使该队无效时再交给引擎重新组队。
             if (ruleset.CheckTeam(db, opponent).Count > 0)

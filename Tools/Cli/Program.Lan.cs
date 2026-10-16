@@ -12,7 +12,7 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options, Action poll = null)
+        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options, Action poll = null, Ruleset ruleset = null)
         {
             var nameInput = options.LanHostName == null ? null
                 : TextInput.Clean(options.LanHostName, TextInputKind.RoomName);
@@ -24,9 +24,12 @@ namespace StreamDuel.Cli
                 {
                     Name = nameInput.Text,
                     Port = actualPort,
-                    Protocol = NetSession.TerminationProtocolVersion,
+                    Protocol = ruleset != null && ruleset.Id != "casual"
+                        ? NetSession.RulesetProtocolVersion : NetSession.TerminationProtocolVersion,
                     ContentHash = db.ContentHash(),
-                    Ruleset = "casual"
+                    Ruleset = ruleset == null ? "casual" : ruleset.Id,
+                    RulesetName = ruleset == null ? null : ruleset.Name,
+                    BestOf = ruleset == null ? 0 : ruleset.BestOf
                 };
                 using (var beacon = room == null ? null : new LanBeaconSender(room))
                 {
@@ -37,6 +40,9 @@ namespace StreamDuel.Cli
                         if (!string.Equals(room.Name, advertised.Name, StringComparison.Ordinal))
                             Console.WriteLine("房间名提示：局域网广播沿用现有长度限制，房名已进一步缩短。");
                         Console.WriteLine("局域网房间：" + advertised.DisplayName);
+                        if (advertised.RulesetName != null)
+                            Console.WriteLine("广播赛制：" + LanText(advertised.RulesetName) + "（" + LanText(advertised.Ruleset)
+                                + "）；最多 " + advertised.BestOf + " 局。");
                         Console.WriteLine("广播端口：" + LanBeacon.Port + "（UDP，每秒一次）");
                     }
                     Console.WriteLine("监听端口：" + actualPort);
@@ -104,14 +110,19 @@ namespace StreamDuel.Cli
                         if (nameInput.Changed) Console.WriteLine("  房间名提示：" + nameInput.Message);
                         Console.WriteLine("  地址：" + endpoint + "；协议：" + room.Protocol
                             + "；规则：" + LanText(room.Ruleset) + "；内容指纹：" + LanText(room.ContentHash));
+                        if (room.RulesetName != null)
+                            Console.WriteLine("  赛制：" + LanText(room.RulesetName) + "；最多 " + room.BestOf + " 局（加入时以握手为准）。");
                         if (finished - room.LastSeen > 3)
                             Console.WriteLine("  状态：已失联（超过 3 秒未收到广播）");
-                        else if (room.Protocol != NetSession.TerminationProtocolVersion)
-                            Console.WriteLine("  状态：协议版本不兼容，当前版本为 " + NetSession.TerminationProtocolVersion + "。");
+                        else if (room.Protocol != NetSession.TerminationProtocolVersion && room.Protocol != NetSession.RulesetProtocolVersion)
+                            Console.WriteLine("  状态：协议版本不兼容，当前单局/赛制版本为 " + NetSession.TerminationProtocolVersion
+                                + "/" + NetSession.RulesetProtocolVersion + "。");
                         else
                         {
                             Console.WriteLine("  状态：可见（加入时仍会校验内容一致性）");
-                            Console.WriteLine("  加入：--join " + endpoint);
+                            string selected = room.RulesetName != null && Rulesets.All.Any(item => item.Id == room.Ruleset)
+                                ? " --ruleset " + room.Ruleset : "";
+                            Console.WriteLine("  加入：--join " + endpoint + selected);
                         }
                     }
                     if (observed.Count == 0) Console.WriteLine("暂未发现房间；请确认房主仍在等待连接，并处于同一局域网。");
