@@ -12,8 +12,12 @@ namespace StreamDuel.Game
 {
     public sealed partial class UiSmoke
     {
-        string t70OriginalClipboard;
-        bool t70ClipboardSaved;
+        readonly T70Clipboard t70Clipboard = new T70Clipboard();
+
+        sealed class T70Clipboard : ITextClipboard
+        {
+            public string Text { get; set; }
+        }
 
         sealed class T70SaveStore : ISaveStore
         {
@@ -81,8 +85,7 @@ namespace StreamDuel.Game
 
         IEnumerator RunT70()
         {
-            t70OriginalClipboard = GUIUtility.systemCopyBuffer;
-            t70ClipboardSaved = true;
+            t70Clipboard.Text = string.Empty;
             report.navigation = "T70：NavigationSubmitEvent 程序触发真实按钮回调，字段使用公开 value；不是人工鼠标验收。";
             report.layoutScope = "T70：检查可见文字和控件的屏幕边界、可见完整文字测量及非祖先交叠；滚动表逐行滚入视口检查，另保留首尾截图；截图仍需视觉复核。";
             var rules = Resources.Load<TextAsset>("StreamDuelRules");
@@ -150,6 +153,7 @@ namespace StreamDuel.Game
                     Battle = battle,
                     PlayerSide = 0,
                     SaveStore = store,
+                    Clipboard = t70Clipboard,
                     ResolvePack = id => id == db.PackId ? db : throw new KeyError("测试缺少内容包：" + id),
                     Rematch = () => rematches++,
                     ReturnToTeam = () => teamReturns++
@@ -158,8 +162,14 @@ namespace StreamDuel.Game
                 yield return T70Ready();
                 Require(T70Label("result-outcome").text == (battle.Winner == -1 ? "平局" : battle.Winner == 0 ? "胜利" : "本局落败"),
                     "结算胜负与引擎不一致。");
-                Require(T70Label("result-rounds").text.Contains(T70Number(battle.Turn)), "结算没有显示结束回合。");
-                Require(T70Label("result-mvp").text.Contains("MVP"), "结算缺少 MVP 信息。");
+                Require(T70Label("result-rounds").text.EndsWith("完成回合数：" + T70Number(BattleSummary.From(battle).Turns),
+                    StringComparison.Ordinal), "结算完成回合数与 Core 统计不一致。");
+                var mvp = BattleSummary.From(battle).Mvp();
+                Require(mvp.HasValue, "完整验收对战没有产生 Core MVP。");
+                Require(T70Label("result-mvp").text == "MVP："
+                    + TextInput.Clean(battle.Sides[mvp.Value.Side].Name, TextInputKind.PlayerName).Text
+                    + " · " + T70Number(mvp.Value.Slot + 1) + " 号位 · "
+                    + battle.Sides[mvp.Value.Side].Team[mvp.Value.Slot].Name, "结算 MVP 与 Core 评选结果不一致。");
                 Capture("t70-result-top");
                 T70ValidatePage(ScreenIds.Result);
                 yield return T70CheckSummary(battle);
@@ -172,7 +182,7 @@ namespace StreamDuel.Game
                 Require(store.LoadReplay(savedName) == originalRecord, "保存录像内容与原对战记录不一致。");
                 Require(T70Label("result-feedback").text.Contains("已保存"), "保存成功没有可见反馈。");
                 yield return T70Submit("result-copy-report");
-                Require(GUIUtility.systemCopyBuffer == BattleReport.Markdown(battle), "复制战报没有写入完整 Markdown。");
+                Require(t70Clipboard.Text == BattleReport.Markdown(battle), "复制战报没有写入完整 Markdown。");
                 yield return T70Submit("result-rematch");
                 yield return T70Submit("result-return-team");
                 Require(rematches == 1 && teamReturns == 1, "再来一局或返回组队回调没有且仅触发一次。");
@@ -191,6 +201,7 @@ namespace StreamDuel.Game
                 var replayArgs = new ReplayScreenArgs
                 {
                     SaveStore = store,
+                    Clipboard = t70Clipboard, Animator = new NullAnimator(),
                     ResolvePack = resultArgs.ResolvePack,
                     Return = () => { replayReturns++; router.Show(ScreenIds.Result, resultArgs); }
                 };
@@ -237,7 +248,7 @@ namespace StreamDuel.Game
                 Capture("t70-replay-end");
 
                 yield return T70Submit("copy-share-button");
-                string share = GUIUtility.systemCopyBuffer;
+                string share = t70Clipboard.Text;
                 Require(share.StartsWith("SD1-", StringComparison.Ordinal)
                     && ShareCode.Decode(share).ToJson() == originalRecord, "复制分享码没有完整保留录像。");
                 string beforeInvalid = T70Label("replay-status").text;
@@ -247,7 +258,7 @@ namespace StreamDuel.Game
                     && T70Label("replay-status").text.Contains("分享码"), "无效分享码没有可见错误。");
                 T70CheckFrame(expected);
                 Capture("t70-replay-invalid-share");
-                GUIUtility.systemCopyBuffer = share;
+                t70Clipboard.Text = share;
                 T70Element<TextField>("share-code-field").value = "";
                 yield return T70Submit("paste-share-button");
                 Require(T70Element<TextField>("share-code-field").value == share, "粘贴按钮没有读取分享码。");
@@ -309,7 +320,8 @@ namespace StreamDuel.Game
                 store.FailList = true;
                 router.Show(ScreenIds.Replay, new ReplayScreenArgs
                 {
-                    Content = db, Record = battle.Record, SaveStore = store
+                    Content = db, Record = battle.Record, SaveStore = store,
+                    Clipboard = t70Clipboard, Animator = new NullAnimator()
                 });
                 yield return T70Ready();
                 expected.Seek(0);
@@ -328,7 +340,8 @@ namespace StreamDuel.Game
                 T70CheckFrame(expected);
 
                 int callsBefore = fallbackCalls;
-                router.Show(T70FallbackReplay.ScreenId, new ReplayScreenArgs { SaveStore = loadedStore });
+                router.Show(T70FallbackReplay.ScreenId, new ReplayScreenArgs
+                    { SaveStore = loadedStore, Clipboard = t70Clipboard, Animator = new NullAnimator() });
                 yield return T70Ready();
                 T70Element<DropdownField>("replay-files").value = "loaded_pack_replay";
                 yield return T70Submit("open-replay-button");
@@ -341,14 +354,18 @@ namespace StreamDuel.Game
                 Require(fallbackCalls == callsBefore + 2, "分享码加载没有调用构造器注入的内容包解析器。");
                 T70CheckFrame(loadedExpected);
                 yield return T70Submit("copy-share-button");
-                Require(ShareCode.Decode(GUIUtility.systemCopyBuffer).ToJson() == loadedRecord, "已加载内容包的分享回环改变了录像。");
+                Require(ShareCode.Decode(t70Clipboard.Text).ToJson() == loadedRecord, "已加载内容包的分享回环改变了录像。");
                 Capture("t70-replay-loaded-pack");
-                router.Show(ScreenIds.Replay, new ReplayScreenArgs { Content = db, Record = battle.Record, SaveStore = store });
+                router.Show(ScreenIds.Replay, new ReplayScreenArgs { Content = db, Record = battle.Record, SaveStore = store,
+                    Clipboard = t70Clipboard, Animator = new NullAnimator() });
                 yield return T70Ready();
                 T70CheckFrame(expected);
                 Require(fallbackCalls == callsBefore + 2 && router.CurrentScreenId == ScreenIds.Replay,
                     "临时解析器探针影响了正式回看工厂。");
                 yield return T70CheckAnimator(battle, store);
+                yield return T70CheckDefaultPresentation(battle, store);
+                yield return T70CheckSpectator(db);
+                yield return T70CheckResultRoutes(db, store);
                 Require(battle.StateHash() == originalHash && battle.Record.ToJson() == originalRecord
                     && T70LogSnapshot(battle) == originalLogs && BattleSummary.From(battle).ToText() == originalSummary,
                     "结算或回看污染了原始对战、录像、日志或累计统计。");
@@ -368,7 +385,7 @@ namespace StreamDuel.Game
             var animator = new T70Animator();
             router.Show(ScreenIds.Replay, new ReplayScreenArgs
             {
-                Content = source.Db, Record = source.Record, SaveStore = store, Animator = animator
+                Content = source.Db, Record = source.Record, SaveStore = store, Animator = animator, Clipboard = t70Clipboard
             });
             yield return T70Ready();
             Require(animator.Plays == 1, "初载录像没有且仅提交一次动画提示。");
@@ -583,7 +600,7 @@ namespace StreamDuel.Game
                     && Finite(bounds.width) && Finite(bounds.height) && bounds.width > 0 && bounds.height > 0,
                     "字段标签或输入区不可见：" + field.name);
                 Require(Contains(document.rootVisualElement.worldBound, bounds), "字段超出屏幕：" + field.name);
-                for (var ancestor = element.parent; ancestor != null; ancestor = ancestor.parent)
+                for (var ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
                     if (ancestor is ScrollView scroll)
                         Require(Contains(scroll.contentViewport.worldBound, bounds), "字段不能完整滚入视口：" + field.name);
             }
@@ -627,7 +644,7 @@ namespace StreamDuel.Game
 
         IEnumerator T70Reveal(VisualElement element)
         {
-            for (VisualElement ancestor = element.parent; ancestor != null; ancestor = ancestor.parent)
+            for (VisualElement ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
                 if (ancestor is ScrollView scroll) scroll.ScrollTo(element);
             yield return T70Ready();
         }
@@ -655,27 +672,6 @@ namespace StreamDuel.Game
                 + "|" + string.Join(",", entry.SnapActive) + "|" + string.Join(",", entry.SnapHp[0]) + "|" + string.Join(",", entry.SnapHp[1])));
         }
 
-        void RestoreT70Clipboard()
-        {
-            if (!t70ClipboardSaved) return;
-            try
-            {
-                GUIUtility.systemCopyBuffer = t70OriginalClipboard;
-                t70ClipboardSaved = false;
-                t70OriginalClipboard = null;
-            }
-            catch (Exception error)
-            {
-                report.errors++;
-                report.logs.Add("T70 无法恢复系统剪贴板：" + error.Message);
-            }
-        }
-
-        void OnDestroy()
-        {
-            RestoreT70Clipboard();
-        }
-
         void T70ValidatePage(string screenId)
         {
             var page = T70Element<VisualElement>(screenId + "-screen");
@@ -688,7 +684,7 @@ namespace StreamDuel.Game
                 Rect bounds = element.worldBound;
                 Require(Finite(bounds.x) && Finite(bounds.y) && Finite(bounds.width) && Finite(bounds.height), "T70 控件布局不是有限数值。");
                 bool clipped = false, outside = false, inputText = false;
-                for (var ancestor = element.parent; ancestor != null; ancestor = ancestor.parent)
+                for (var ancestor = element.hierarchy.parent; ancestor != null; ancestor = ancestor.hierarchy.parent)
                 {
                     if (ancestor is TextField || ancestor is IntegerField || ancestor is DropdownField) inputText = true;
                     if (ancestor is ScrollView scroll)

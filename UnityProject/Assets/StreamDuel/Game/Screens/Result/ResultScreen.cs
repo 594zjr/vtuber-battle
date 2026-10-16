@@ -13,6 +13,7 @@ namespace StreamDuel.Game
         ScreenRouter router;
         ResultScreenArgs args;
         ISaveStore store;
+        ITextClipboard clipboard;
         Label feedback;
         Button saveButton;
         bool disposed;
@@ -26,6 +27,7 @@ namespace StreamDuel.Game
             router = screenRouter;
             args = screenArgs as ResultScreenArgs ?? new ResultScreenArgs();
             store = args.SaveStore;
+            clipboard = args.Clipboard ?? new SystemTextClipboard();
 
             var page = new VisualElement { name = "result-screen" };
             page.AddToClassList("screen");
@@ -63,6 +65,7 @@ namespace StreamDuel.Game
             }
 
             bool completed = battle.Phase == Phase.Over;
+            var summary = BattleSummary.From(battle);
             string outcome = "对战尚未结束";
             if (completed)
             {
@@ -77,19 +80,24 @@ namespace StreamDuel.Game
             result.style.unityFont = router.Resources.BoldFont;
             scroll.Add(result);
             string winner = completed && battle.Winner >= 0 && battle.Winner < battle.Sides.Length
-                ? "获胜方：" + battle.Sides[battle.Winner].Name + " · " : "";
-            scroll.Add(Text(winner + (completed ? "结束回合：" : "当前回合：") + Number(battle.Turn), "result-rounds"));
+                ? "获胜方：" + PlayerName(battle, battle.Winner) + " · " : "";
+            scroll.Add(Text(winner + (completed ? "完成回合数：" : "当前回合：")
+                + Number(completed ? summary.Turns : battle.Turn), "result-rounds"));
             scroll.Add(Text("内容包：" + battle.Db.PackName, "result-pack", "screen-note"));
             if (!string.IsNullOrWhiteSpace(battle.Db.PackNotice))
                 scroll.Add(Text(battle.Db.PackNotice, "result-pack-notice", "screen-note"));
-            scroll.Add(Text("MVP：评选规则待确定", "result-mvp", "screen-note"));
+            var mvp = summary.Mvp();
+            string mvpText = !completed ? "MVP：对战结束后评选" : !mvp.HasValue ? "MVP：本局暂无获选主播"
+                : "MVP：" + PlayerName(battle, mvp.Value.Side) + " · " + Number(mvp.Value.Slot + 1)
+                    + " 号位 · " + battle.Sides[mvp.Value.Side].Team[mvp.Value.Slot].Name;
+            scroll.Add(Text(mvpText, "result-mvp", "screen-note"));
             if (!completed)
                 scroll.Add(Text("以下为当前统计；完成对战后可保存本局录像、复制战报和再来一局。", "result-unfinished", "screen-note"));
 
             var actions = Actions(scroll);
-            var rematch = AddButton(actions, "result-rematch", "再来一局", () => args.Rematch?.Invoke());
+            var rematch = AddButton(actions, "result-rematch", args.RematchLabel ?? "再来一局", () => args.Rematch?.Invoke());
             rematch.SetEnabled(completed && args.Rematch != null);
-            rematch.tooltip = completed ? "使用相同阵容重新开始对战。不可用时可返回组队。" : "对战结束后可使用。";
+            rematch.tooltip = completed ? "使用当前阵容继续下一局或重新开始比赛。不可用时可返回组队。" : "对战结束后可使用。";
             saveButton = AddButton(actions, "result-save", "保存录像", SaveReplay);
             saveButton.SetEnabled(completed);
             var copy = AddButton(actions, "result-copy-report", "复制可读战报", CopyReport);
@@ -99,13 +107,12 @@ namespace StreamDuel.Game
             AddButton(actions, "result-return-team", "返回组队", ReturnToTeam);
             feedback = Feedback(scroll);
 
-            BuildSummary(scroll, battle);
+            BuildSummary(scroll, battle, summary);
             return page;
         }
 
-        void BuildSummary(VisualElement parent, Battle battle)
+        void BuildSummary(VisualElement parent, Battle battle, BattleSummary summary)
         {
-            var summary = BattleSummary.From(battle);
             var heading = Text("每位主播的本局统计", "result-summary-title");
             heading.style.unityFont = router.Resources.BoldFont;
             heading.style.marginTop = 24;
@@ -118,7 +125,7 @@ namespace StreamDuel.Game
                 parent.Add(section);
                 string sideLabel = args.PlayerSide == 0 || args.PlayerSide == 1
                     ? (side == args.PlayerSide ? "我方" : "对方") : (side == 0 ? "甲方" : "乙方");
-                var teamTitle = Text(sideLabel + " · " + battle.Sides[side].Name, "result-team-title-" + side);
+                var teamTitle = Text(sideLabel + " · " + PlayerName(battle, side), "result-team-title-" + side);
                 teamTitle.style.unityFont = router.Resources.BoldFont;
                 section.Add(teamTitle);
 
@@ -196,7 +203,7 @@ namespace StreamDuel.Game
             button.style.maxWidth = Length.Percent(100);
             Action handler = () =>
             {
-                if (disposed) return;
+                if (disposed || !button.enabledInHierarchy) return;
                 try { action(); }
                 catch (Exception exception) { ShowFeedback("操作未完成：" + exception.Message); }
             };
@@ -231,7 +238,7 @@ namespace StreamDuel.Game
 
         void CopyReport()
         {
-            GUIUtility.systemCopyBuffer = BattleReport.Markdown(args.Battle);
+            clipboard.Text = BattleReport.Markdown(args.Battle, args.PlayerSide == 1 ? 1 : 0);
             ShowFeedback("可读战报已复制，可粘贴到文本编辑器查看。");
         }
 
@@ -247,6 +254,7 @@ namespace StreamDuel.Game
                 Content = resultArgs.Battle.Db,
                 Record = resultArgs.Battle.Record,
                 SaveStore = replayStore,
+                Clipboard = clipboard,
                 ResolvePack = resultArgs.ResolvePack,
                 Return = () => route.Show(ScreenIds.Result, resultArgs)
             });
@@ -266,6 +274,7 @@ namespace StreamDuel.Game
         }
 
         static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
+        static string PlayerName(Battle battle, int side) => TextInput.Clean(battle.Sides[side].Name, TextInputKind.PlayerName).Text;
 
         public void Tick(float dt) { }
 
@@ -277,6 +286,7 @@ namespace StreamDuel.Game
             router = null;
             args = null;
             store = null;
+            clipboard = null;
             feedback = null;
             saveButton = null;
         }

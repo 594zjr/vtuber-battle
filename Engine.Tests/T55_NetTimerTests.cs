@@ -107,7 +107,7 @@ public class T55_NetTimerTests
         }
         using var hostHello = JsonDocument.Parse(Assert.Single(pair.A.Messages("hello")));
         using var guestHello = JsonDocument.Parse(Assert.Single(pair.B.Messages("hello")));
-        Assert.Equal(2, hostHello.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal(3, hostHello.RootElement.GetProperty("version").GetInt32());
         Assert.Equal(1, hostHello.RootElement.GetProperty("timerVersion").GetInt32());
         Assert.Equal(2.5, hostHello.RootElement.GetProperty("timer").GetProperty("turnSeconds").GetDouble());
         Assert.Equal(7.25, hostHello.RootElement.GetProperty("timer").GetProperty("bankSeconds").GetDouble());
@@ -118,7 +118,7 @@ public class T55_NetTimerTests
     }
 
     [Fact]
-    public void DisabledTimerAcceptsOriginalVersionTwoHelloAndNeverAutoSubmits()
+    public void DisabledTimerAcceptsCurrentHelloWithoutTimerCapabilityAndNeverAutoSubmits()
     {
         Func<string, string> oldHello = message => EditHello(message, fields => fields.Remove("timerVersion"));
         var pair = new Pair(null, null, hostRewrite: oldHello, guestRewrite: oldHello, guestTurn: 1, guestBank: 1);

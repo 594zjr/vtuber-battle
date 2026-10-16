@@ -1,0 +1,49 @@
+.about-screen {
+    flex-grow: 1;
+    padding: 42px 64px;
+    background-color: #0c1124;
+    align-items: center;
+}
+.about-panel {
+    width: 100%;
+    max-width: 1700px;
+    height: 100%;
+    padding: 32px;
+    background-color: #151c38;
+    border-radius: 20px;
+    border-width: 1px;
+    border-color: #2b3666;
+}
+.about-heading { flex-direction: row; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.about-title { font-size: 42px; color: #ffb547; white-space: normal; }
+.about-version { font-size: 22px; color: #98a1c8; margin-left: 24px; }
+.about-free-notice { margin-top: 14px; font-size: 26px; color: #e8ebfa; white-space: normal; flex-shrink: 0; }
+.about-muted { margin-top: 8px; font-size: 20px; color: #98a1c8; white-space: normal; flex-shrink: 0; }
+.about-tabs { flex-direction: row; margin-top: 22px; margin-bottom: 16px; flex-shrink: 0; }
+.about-button {
+    min-height: 62px;
+    min-width: 190px;
+    padding: 10px 22px;
+    margin: 0px 12px 0px 0px;
+    background-color: #1c2549;
+    color: #e8ebfa;
+    font-size: 24px;
+    border-radius: 10px;
+    border-width: 3px;
+    border-color: #2b3666;
+    white-space: normal;
+}
+.about-button:hover { background-color: #2b3666; }
+.about-tab-selected { color: #ffb547; border-color: #8f6c3a; }
+.about-button:focus { border-color: #ffda9b; background-color: #2b3666; }
+.about-license-scroll {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-height: 0;
+    background-color: #0c1124;
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+.about-license-text { font-size: 22px; white-space: normal; color: #e8ebfa; flex-shrink: 0; }
+.about-footer { flex-direction: row; margin-top: 20px; flex-shrink: 0; }
+.about-controls { margin-top: 12px; font-size: 20px; color: #98a1c8; white-space: normal; flex-shrink: 0; }

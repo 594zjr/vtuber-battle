@@ -7,7 +7,7 @@ using UnityEngine.UIElements;
 
 namespace StreamDuel.Game
 {
-    public sealed class ReplayScreen : IScreen
+    public sealed partial class ReplayScreen : IScreen
     {
         readonly List<Action> unbind = new List<Action>();
         readonly List<string> replayNames = new List<string>();
@@ -18,7 +18,12 @@ namespace StreamDuel.Game
         ReplayNavigator navigator;
         IBattleAnimator animator;
         IPortraitProvider portraits;
-        SolidColorPortraitProvider ownedPortraits;
+        PortraitProvider ownedPortraits;
+        TimelineAnimator ownedAnimator;
+        ContentDb animatedContent;
+        ITextClipboard clipboard;
+        GameSettings settings;
+        Battle displayedBattle;
         VisualElement page, playback, details;
         BattleStage stage;
         ScrollView log;
@@ -31,6 +36,9 @@ namespace StreamDuel.Game
         float elapsed;
 
         public string Id => ScreenIds.Replay;
+        public Battle DisplayedBattle => displayedBattle?.Clone();
+        public TimelineAnimator TimelineAnimator => animator as TimelineAnimator;
+        public BattleStage Stage => stage;
 
         public ReplayScreen(Func<string, ContentDb> resolvePack = null)
         {
@@ -43,9 +51,11 @@ namespace StreamDuel.Game
             disposed = false;
             router = owner;
             args = screenArgs as ReplayScreenArgs ?? new ReplayScreenArgs();
-            animator = args.Animator ?? new NullAnimator();
+            animator = args.Animator;
+            clipboard = args.Clipboard ?? new SystemTextClipboard();
+            settings = args.Settings ?? GameRuntimeSettings.Current;
             portraits = args.Portraits;
-            if (portraits == null) portraits = ownedPortraits = new SolidColorPortraitProvider();
+            if (portraits == null) portraits = ownedPortraits = new PortraitProvider(owner.Resources.RegularFont);
 
             page = new VisualElement { name = "replay-screen" };
             page.AddToClassList("screen");
@@ -76,17 +86,18 @@ namespace StreamDuel.Game
                 else router.Show(ScreenIds.Menu);
             }));
             panel.Add(header);
-            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            var scroll = new ScrollView(ScrollViewMode.Vertical) { name = "replay-scroll" };
             scroll.style.flexGrow = 1;
             scroll.style.minHeight = 0;
             panel.Add(scroll);
-            packLabel = Text("本页仅提供录像回看。", "replay-pack");
+            packLabel = Text("打开录像回看，或连接观战端口观看已公开的延迟画面。", "replay-pack");
             scroll.Add(packLabel);
             feedback = Text("", "replay-status");
             feedback.style.display = DisplayStyle.None;
             scroll.Add(feedback);
             BuildLibrary(scroll);
             BuildSharing(scroll);
+            BuildSpectatorEntry(scroll);
             empty = Text("尚未打开录像。可以选择本地录像，或粘贴分享码打开。", "replay-empty");
             scroll.Add(empty);
             playback = new VisualElement();
@@ -94,18 +105,23 @@ namespace StreamDuel.Game
             BuildPlayback();
             UpdateControls();
 
-            AttemptLibrary(() =>
+            if (args.Spectator != null) Attempt(() => BeginSpectating(args.Spectator, args.SpectatorConnection));
+            else
             {
-                saveStore = args.SaveStore ?? ReplayStorage.OpenDefault();
-                RefreshFiles();
-            });
-            if (args.Record != null) Attempt(() => OpenRecord(args.Record));
+                AttemptLibrary(() =>
+                {
+                    saveStore = args.SaveStore ?? ReplayStorage.OpenDefault();
+                    RefreshFiles();
+                });
+                if (args.Record != null) Attempt(() => OpenRecord(args.Record));
+            }
             return page;
         }
 
         void BuildLibrary(VisualElement parent)
         {
             var row = Row();
+            row.name = "replay-library-controls";
             files = new DropdownField("本地录像") { name = "replay-files" };
             files.style.flexGrow = 1;
             files.style.flexBasis = 420;
@@ -134,6 +150,7 @@ namespace StreamDuel.Game
         void BuildSharing(VisualElement parent)
         {
             var row = Row();
+            row.name = "replay-share-controls";
             shareCode = new TextField("分享码") { name = "share-code-field" };
             shareCode.style.flexGrow = 1;
             shareCode.style.flexBasis = 420;
@@ -142,7 +159,7 @@ namespace StreamDuel.Game
             row.Add(shareCode);
             AddButton(row, "粘贴并打开", "paste-share-button", () => Attempt(() =>
             {
-                shareCode.SetValueWithoutNotify(GUIUtility.systemCopyBuffer ?? "");
+                shareCode.SetValueWithoutNotify(clipboard.Text ?? "");
                 OpenShare();
             }));
             AddButton(row, "打开分享码", "open-share-button", () => Attempt(OpenShare));
@@ -150,7 +167,7 @@ namespace StreamDuel.Game
             {
                 RequireReplay();
                 string code = ShareCode.Encode(navigator.Record);
-                GUIUtility.systemCopyBuffer = code;
+                clipboard.Text = code;
                 shareCode.SetValueWithoutNotify(code);
                 Message("分享码已复制，可发送给使用相同内容包版本的玩家。");
             }));
@@ -163,7 +180,8 @@ namespace StreamDuel.Game
             previous = AddButton(controls, "上一回合", "previous-turn-button", () => Attempt(() => Move(false)));
             next = AddButton(controls, "下一回合", "next-turn-button", () => Attempt(() => Move(true)));
             play = AddButton(controls, "自动播放", "play-pause-button", () => Attempt(TogglePlayback));
-            speed = new DropdownField("速度", new List<string> { "0.5x", "1x", "2x", "4x" }, 1)
+            int initialSpeed = settings.AnimationSpeed == .5 ? 0 : settings.AnimationSpeed == 2 ? 2 : 1;
+            speed = new DropdownField("速度", new List<string> { "0.5x", "1x", "2x", "4x" }, initialSpeed)
             {
                 name = "playback-speed"
             };
@@ -172,7 +190,7 @@ namespace StreamDuel.Game
             EventCallback<ChangeEvent<string>> changedSpeed = _ => Attempt(() =>
             {
                 elapsed = 0;
-                animator.SkipToEnd();
+                animator?.SkipToEnd();
             });
             speed.RegisterValueChangedCallback(changedSpeed);
             var speedField = speed;
@@ -232,7 +250,7 @@ namespace StreamDuel.Game
             files.SetValueWithoutNotify(replayNames.Contains(selected) ? selected : replayNames.FirstOrDefault() ?? "");
             PlainText(files);
             empty.text = replayNames.Count == 0
-                ? "本地暂无录像。可以粘贴分享码打开；本页仅提供录像回看。"
+                ? "本地暂无录像。可以粘贴分享码打开，或连接观战端口。"
                 : "尚未打开录像。请选择本地录像，或粘贴分享码打开。";
             UpdateControls();
         }
@@ -244,6 +262,8 @@ namespace StreamDuel.Game
 
         void OpenRecord(BattleRecord record)
         {
+            if (Spectating) throw new InvalidOperationException("请先停止观战，再打开录像。");
+            ReplayStorage.CheckPolicy(record);
             var content = args.Content;
             if (content == null || content.PackId != record.PackId)
             {
@@ -252,16 +272,19 @@ namespace StreamDuel.Game
             }
             if (content == null) throw new InvalidOperationException("未找到录像所需的内容包。");
             // 完整验证成功后才替换当前录像，坏分享码不会抹掉正在回看的内容。
-            var candidate = new ReplayNavigator(content, record);
+            var candidate = new ReplayNavigator(content, record, bestEffort: true);
             StopPlayback();
-            animator.SkipToEnd();
+            animator?.SkipToEnd();
             navigator = candidate;
+            displayedBattle = null;
             RefreshFrame();
-            Message("录像已打开。回合 0 为开场，可逐回合查看或自动播放。");
+            Message("录像已打开。回合 0 为开场，可逐回合查看或自动播放。"
+                + (string.IsNullOrEmpty(candidate.CompatibilityWarning) ? "" : "\n兼容提示：" + candidate.CompatibilityWarning));
         }
 
         void RequireReplay()
         {
+            if (Spectating) throw new InvalidOperationException("观战只显示已公开画面，不能跳转或导出尚未完整的录像。");
             if (navigator == null) throw new InvalidOperationException("请先打开一份录像。");
         }
 
@@ -322,9 +345,12 @@ namespace StreamDuel.Game
 
         public void Tick(float dt)
         {
-            if (disposed || !playing || navigator == null || dt <= 0 || float.IsNaN(dt) || float.IsInfinity(dt)) return;
+            if (disposed || dt <= 0 || float.IsNaN(dt) || float.IsInfinity(dt)) return;
             Attempt(() =>
             {
+                TimelineAnimator?.Tick(dt);
+                if (Spectating) { TickSpectator(); return; }
+                if (!playing || navigator == null) return;
                 if (animator.IsPlaying) return;
                 // 切回窗口时不把长时间挂起当成连续播放，避免瞬间跳过整份录像。
                 elapsed += Math.Min(dt, 1) * PlaybackSpeed;
@@ -354,16 +380,34 @@ namespace StreamDuel.Game
         void RefreshFrame(bool animate = false)
         {
             var battle = navigator.Current;
-            var view = BattleViewModel.From(battle, 0);
             int turn = navigator.Turns[navigator.Index];
             position.text = (turn == 0 ? "开场" : "第 " + turn + " 回合") + " · "
                 + (navigator.Index + 1) + " / " + navigator.Count + (battle.Phase == Phase.Over ? " · 已结束" : "");
             jumpTurn.SetValueWithoutNotify(turn);
+            RenderBattle(battle, battle.Log.Count - navigator.FrameLog.Count, navigator.FrameEventStart, animate);
+        }
+
+        void RenderBattle(Battle source, int logStart, int eventStart, bool animate)
+        {
+            var battle = TextInput.ForDisplay(source);
+            var view = BattleViewModel.From(battle, 0, settings);
+            var before = animate && displayedBattle != null
+                ? BattleViewModel.From(TextInput.ForDisplay(displayedBattle), 0, settings) : view;
+            if (args.Animator == null && !ReferenceEquals(animatedContent, source.Db))
+            {
+                ownedAnimator?.Dispose();
+                animatedContent = source.Db;
+                animator = ownedAnimator = new TimelineAnimator(stage, source.Db, portraits,
+                    skillFx: id => source.Db.Art.SkillFx(id));
+                // 资源头像本身已有程序生成字形，避免占位动画再叠一层相同首字。
+                foreach (var card in new[] { stage.Fighter0, stage.Fighter1 })
+                    card.Q<Label>("timeline-fighter-initial").style.display = DisplayStyle.None;
+            }
             packLabel.text = "内容包：" + battle.Db.PackName
                 + (string.IsNullOrEmpty(view.Notice) ? "" : "\n" + view.Notice);
             stage.FieldBanner.text = battle.Phase == Phase.Over
                 ? battle.Winner < 0 ? "对战结束：平局" : "对战结束：" + view.Sides[battle.Winner].Name + " 获胜"
-                : turn == 0 ? "开场局面" : "第 " + turn + " 回合结算后的局面";
+                : "当前已公开局面";
             details.Clear();
             for (int side = 0; side < view.Sides.Length; side++)
             {
@@ -372,18 +416,22 @@ namespace StreamDuel.Game
                 RenderFighter(side == 0 ? stage.Fighter0 : stage.Fighter1, battle.Db, sideView, active);
                 details.Add(Text(sideView.Name + " · " + active.Name));
                 details.Add(Text("人设：" + active.PersonaName + "\n" + active.PersonaDescription));
+                if (battle.Db.IsMixed) details.Add(Text("来源声明：" + battle.Db.NoticeFor(active.Id)));
                 if (active.Statuses.Count == 0) details.Add(Text("当前无状态或直播间效果。"));
                 foreach (var chip in active.Statuses) details.Add(Text(chip.Tooltip));
                 details.Add(Text("队伍：" + string.Join(" / ", sideView.Team.Select(fighter => fighter.Name + " "
                     + (fighter.Fainted ? "已退场" : fighter.Hp + "/" + fighter.MaxHp)))));
             }
             log.Clear();
-            foreach (var entry in navigator.FrameLog) log.Add(Text("【" + entry.Node + "】" + entry.Text));
+            foreach (var entry in battle.Log.Skip(logStart)) log.Add(Text("【" + entry.Node + "】" + entry.Text));
             if (log.contentContainer.childCount == 0) log.Add(Text("本回合暂无日志。"));
             log.scrollOffset = Vector2.zero;
             // 后退和跳转仍保留全部提示，由 Core 的零倍速语义直接呈现终态。
-            animator.Play(BattleTimeline.Build(battle.Events, navigator.FrameEventStart,
-                battle.Events.Count, animate ? PlaybackSpeed : 0));
+            TimelineAnimator?.Prepare(battle, before, view);
+            animator.Play(BattleTimeline.Build(battle.Events, eventStart,
+                battle.Events.Count, animate && settings.Animations ? PlaybackSpeed : 0));
+            // 留住自己的公开快照，下一次客户端收帧或游标推进不能改变动画起点。
+            displayedBattle = source.Clone();
             UpdateControls();
         }
 
@@ -396,8 +444,13 @@ namespace StreamDuel.Game
             hp.value = fighter.Pct;
             hp.title = fighter.Hp + " / " + fighter.MaxHp;
             PlainText(hp);
+            var titleContainer = hp.Q<VisualElement>(className: "unity-progress-bar__title-container");
+            // 时间线显示逐帧人气，静态终态标题不能叠在动画数值上；保留 title 供无动画模式读取。
+            if (titleContainer != null)
+                titleContainer.style.display = TimelineAnimator != null ? DisplayStyle.None : DisplayStyle.Flex;
             var statuses = card.Q<VisualElement>(StageNames.StatusRow);
             statuses.Clear();
+            if (TimelineAnimator != null) return;
             foreach (var chip in fighter.Statuses)
             {
                 var badge = Text(chip.Name + " " + chip.Duration);
@@ -410,16 +463,19 @@ namespace StreamDuel.Game
 
         void UpdateControls()
         {
-            bool loaded = navigator != null;
+            bool loaded = Spectating ? displayedBattle != null : navigator != null;
             if (playback != null) playback.style.display = loaded ? DisplayStyle.Flex : DisplayStyle.None;
             if (empty != null) empty.style.display = loaded ? DisplayStyle.None : DisplayStyle.Flex;
-            copyShare?.SetEnabled(loaded);
-            previous?.SetEnabled(loaded && navigator.Index > 0);
-            next?.SetEnabled(loaded && navigator.Index + 1 < navigator.Count);
-            jump?.SetEnabled(loaded);
-            play?.SetEnabled(loaded && navigator.Count > 1);
+            bool replay = loaded && !Spectating;
+            copyShare?.SetEnabled(replay);
+            previous?.SetEnabled(replay && navigator.Index > 0);
+            next?.SetEnabled(replay && navigator.Index + 1 < navigator.Count);
+            jump?.SetEnabled(replay);
+            jumpTurn?.SetEnabled(replay);
+            play?.SetEnabled(replay && navigator.Count > 1);
             if (play != null) play.text = playing ? "暂停" : "自动播放";
-            openFile?.SetEnabled(saveStore != null && replayNames.Count > 0);
+            openFile?.SetEnabled(!Spectating && saveStore != null && replayNames.Count > 0);
+            UpdateSpectatorControls();
         }
 
         void Attempt(Action action)
@@ -606,16 +662,23 @@ namespace StreamDuel.Game
             if (disposed) return;
             disposed = true;
             StopPlayback();
+            CloseSpectator();
             foreach (var remove in unbind) remove();
             unbind.Clear();
             try { animator?.SkipToEnd(); }
             catch (Exception) { }
+            ownedAnimator?.Dispose();
+            ownedAnimator = null;
+            animatedContent = null;
             ownedPortraits?.Dispose();
             ownedPortraits = null;
             portraits = null;
             navigator = null;
             saveStore = null;
             animator = null;
+            displayedBattle = null;
+            clipboard = null;
+            settings = null;
             router = null;
             args = null;
             page = playback = details = null;

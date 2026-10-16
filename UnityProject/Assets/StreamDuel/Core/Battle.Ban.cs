@@ -42,6 +42,17 @@ namespace StreamDuel.Core
                 int index = banChoices[1 - s];
                 banned[s] = team[index];
                 team.RemoveAt(index);
+                // 禁用前也可能留下和局日志，快照须与移除后的队伍保持同一索引。
+                foreach (var entry in Log)
+                {
+                    var oldHp = entry.SnapHp[s];
+                    var hp = new int[oldHp.Length - 1];
+                    Array.Copy(oldHp, 0, hp, 0, index);
+                    Array.Copy(oldHp, index + 1, hp, index, hp.Length - index);
+                    entry.SnapHp[s] = hp;
+                    int oldActive = entry.SnapActive[s];
+                    entry.SnapActive[s] = oldActive == index ? 0 : oldActive > index ? oldActive - 1 : oldActive;
+                }
                 for (int i = 0; i < team.Count; i++) team[i].Slot = i + 1;
                 Sides[s].Active = 0;
             }

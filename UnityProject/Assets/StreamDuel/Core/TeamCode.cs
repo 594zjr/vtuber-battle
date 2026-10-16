@@ -76,6 +76,17 @@ namespace StreamDuel.Core
             };
         }
 
+        public static TeamPreset Decode(string code, ContentDb db)
+        {
+            if (db == null) throw new ArgumentNullException(nameof(db));
+            var preset = Decode(code);
+            string disabled = db.Policy.CheckTeam(preset.PackId, preset.Ids);
+            if (disabled != null) throw new FormatException(disabled);
+            var errors = preset.Check(db, null);
+            if (errors.Count > 0) throw new FormatException(string.Join("；", errors));
+            return preset;
+        }
+
         static string Base64Url(byte[] data)
         {
             return Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');

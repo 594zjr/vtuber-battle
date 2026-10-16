@@ -36,7 +36,7 @@ public class T05_PreviewEdgeTests
         Assert.Equal(214, preview.Min);
         Assert.Equal(252, preview.Max);
         Assert.Equal(2.0, preview.Eff);
-        Assert.Contains(preview.Notes, x => x.Contains("炎上"));
+        Assert.Contains(preview.Notes, x => x.Contains("过热"));
         Assert.Contains(preview.Notes, x => x.Contains("残血翻盘"));
         Assert.Contains(preview.Notes, x => x.Contains("房管护盘"));
         Assert.Contains(preview.Notes, x => x.Contains("老司机"));

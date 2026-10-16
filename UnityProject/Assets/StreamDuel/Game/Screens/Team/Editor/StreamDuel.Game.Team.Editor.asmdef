@@ -1,0 +1,14 @@
+{
+    "name": "StreamDuel.Game.Team.Editor",
+    "rootNamespace": "StreamDuel.Game.Editor",
+    "references": [ "StreamDuel.Game", "StreamDuel.Core" ],
+    "includePlatforms": [ "Editor" ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
