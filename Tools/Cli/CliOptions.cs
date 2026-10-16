@@ -72,6 +72,7 @@ namespace StreamDuel.Cli
             {
                 string option = args[i];
                 provided.Add(option);
+                if (options.ReadBranchCompareOption(args, ref i)) continue;
                 if (options.ReadRatingOption(option)) continue;
                 if (options.ReadCardOption(args, ref i)) continue;
                 if (option == "--json")
@@ -372,6 +373,7 @@ namespace StreamDuel.Cli
                         break;
                 }
             }
+            ValidateBranchCompareOptions(options, provided);
             ValidateRatingOptions(options, provided);
             ValidateSpectatorOptions(options, provided);
             ValidateCardOptions(options, provided);

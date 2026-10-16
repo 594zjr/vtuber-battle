@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.BranchCompareSource != null) return CompareBranchFiles(options);
                 if (options.RatingMode) return RunRatingCommand(options);
                 if (options.CardMode) return PrintCards(options);
                 if (options.BranchReplay != null) return PlayBranch(options);
@@ -249,6 +250,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    回合从 1 开始；0/1 对应录像第一/第二方。--ai normal|hard|expert 指定电脑难度，默认 normal。");
             Console.WriteLine("                    独立手动模式，仅可另加 --save-dir、--pack-dir；严格检查原录像版本、下架策略及内容指纹。");
             Console.WriteLine("                    完成后只追加带来源备注的新录像到 replay-library，保留所有旧记录；不累计正式战绩，q 或输入结束不保存。");
+            Console.WriteLine("  --branch-compare 原录像文件 接手录像文件  只读对照结局、双方剩余人数/总血量、回合数及接手后的关键回合。");
+            Console.WriteLine("                    仅可搭配 --pack-dir；按录像内容包严格校验来源、完整终局、版本和内容指纹，不支持库编号或 --save-dir。");
+            Console.WriteLine("                    结果写到标准输出；不修改输入、档案、录像库或索引，不另存报告。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
             Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
