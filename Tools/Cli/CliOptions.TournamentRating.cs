@@ -18,7 +18,10 @@ namespace StreamDuel.Cli
 
         private static void ValidateTournamentSeedOptions(CliOptions options)
         {
-            if (options.TournamentSeedByRating && options.TournamentFile == null && !options.Help)
+            if (!options.TournamentSeedByRating || options.Help) return;
+            if (options.TournamentSeed.HasValue)
+                throw new ArgumentException("--seed-by rating 不能与 --tournament-seed 同用，请选择按排位快照或随机排种子。");
+            if (options.TournamentFile == null)
                 throw new ArgumentException("--seed-by 只能与 --tournament 同用，不能用于普通对战或赛事战报查询。");
         }
     }

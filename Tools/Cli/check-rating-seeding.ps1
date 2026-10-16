@@ -50,8 +50,6 @@ function Invoke-Cli([string]$Name, [string[]]$Parameters, [string[]]$Lines = @()
     $start.StandardErrorEncoding = $utf8
     $start.Environment['TEMP'] = $temporary
     $start.Environment['TMP'] = $temporary
-    $start.Environment['DOTNET_CLI_HOME'] = 'D:\vtuber-battle\.dotnet-home'
-    $start.Environment['NUGET_PACKAGES'] = 'D:\vtuber-battle\.nuget\packages'
     $start.Environment['DOTNET_SKIP_FIRST_TIME_EXPERIENCE'] = '1'
     $start.Environment['DOTNET_CLI_TELEMETRY_OPTOUT'] = '1'
     $process = [Diagnostics.Process]::new()
@@ -303,6 +301,178 @@ try {
         Check ((Read-Tournament $path).IsFinished) '默认旧赛事无法继续完成。'
     }
     Passed 'legacy_interaction_and_resume_mode_protection'
+
+    # T118 的随机排种子和 rating 排种子不能同时指定，且拒绝必须早于赛事入口。
+    $t118SourceBefore = Tree-Fingerprint $sources
+    foreach ($existing in @($false, $true)) {
+        $path = if ($existing) { $partialPath } else { Join-Path $run 't118-conflict-must-not-exist/event.json' }
+        $before = Tree-Fingerprint $path
+        foreach ($reverse in @($false, $true)) {
+            $parameters = if ($reverse) {
+                @('--tournament-seed', '124', '--seed-by', 'rating', '--format', 'single', '--tournament', $path)
+            } else {
+                @('--tournament', $path, '--format', 'single', '--seed-by', 'rating', '--tournament-seed', '124')
+            }
+            $rejected = Invoke-Cli "t118-seed-conflict-$existing-$reverse" $parameters @() 1
+            Check ($rejected.Out.Length -eq 0 -and $rejected.Err.Contains('--seed-by') -and
+                $rejected.Err.Contains('--tournament-seed') -and $rejected.Err -notmatch '未知参数|不认识的参数|unknown') '排种子冲突没有在参数阶段明确拒绝。'
+            Check ((Tree-Fingerprint $path) -ceq $before) '排种子冲突修改或创建了赛事文件。'
+            if (-not $existing) { Check (-not (Test-Path -LiteralPath (Split-Path $path -Parent))) '排种子冲突创建了赛事目录。' }
+        }
+    }
+    Check ((Tree-Fingerprint $sources) -ceq $t118SourceBefore) '排种子冲突改变了档案来源。'
+    Passed 't118_seed_conflict_both_orders_before_io'
+
+    # 用 --auto 创建但先退出报名，才能证明 no-auto 真正覆盖自动模式的默认值。
+    foreach ($format in @('single', 'double')) {
+        foreach ($reverse in @($false, $true)) {
+            $path = Join-Path $run "t118-no-auto-$format-$reverse.json"
+            $parameters = if ($reverse) {
+                @('--no-auto-tiebreak', '--seed-by', 'rating', '--auto', '--format', $format, '--tournament', $path)
+            } else {
+                @('--tournament', $path, '--format', $format, '--auto', '--seed-by', 'rating', '--no-auto-tiebreak')
+            }
+            $linesForNoAuto = (Register-Lines '普通参考分' 'normal') + (Register-Lines '专家参考分' 'expert') + @('q')
+            $null = Invoke-Cli "t118-no-auto-create-$format-$reverse" $parameters $linesForNoAuto
+            $loaded = Read-Tournament $path
+            Check ($loaded.SeedMode.ToString() -eq 'ByRating' -and -not $loaded.AutoTiebreak -and
+                $loaded.Round -eq 0 -and $loaded.Players.Count -eq 2 -and ($loaded.EffectiveSeedOrder -join ',') -eq '1,0') 'rating 与 no-auto 组合丢失配置、报名或评分顺序。'
+            $resumed = Invoke-Cli "t118-no-auto-resume-$format-$reverse" @('--tournament', $path, '--seed-by', 'rating', '--no-auto-tiebreak') @('', 'q')
+            $loaded = Read-Tournament $path
+            Check ($loaded.Round -eq 1 -and -not $loaded.AutoTiebreak -and $loaded.RatingSeeds.Count -eq 2 -and
+                ($loaded.EffectiveSeedOrder -join ',') -eq '1,0' -and $resumed.Out.Contains('输入结果：')) 'no-auto 续赛未进入手工结果流程，或丢失已冻结评分。'
+        }
+    }
+    Check ((Tree-Fingerprint $sources) -ceq $t118SourceBefore) 'no-auto 兼容用例改变了档案来源。'
+    Passed 't118_no_auto_rating_both_orders_and_resume'
+
+    # 原 FF FE FF 同时是坏 JSON；这里仅把合法 JSON 的非默认赛制键内一字节换成 FF。
+    $badStringDirectory = Join-Path $sources 'bad-utf8-in-json-string'
+    [void][IO.Directory]::CreateDirectory($badStringDirectory)
+    $badStringProfile = [StreamDuel.Core.Profile]::new()
+    $badStringRating = [StreamDuel.Core.PlayerRating]::new()
+    $badStringRating.Rating = 1777
+    $badStringRating.Games = 11
+    $badStringProfile.Ratings['badX'] = $badStringRating
+    $badStringJson = $badStringProfile.ToJson()
+    $marker = $badStringJson.IndexOf('"badX"', [StringComparison]::Ordinal)
+    Check ($marker -ge 0 -and $marker -eq $badStringJson.LastIndexOf('"badX"', [StringComparison]::Ordinal)) '坏字节夹具标记不唯一。'
+    [byte[]]$badStringBytes = $utf8.GetBytes($badStringJson)
+    $badStringBytes[$utf8.GetByteCount($badStringJson.Substring(0, $marker + 4))] = 255
+    $replacementDecoder = [Text.UTF8Encoding]::new($false, $false)
+    $tolerated = [StreamDuel.Core.Profile]::FromJson($replacementDecoder.GetString($badStringBytes))
+    $replacementKey = 'bad' + [char]0xFFFD
+    Check ($tolerated.Ratings.ContainsKey($replacementKey) -and $tolerated.Ratings[$replacementKey].Rating -eq 1777 -and
+        $tolerated.Ratings[$replacementKey].Games -eq 11) '夹具未证明替换解码会得到合法档案。'
+    [IO.File]::WriteAllBytes((Join-Path $badStringDirectory 'profile.json'), $badStringBytes)
+    $sourceBefore = Tree-Fingerprint $sources
+    $badStringPath = Join-Path $run 'bad-utf8-in-json-string.json'
+    $rejected = Invoke-Cli 'bad-utf8-in-json-string' @('--tournament', $badStringPath, '--format', 'single', '--seed-by', 'rating') ((Register-Lines '坏字节选手' 'human' $badStringDirectory) + @('q'))
+    $loaded = Read-Tournament $badStringPath
+    Check ($rejected.Out.Contains('档案读取失败') -and $rejected.Out.Contains('UTF-8') -and $loaded.Players.Count -eq 0 -and
+        $loaded.RatingSeeds.Count -eq 0) '合法 JSON 字符串中的非法 UTF-8 被替换后接受，或留下半份评分报名。'
+    Check ((Tree-Fingerprint $sources) -ceq $sourceBefore) '拒绝字符串内坏字节时改写了来源或创建了来源锁。'
+    Passed 'strict_utf8_rejects_invalid_byte_inside_valid_json_string'
+
+    $bomDirectory = New-Profile 'valid-utf8-bom' 1723 7
+    $bomFile = Join-Path $bomDirectory 'profile.json'
+    [byte[]]$bomBytes = [byte[]]@(239, 187, 191) + [IO.File]::ReadAllBytes($bomFile)
+    [IO.File]::WriteAllBytes($bomFile, $bomBytes)
+    $sourceBefore = Tree-Fingerprint $sources
+    $bomPath = Join-Path $run 'valid-utf8-bom.json'
+    $null = Invoke-Cli 'valid-utf8-bom' @('--tournament', $bomPath, '--format', 'single', '--seed-by', 'rating') ((Register-Lines 'BOM 选手' 'human' $bomDirectory) + @('q'))
+    $loaded = Read-Tournament $bomPath
+    Check ($loaded.Players.Count -eq 1 -and $loaded.RatingSeeds.Count -eq 1 -and $loaded.RatingSeeds[0].Rating -eq 1723 -and
+        $loaded.RatingSeeds[0].Games -eq 7 -and $loaded.RatingSeeds[0].Season -eq 1) '合法 UTF-8 BOM 档案不能只读提取真实评级。'
+    Check ((Tree-Fingerprint $sources) -ceq $sourceBefore) '读取 UTF-8 BOM 档案修改了原字节、mtime 或来源目录。'
+    Passed 'utf8_bom_profile_accepted_without_source_changes'
+
+    # TournamentFileStore.Save 先独占 .tournament.lock，再比较来源并创建 .tournament.tmp。
+    $lockedPath = Join-Path $run 'save-lock/event.json'
+    $null = Invoke-Cli 'save-lock-initial' @('--tournament', $lockedPath, '--format', 'single', '--seed-by', 'rating') ((Register-Lines '既有报名' 'human' $bomDirectory) + @('q'))
+    $lockPath = $lockedPath + '.tournament.lock'
+    Check (Test-Path -LiteralPath $lockPath -PathType Leaf) '初始化未生成生产 Save 使用的持久锁文件。'
+    $lockedDirectory = Split-Path $lockedPath -Parent
+    $eventBefore = Tree-Fingerprint $lockedDirectory
+    $sourceBefore = Tree-Fingerprint $sources
+    $heldLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $failedSave = Invoke-Cli 'save-lock-reject-registration' @('--tournament', $lockedPath, '--seed-by', 'rating') ((Register-Lines '待保存报名' 'human' $seasonPath) + @('q')) 1
+        Check ($failedSave.Err.Contains('.tournament.lock') -and $failedSave.Out.Contains('可选档案目录') -and
+            -not $failedSave.Out.Contains('档案读取失败') -and -not $failedSave.Out.Contains('报名失败：')) '没有在有效报名后的真实 Save 独占锁步骤失败。'
+    }
+    finally { $heldLock.Dispose() }
+    Check ((Tree-Fingerprint $lockedDirectory) -ceq $eventBefore -and (Tree-Fingerprint $sources) -ceq $sourceBefore) 'Save 锁冲突改变赛事、来源、mtime 或留下额外临时文件。'
+    $loaded = Read-Tournament $lockedPath
+    Check ($loaded.Players.Count -eq 1 -and $loaded.RatingSeeds.Count -eq 1 -and $loaded.RatingSeeds[0].Rating -eq 1723) 'Save 锁失败丢失既有报名或持久化了未成功的新报名。'
+    $null = Invoke-Cli 'save-lock-recover-registration' @('--tournament', $lockedPath, '--seed-by', 'rating') ((Register-Lines '待保存报名' 'human' $seasonPath) + @('q'))
+    $loaded = Read-Tournament $lockedPath
+    Check ($loaded.Players.Count -eq 2 -and $loaded.RatingSeeds.Count -eq 2 -and ($loaded.RatingSeeds.Rating -join ',') -eq '1723,1900' -and
+        ($loaded.RatingSeeds.Games -join ',') -eq '7,3' -and ($loaded.RatingSeeds.Season -join ',') -eq '1,2') '锁释放后重试没有只新增一份真实赛季快照。'
+    Check ((Tree-Fingerprint $sources) -ceq $sourceBefore -and @(Get-ChildItem -LiteralPath $lockedDirectory -Force -Filter '*.tournament.tmp*').Count -eq 0) '锁释放后成功报名改变了来源或遗留临时文件。'
+    Passed 'real_save_lock_failure_preserves_files_and_recovers_once'
+
+    # 两名电脑按低分先报名，真实自动完赛覆盖 rating 与 T118 逐局归档的完整接线。
+    $autoPath = Join-Path $run 'rating-auto-complete/event.json'
+    $autoSourceBefore = Tree-Fingerprint $sources
+    $autoLines = (Register-Lines '低分先报名' 'normal') + (Register-Lines '高分后报名' 'expert') + @('')
+    $autoCompleted = Invoke-Cli 'rating-auto-complete' @('--tournament', $autoPath, '--format', 'single', '--seed-by', 'rating', '--auto') $autoLines
+    $autoEvent = Read-Tournament $autoPath
+    $autoJson = [IO.File]::ReadAllText($autoPath, $utf8) | ConvertFrom-Json -AsHashtable
+    Check ($autoCompleted.Out.Contains('赛事已结束。') -and $autoEvent.IsFinished -and $null -ne $autoEvent.Champion -and
+        $autoEvent.AutoTiebreak -and $autoEvent.SeedMode.ToString() -eq 'ByRating' -and $null -eq $autoEvent.Seed) 'rating 自动赛事没有以原配置完整决出冠军。'
+    Check ($autoJson.version -eq 4 -and $autoJson.autoTiebreak -and $autoJson.seedBy -ceq 'rating' -and
+        ($autoEvent.EffectiveSeedOrder -join ',') -ceq '1,0' -and ($autoEvent.RatingSeeds.Player -join ',') -ceq '0,1' -and
+        ($autoEvent.RatingSeeds.Rating -join ',') -ceq '1400,1800' -and ($autoEvent.RatingSeeds.Games -join ',') -ceq '0,0' -and
+        ($autoEvent.RatingSeeds.Season -join ',') -ceq '1,1' -and ($autoJson.ratingSeeds.rating -join ',') -ceq '1400,1800') '真实自动赛事丢失 v4、自动加赛或反报名顺序的冻结评级。'
+    Check ($autoEvent.Pairings.Count -eq 1) '两人单败没有恰好一个实际对阵。'
+    $autoPairing = $autoEvent.Pairings[0]
+    Check (-not $autoPairing.IsBye -and $null -ne $autoPairing.WinnerSide -and $autoPairing.Games.Count -ge 1 -and
+        $autoPairing.Games.Count -le 4) '真实自动赛事缺少原场/加赛单局记录。'
+    $autoDirectory = Split-Path $autoPath -Parent
+    $autoFilesBefore = Tree-Fingerprint $autoDirectory
+    $autoReportOutput = Invoke-Cli 'rating-auto-report' @('--tournament-report', $autoPath, '--json')
+    $autoReport = $autoReportOutput.Out | ConvertFrom-Json -AsHashtable
+    Check ($autoReport.version -eq 2 -and $autoReport.autoTiebreak -and $autoReport.isFinished -and
+        $autoReport.champion -eq $autoEvent.Champion) 'rating 自动赛事的真实 CLI 战报未使用 v2 逐局格式或冠军不符。'
+    $autoMatches = @($autoReport.rounds | ForEach-Object { $_.matches } | Where-Object { $null -ne $_.player1 })
+    Check ($autoMatches.Count -eq 1 -and $autoMatches[0].pairingId -eq $autoPairing.Id -and
+        $autoMatches[0].player0 -eq $autoPairing.Player0 -and $autoMatches[0].player1 -eq $autoPairing.Player1 -and
+        $autoMatches[0].winnerSide -eq $autoPairing.WinnerSide -and $autoMatches[0].replay.status -ceq 'saved' -and
+        $autoMatches[0].games.Count -eq $autoPairing.Games.Count) '战报没有完整对应真实对阵、胜方和已归档单局。'
+    $autoLibraryPath = $autoPath + '.replay-library'
+    $autoLibrary = [StreamDuel.Core.ReplayLibrary]::OpenReadOnly($autoLibraryPath, $policy)
+    $autoReplayIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    for ($attempt = 0; $attempt -lt $autoPairing.Games.Count; $attempt++) {
+        $game = $autoPairing.Games[$attempt]
+        $shown = $autoMatches[0].games[$attempt]
+        Check ($game.Attempt -eq $attempt -and $game.Seed -eq $autoEvent.GameSeed($autoPairing, $attempt) -and
+            $shown.attempt -eq $attempt -and $shown.seed -eq $game.Seed -and $shown.winnerSide -eq $game.WinnerSide -and
+            $shown.recordHash -ceq $game.RecordHash -and $shown.replay.status -ceq 'saved' -and
+            -not [string]::IsNullOrWhiteSpace($shown.replay.id)) '自动赛事战报的单局序号、种子、胜负、摘要或保存状态不符。'
+        Check ($autoReplayIds.Add([string]$shown.replay.id)) '不同单局错误地共用同一录像编号。'
+        $record = $autoLibrary.Load($shown.replay.id)
+        $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($utf8.GetBytes($record.ToJson()))).ToLowerInvariant()
+        $replayed = [StreamDuel.Core.Replay]::Run($db, $record)
+        Check ($digest -ceq $game.RecordHash -and $record.Seed -eq $game.Seed -and
+            @($record.Events | Where-Object { $_.Type -eq [StreamDuel.Core.BattleRecordEventType]::Turn }).Count -gt 0 -and
+            $replayed.Phase -eq [StreamDuel.Core.Phase]::Over -and $replayed.Winner -eq $game.WinnerSide) '归档录像不是对应的真实 AI 完局，或不能独立重放。'
+        for ($side = 0; $side -lt 2; $side++) {
+            $playerId = if ($side -eq 0) { $autoPairing.Player0 } else { $autoPairing.Player1 }
+            Check ($record.Names[$side] -ceq $autoEvent.Players[$playerId].Name -and
+                ($record.Teams[$side] -join ',') -ceq ($autoEvent.Players[$playerId].Team -join ',')) '实际归档录像的参赛双方与评级排种子后的对阵不一致。'
+        }
+    }
+    Check ($autoReport.coverage.completedGames -eq $autoPairing.Games.Count -and $autoReport.coverage.archivedGames -eq $autoPairing.Games.Count -and
+        $autoReport.coverage.missingGames -eq 0 -and $autoReport.coverage.invalidGames -eq 0) 'v2 战报覆盖率未按全部真实单局统计。'
+    $autoRecordFiles = @(Get-ChildItem -LiteralPath $autoLibraryPath -File -Filter '*.json' | Where-Object { $_.Name -cne 'index.json' })
+    Check ($autoRecordFiles.Count -eq $autoPairing.Games.Count -and (Tree-Fingerprint $autoDirectory) -ceq $autoFilesBefore) '录像数量与真实单局不符，或只读报告/重放改写了赛事与录像库。'
+    $autoResumed = Invoke-Cli 'rating-auto-finished-resume' @('--tournament', $autoPath, '--auto')
+    Check ($autoResumed.Out.Contains('赛事已结束。') -and (Tree-Fingerprint $autoDirectory) -ceq $autoFilesBefore) '完成后 --auto 续赛重复保存或改写了赛事与录像库。'
+    $autoReportAgain = Invoke-Cli 'rating-auto-finished-report' @('--tournament-report', $autoPath, '--json')
+    Check ($autoReportAgain.Out -ceq $autoReportOutput.Out -and (Tree-Fingerprint $autoDirectory) -ceq $autoFilesBefore -and
+        (Tree-Fingerprint $sources) -ceq $autoSourceBefore) '完成后只读报告或自动续赛改变了原文件指纹或报告内容。'
+    Passed 'rating_auto_complete_v4_games_v2_report_and_readonly_finished_resume'
 }
 catch {
     $failure = $_.Exception.ToString()

@@ -155,20 +155,52 @@ public class T42_LocalizationEdgeTests
     [Fact]
     public void MigratedChineseOutputsMatchThePreLocalizationBaselineExactly()
     {
+        var allRows = CollectSnapshot();
+        // 第三期在迁移完成后加入；历史四包继续使用主线已核对的完整基线。
+        var rows = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in allRows)
+            if (!row.Key.StartsWith("original_wave3.json/", StringComparison.Ordinal)) rows.Add(row.Key, row.Value);
+        Assert.Equal(467, rows.Count);
+        using var sha = SHA256.Create();
+        string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
+        // 在 9fb5e12 的独立 Core 源码副本上采集；覆盖所有内置包的效果、人设、赛道及代表错误分支。
+        // T-82 用 32f190e 资源复现旧摘要后逐项核对：467 项中仅 14 项含已批准的中性显示名替换。
+        Assert.Equal("60A4A611E213D0878A9357738C4E381302A73FA3864B6EB8B2C0B24A8EF12B88", actual);
+    }
+
+    [Fact]
+    public void FivePackChineseOutputsMatchTheExpandedBaselineExactly()
+    {
+        var rows = CollectSnapshot();
+        Assert.Equal(633, rows.Count);
+        using var sha = SHA256.Create();
+        string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
+        Assert.Equal("DC65EB8BEB19529536095A2A70C182A580417910D0FBCC88D2F0BF617FC7C032", actual);
+    }
+
+    [Fact]
+    public void ThirdWaveChineseOutputsMatchTheNewContentBaselineExactly()
+    {
+        var allRows = CollectSnapshot();
+        var rows = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in allRows)
+            if (row.Key.StartsWith("original_wave3.json/", StringComparison.Ordinal)) rows.Add(row.Key, row.Value);
+        Assert.Equal(166, rows.Count);
+        using var sha = SHA256.Create();
+        string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
+        Assert.Equal("905BD0B930ED6F3A998EB2C2576E02FD61B4FD30D8E5809D9800A0C2904FD591", actual);
+    }
+
+    static SortedDictionary<string, string> CollectSnapshot()
+    {
         var previous = Loc.Current;
         var previousCulture = CultureInfo.CurrentCulture;
         try
         {
             Loc.Current = null;
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            var rows = T42_ChineseSnapshot.Collect(Resources,
+            return T42_ChineseSnapshot.Collect(Resources,
                 Path.Combine(Root, "Engine.Tests", "obj", "T42ChineseFixtures-" + Guid.NewGuid().ToString("N")));
-            Assert.Equal(467, rows.Count);
-            using var sha = SHA256.Create();
-            string actual = Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(rows))));
-            // 在 9fb5e12 的独立 Core 源码副本上采集；覆盖所有内置包的效果、人设、赛道及代表错误分支。
-            // T-82 用 32f190e 资源复现旧摘要后逐项核对：467 项中仅 14 项含已批准的中性显示名替换。
-            Assert.Equal("60A4A611E213D0878A9357738C4E381302A73FA3864B6EB8B2C0B24A8EF12B88", actual);
         }
         finally
         {

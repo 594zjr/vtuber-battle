@@ -19,6 +19,7 @@ namespace StreamDuel.Core
             {
                 // 结果和已排轮次会变化，关联键只取赛事配置与按报名顺序保存的原始输入。
                 var text = new StringBuilder(SeedMode == TournamentSeedMode.ByRating ? "{\"version\":4,\"format\":"
+                    : AutoTiebreak ? "{\"version\":3,\"format\":"
                     : IsElimination ? "{\"version\":2,\"format\":" : "{\"version\":1,\"format\":");
                 TeamPresetJson.WriteString(text, Format);
                 if (IsElimination) WriteEliminationConfiguration(text);
@@ -43,6 +44,7 @@ namespace StreamDuel.Core
                 using (var hash = SHA256.Create())
                 {
                     string domain = SeedMode == TournamentSeedMode.ByRating ? "StreamDuel.TournamentArchive.v4\n"
+                        : AutoTiebreak ? "StreamDuel.TournamentArchive.v3\n"
                         : IsElimination ? "StreamDuel.TournamentArchive.v2\n" : "StreamDuel.TournamentArchive.v1\n";
                     byte[] digest = hash.ComputeHash(Encoding.UTF8.GetBytes(domain + text));
                     var result = new StringBuilder(64);
