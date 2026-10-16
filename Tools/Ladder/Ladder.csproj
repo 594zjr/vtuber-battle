@@ -11,5 +11,6 @@
     <None Include="../../UnityProject/Assets/StreamDuel/Resources/PackPolicy.json" CopyToOutputDirectory="PreserveNewest" Link="Content/PackPolicy.json" />
     <None Include="../../UnityProject/Assets/StreamDuel/Resources/StreamDuelRules.json" CopyToOutputDirectory="PreserveNewest" Link="Content/StreamDuelRules.json" />
     <None Include="../../UnityProject/Assets/StreamDuel/Resources/Packs/*.json" CopyToOutputDirectory="PreserveNewest" Link="Content/Packs/%(Filename)%(Extension)" />
+    <None Include="../../docs/ai-baseline.json" Condition="Exists('../../docs/ai-baseline.json')" CopyToOutputDirectory="PreserveNewest" Link="ai-baseline.json" />
   </ItemGroup>
 </Project>

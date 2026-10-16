@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Engine/StreamDuel.Core.csproj" />
+    <None Include="../docs/ai-baseline.json" CopyToOutputDirectory="PreserveNewest" Link="ai-baseline.json" />
     <Compile Include="../UnityProject/Assets/StreamDuel/Game/Screens/Replay/ReplayNavigator.cs" Link="T70/ReplayNavigator.cs" />
     <!-- 直接链接工具的纯数据层，避免可执行工程把真实下架政策复制到测试夹具。 -->
     <Compile Include="../Tools/Balance/BalanceSnapshot*.cs" Link="Balance/%(Filename)%(Extension)" />

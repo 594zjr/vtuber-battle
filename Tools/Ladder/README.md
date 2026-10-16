@@ -36,6 +36,45 @@ dotnet run --project Tools/Ladder -- --pack original --teams 16 --rounds 3 --see
 
 自动验收：`pwsh -NoProfile -File Tools/Ladder/verify.ps1`（PowerShell 7）。脚本构建 Release，检查两次 CSV 与控制台字节一致、耗时、赛季合法性、积分和 Elo 守恒、登场统计、奇数轮空、困难模式和无效参数，并将日志及报告保存在 `Tools/Ladder/obj/verification/` 的独立子目录，不删除已有结果。
 
+## 电脑强度回归
+
+```powershell
+dotnet run --project Tools/Ladder -c Release -- --ai-regression
+dotnet run --project Tools/Ladder -c Release -- --ai-regression --pack original --games 100 --seed 1 --baseline docs/ai-baseline.json
+dotnet run --project Tools/Ladder -c Release -- --ai-regression --games 20 --seed 1 --write-baseline Tools/Ladder/obj/ai-baseline-candidate.json
+```
+
+`--ai-regression` 调用 Core 的 `AiRegression.Run`，比较简单、普通、困难、专家四档难度的全部六种配对。默认原创包、每对 100 局、种子 1；`--games` 必须为大于零的偶数。每组先从按 id 排序的名单随机抽取两支六人阵容，保持队内号位与对战种子不变，再交换双方难度打第二局；六种难度配对使用相同的阵容样本。随机数来自 `Battle.Rng`，技能先手顺序仍由 Core 正常结算，换边不会强制某档难度先行动。无赛季限制、禁用或选首发流程；每局使用引擎现有回合上限，达到上限也按 Core 的既有规则结算胜负。
+
+控制台输出行对列的胜率矩阵与每对难度的胜、负、平、未完成数量。胜率为胜场除以总局数，平局不折算半胜；同档难度没有实际对战，以 `—` 显示。未完成指保护性步数上限结束时仍未终局的异常情况，数量包含在平局中；任何未完成对局均判回归失败。
+
+默认基准由 `docs/ai-baseline.json` 复制到构建输出目录，运行时与当前工作目录无关；也可用 `--baseline` 指定已有文件。基准记录内容包、内容指纹、局数、种子、回合上限、采样版本、六组实测计数以及允许下降幅度。比较要求内容包、局数、种子、回合上限、采样版本一致；内容指纹变化时提示后继续比较，以便发现修改规则或内容后的退步。参数或文件错误、任一高难度对低难度胜率不大于 50%、任一高难度胜率比基准下降超过允许幅度（默认 5 个百分点）、任一未完成对局，均返回退出码 `1`。全部通过才返回 `0`，所有失败项逐条输出，不因其中一项失败而隐藏其余结果。
+
+`--write-baseline` 明确指定并覆盖一个输出文件，创建其父目录，写入本次实际测得的数据；不读取旧基准，也不比较历史下降。难度顺序或完整对局要求未达标时仍保存实际结果并返回 `1`，避免把测得的失败改成成功。建议先写到 `obj/` 下作为候选，审查测量结果后再决定是否替换仓库基准；生成命令本身不代表接受这套难度强度。该选项与 `--baseline` 互斥。
+
+回归模式只接受 `--pack`、`--games`、`--seed`、`--baseline` 或 `--write-baseline`，不能混用普通天梯的 `--teams`、`--rounds`、`--level`、`--season`、`--out`。回归专用参数也不能单独用于普通天梯。完整每对 100 局检查较慢，不在 CI 中运行；单元测试使用每对 20 局的小样本。
+
+`pwsh -NoProfile -File Tools/Ladder/verify-ai-regression.ps1` 检查帮助、参数互斥、损坏或不匹配的基准、默认基准加载、每对两局的真实计数与退出码，以及旧天梯模式仍可输出 CSV。真实样本按其计数核对判定，不要求 AI 必须输；另外使用确定的统计夹具检查全胜通过、难度顺序失败、历史下降失败和未完成失败。它不会重复执行完整强度测量。已经构建 Release 时可加 `-SkipBuild`，日志保存在 `Tools/Ladder/obj/ai-regression-verification/` 的独立子目录。
+
+### T-85 首次启用基准与历史比较
+
+PR 最初在引擎 `32f190e`、内容指纹 `63a758a4fa663be9` 上测量。等待合并期间，T-95 已在 `b0eac61` 启用 Normal r22 / Hard r14 权重，T-108 也已合入专家预算；T-95 的任务单要求在 T-85 已合并时同步 AI 回归基准，其报告说明当时 T-85 尚未合入。依据 T-85 的“当前代码”要求，本次首次启用基准在 main `5cabfbb7bdeaab380c0dfb92a85e0169450c178e` 上整合本工具后重新实测。没有改变 AI、规则、测试断言、采样方案或验收门槛。
+
+原 PR `5537e1299dff8eeac87f97567f6ee21fbf8b9842` 的基准逐字保存在 `docs/ai-baseline.pre-t95.json`；当前启用的是 `docs/ai-baseline.json`。两者均为 original 包、seed 1、每对 100 局（总计 600 局）、samplingVersion 1、回合上限 120、允许下降 5 个百分点。
+
+| 高难度 / 低难度 | 原基准胜率 | 当前胜率 | 变化（百分点） |
+|---|---:|---:|---:|
+| 普通 / 简单 | 80% | 90% | +10 |
+| 困难 / 简单 | 93% | 95% | +2 |
+| 专家 / 简单 | 82% | 87% | +5 |
+| 困难 / 普通 | 78% | 58% | −20 |
+| 专家 / 普通 | 72% | 57% | −15 |
+| 专家 / 困难 | 95% | 95% | 0 |
+
+当前结果无平局、无未完成，六组高难度胜率均严格大于 50%。**对原基准的历史比较确实失败，退出码为 1，共两项**；新基准不把这次历史比较改判为通过。T-95 的独立留出支持 Normal 和 Hard 各自对旧版增强，但此次矩阵同时跨越权重与专家实现变化，不能仅凭相对胜率断言变化全部由 Normal 增强造成。
+
+当前内容指纹为 `336820d77647481b`，用于实测的 Release Core 程序集 SHA-256 为 `61ad33fd0e56e2bf25c2f0f47e0993116c3d53d173724a7cc5015e2067f3f92a`。完整比较日志、候选生成记录和审查证据保存在审查工作树 `Build/review2/T85/`。今后改变代码或内容仍须与启用基准比较；不得仅因检测到下降而自动覆盖基准。
+
 ## 专家预算比较（T-108）
 
 `--compare-expert` 是独立模式，不修改前述天梯默认行为。使用 Release 构建，计时期间不要并行运行其它实验：
