@@ -12,7 +12,7 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options)
+        static TcpTransport WaitForNetworkGuest(ContentDb db, CliOptions options, Action poll = null)
         {
             var nameInput = options.LanHostName == null ? null
                 : TextInput.Clean(options.LanHostName, TextInputKind.RoomName);
@@ -48,6 +48,7 @@ namespace StreamDuel.Cli
                         double previous = 0;
                         while (!cancellation.IsCancelled)
                         {
+                            poll?.Invoke();
                             double now = timer.Elapsed.TotalSeconds;
                             if (beacon != null)
                             {
