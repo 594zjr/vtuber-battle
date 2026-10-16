@@ -105,6 +105,7 @@ namespace StreamDuel.Core
             result.PackName = "混合内容包：" + string.Join("、", ordered.Select(p => p.PackName ?? p.PackId));
             result.PackNotice = string.Join("\n", ordered.Select(p => p.PackNotice)
                 .Where(n => !string.IsNullOrEmpty(n)).Distinct(StringComparer.Ordinal));
+            result.art = ArtManifest.Merge(result, ordered);
             result.Validate();
             return result;
         }
@@ -234,6 +235,7 @@ namespace StreamDuel.Core
                     Limited = p.Value.Limited.Select(l => new LimitedPoolDef { Max = l.Max, Ids = new List<string>(l.Ids) }).ToList()
                 })
             };
+            copy.art = art?.CopyTo(copy);
             return copy;
         }
 
