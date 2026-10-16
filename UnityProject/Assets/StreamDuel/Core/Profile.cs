@@ -15,7 +15,9 @@ namespace StreamDuel.Core
 
     public sealed class Profile
     {
+        public const string DefaultRatingFormat = "默认";
         public Dictionary<string, PackStats> Packs = new Dictionary<string, PackStats>(StringComparer.Ordinal);
+        public Dictionary<string, PlayerRating> Ratings = new Dictionary<string, PlayerRating>(StringComparer.Ordinal);
 
         public void Record(Battle b, int playerSide)
         {
@@ -53,6 +55,7 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
+            if (Ratings == null) throw new FormatException("档案排位分记录不能为空。");
             var sb = new StringBuilder("{\"packs\":{");
             bool first = true;
             foreach (string id in Packs.Keys.OrderBy(key => key, StringComparer.Ordinal))
@@ -70,7 +73,24 @@ namespace StreamDuel.Core
                 sb.Append(",\"wins\":").Append(stats.Wins.ToString(CultureInfo.InvariantCulture));
                 sb.Append('}');
             }
-            return sb.Append("}}").ToString();
+            sb.Append('}');
+            // 没有排位记录的旧档案保持原输出，避免仅查看或单机对战就改写存档格式。
+            if (Ratings.Count > 0)
+            {
+                sb.Append(",\"ratings\":{");
+                first = true;
+                foreach (string format in Ratings.Keys.OrderBy(key => key, StringComparer.Ordinal))
+                {
+                    if (!first) sb.Append(',');
+                    first = false;
+                    WriteString(sb, format);
+                    var rating = Ratings[format];
+                    if (rating == null) throw new FormatException("档案排位分记录不能为空。");
+                    sb.Append(':').Append(rating.ToJson());
+                }
+                sb.Append('}');
+            }
+            return sb.Append('}').ToString();
         }
 
         public static Profile FromJson(string json)
@@ -94,6 +114,8 @@ namespace StreamDuel.Core
                         PickWins = ReadCounts(Required(source, "pickWins"))
                     });
                 }
+                if (root.TryGetValue("ratings", out var ratings))
+                    foreach (var pair in ReadObject(ratings)) profile.Ratings.Add(pair.Key, PlayerRating.ReadValue(pair.Value));
                 return profile;
             }
             catch (Exception e) when (e is FormatException || e is ArgumentException ||

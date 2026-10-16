@@ -37,7 +37,8 @@ namespace StreamDuel.Core
         }
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
-            double? turnSeconds = null, double? bankSeconds = null, bool enableTermination = false)
+            double? turnSeconds = null, double? bankSeconds = null, bool enableTermination = false,
+            PlayerRating rating = null)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
@@ -45,6 +46,7 @@ namespace StreamDuel.Core
             terminationEnabled = enableTermination;
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
+            string ratingMetadata = WriteRatingHello(rating);
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
             if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
@@ -60,7 +62,7 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + ratingMetadata + "}");
         }
 
         public void Poll()
@@ -202,7 +204,9 @@ namespace StreamDuel.Core
             teams[1 - MySide] = team;
             names[MySide] = myName;
             names[1 - MySide] = name;
+            var peerRating = ReadRatingHello(obj);
             Battle = new Battle(db, teams, names, sharedSeed);
+            opponentRating = peerRating;
             rngCheckpoint = Battle.NetRngState;
             BeginPhase();
         }
