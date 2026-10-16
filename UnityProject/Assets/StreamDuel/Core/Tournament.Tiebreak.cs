@@ -30,7 +30,9 @@ namespace StreamDuel.Core
             RequireGamePairing(pairing);
             if (attempt < 0 || attempt > MaximumGameIndex)
                 throw new ArgumentOutOfRangeException(nameof(attempt), HasRuleset
-                    ? "对局序号须位于规定局数加三次加赛的范围内。" : "对局序号只能是原局 0 或加赛 1～3。");
+                    ? IsElimination ? "对局序号须位于规定局数加三次加赛的范围内。"
+                        : "循环赛对局序号须位于规定局数内。"
+                    : "对局序号只能是原局 0 或加赛 1～3。");
             unchecked
             {
                 uint value = (Seed ?? 0) ^ (uint)pairing.Id * 0x9E3779B9u ^ (uint)attempt * 0x85EBCA6Bu ^ 0x54423138u;

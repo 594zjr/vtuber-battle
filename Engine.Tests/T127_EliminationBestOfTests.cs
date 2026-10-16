@@ -166,38 +166,162 @@ public class T127_EliminationBestOfTests
     }
 
     [Theory]
-    [InlineData("single", "0,-1,-1")]
-    [InlineData("single", "-1,1,-1")]
-    [InlineData("roundrobin", "0,-1,-1")]
-    [InlineData("roundrobin", "0,1,-1")]
-    [InlineData("roundrobin", "-1,-1,-1")]
-    public void UnspecifiedSeriesOutcomesPauseWithoutInventingAWinnerOrAnExtraGame(string format, string sequence)
+    [InlineData("single", "0,-1,-1", false)]
+    [InlineData("single", "0,-1,-1", true)]
+    [InlineData("single", "-1,1,-1", false)]
+    [InlineData("single", "-1,1,-1", true)]
+    [InlineData("roundrobin", "0,-1,-1", false)]
+    [InlineData("roundrobin", "0,-1,-1", true)]
+    [InlineData("roundrobin", "0,1,-1", false)]
+    [InlineData("roundrobin", "0,1,-1", true)]
+    [InlineData("roundrobin", "-1,-1,-1", false)]
+    [InlineData("roundrobin", "-1,-1,-1", true)]
+    [InlineData("single", "0,0,-1,-1,-1", false)]
+    [InlineData("single", "0,0,-1,-1,-1", true)]
+    [InlineData("roundrobin", "0,0,-1,-1,-1", false)]
+    [InlineData("roundrobin", "0,0,-1,-1,-1", true)]
+    [InlineData("single", "0,1,-1", false)]
+    [InlineData("single", "0,1,-1", true)]
+    [InlineData("single", "0,1,0,1,-1", false)]
+    [InlineData("single", "0,1,0,1,-1", true)]
+    public void RegularScoresOrEliminationTiebreaksPreserveArchivesAndResumeExactly(string format, string sequence, bool bySeed)
     {
+        using var files = new TestDirectory();
         var db = Content();
-        var tournament = Make(db, format);
+        int[] regularResults = Results(sequence);
+        var tournament = Make(db, format, bestOf: regularResults.Length);
         var pairing = Assert.Single(tournament.NextRound());
-        foreach (int result in Results(sequence)) Report(tournament, pairing, result);
-        string reason = tournament.PendingDecision(pairing);
-        Assert.False(string.IsNullOrWhiteSpace(reason));
-        Assert.Matches("[\\u4e00-\\u9fff]", reason);
-        Assert.Null(pairing.WinnerSide);
+        var library = new ReplayLibrary(files.Root, clock: () => Epoch);
+        var ids = new List<string>();
+        var records = new List<string>();
+        Battle last = null;
+        foreach (int result in regularResults)
+        {
+            int attempt = pairing.Games.Count;
+            if (bySeed && attempt == regularResults.Length - 1)
+            {
+                // 在决定常规局比分的最后一局前恢复，不能漏掉此前已保存的胜场。
+                string checkpoint = tournament.ToJson();
+                tournament = Tournament.FromJson(db, checkpoint);
+                pairing = Assert.Single(tournament.Pairings);
+                Assert.Equal(checkpoint, tournament.ToJson());
+            }
+            var battle = Finish(tournament.CreateGame(pairing), result);
+            string before = tournament.ToJson();
+            string id = library.SaveTournamentGame(tournament, pairing, battle, attempt);
+            Assert.Equal(before, tournament.ToJson());
+            tournament.ReportGame(pairing, battle);
+            Assert.Equal(id, library.SaveTournamentGame(tournament, pairing, battle, attempt));
+            ids.Add(id);
+            records.Add(battle.Record.ToJson());
+            last = battle;
+            if (attempt < regularResults.Length - 1)
+            {
+                Assert.Null(pairing.WinnerSide);
+                Assert.False(tournament.IsFinished);
+                Assert.All(tournament.Standings(), row => { Assert.Equal(0, row.Wins); Assert.Equal(0, row.Losses); });
+            }
+        }
+        int first = regularResults.Count(result => result == 0), second = regularResults.Count(result => result == 1);
+        bool needsTiebreak = format == "single" && first == second;
+        int regularWinner = first == second ? -1 : first > second ? 0 : 1;
+        Assert.Null(tournament.PendingDecision(pairing));
+        Assert.Equal(needsTiebreak ? (int?)null : regularWinner, pairing.WinnerSide);
         Assert.False(pairing.AdvancedBySeed);
-        Assert.False(tournament.IsFinished);
-        Assert.Null(tournament.Champion);
-        Assert.All(tournament.Standings(), row => { Assert.Equal(0, row.Wins); Assert.Equal(0, row.Losses); });
+        Assert.Equal(!needsTiebreak, tournament.IsFinished);
+        Assert.Equal(format == "single" && !needsTiebreak
+            ? (int?)(regularWinner == 0 ? pairing.Player0 : pairing.Player1) : null, tournament.Champion);
+        if (needsTiebreak)
+            Assert.All(tournament.Standings(), row => { Assert.Equal(0, row.Wins); Assert.Equal(0, row.Losses); });
         string saved = tournament.ToJson();
-        Assert.Contains(reason, TournamentReport.Build(tournament, null).ToText());
-        ChineseFailure(() => tournament.CreateGame(pairing));
         ChineseFailure(() => tournament.ReportResult(pairing, 0));
         ChineseFailure(() => tournament.ReportResult(pairing, -1));
-        Assert.Same(pairing, Assert.Single(tournament.NextRound()));
+        if (needsTiebreak) Assert.Same(pairing, Assert.Single(tournament.NextRound()));
+        else Assert.Empty(tournament.NextRound());
         Assert.Equal(saved, tournament.ToJson());
         var restored = Tournament.FromJson(db, saved);
         var resumedPair = Assert.Single(restored.Pairings);
-        Assert.Equal(reason, restored.PendingDecision(resumedPair));
+        Assert.Null(restored.PendingDecision(resumedPair));
         Assert.Equal(saved, restored.ToJson());
         Assert.Equal(TournamentReport.Build(tournament, null).ToJson(), TournamentReport.Build(restored, null).ToJson());
+        // 淘汰赛常规局同分才进入独立决胜局，整场胜负不再要求补到常规胜场门槛。
+        int decisiveSide = 1;
+        var actualResults = regularResults.ToList();
+        for (int extra = 0; extra < (needsTiebreak ? 3 : 0); extra++)
+        {
+            int attempt = regularResults.Length + extra;
+            int winner = bySeed || extra < 2 ? -1 : decisiveSide;
+            last = Finish(tournament.CreateGame(pairing), winner);
+            var replayedGame = Finish(restored.CreateGame(resumedPair), winner);
+            string record = last.Record.ToJson();
+            ulong state = last.StateHash();
+            Assert.Equal(record, replayedGame.Record.ToJson());
+            Assert.Equal(state, replayedGame.StateHash());
+            Assert.Equal(DerivedSeed(tournament.Seed ?? 0, pairing.Id, attempt), last.Seed);
+            string checkpoint = tournament.ToJson();
+            string id = library.SaveTournamentGame(tournament, pairing, last, attempt);
+            Assert.Equal(checkpoint, tournament.ToJson());
+            Assert.Equal(id, library.SaveTournamentGame(restored, resumedPair, replayedGame, attempt));
+            Assert.Equal(checkpoint, restored.ToJson());
+            tournament.ReportGame(pairing, last);
+            restored.ReportGame(resumedPair, replayedGame);
+            Assert.Equal(id, library.SaveTournamentGame(tournament, pairing, last, attempt));
+            Assert.Equal(tournament.ToJson(), restored.ToJson());
+            restored = Tournament.FromJson(db, restored.ToJson());
+            resumedPair = Assert.Single(restored.Pairings);
+            Assert.Equal(tournament.ToJson(), restored.ToJson());
+            Assert.Equal(TournamentReport.Build(tournament, library).ToJson(), TournamentReport.Build(restored, library).ToJson());
+            Assert.Equal(record, last.Record.ToJson());
+            Assert.Equal(state, last.StateHash());
+            Assert.Null(tournament.PendingDecision(pairing));
+            if (extra < 2)
+            {
+                Assert.Null(pairing.WinnerSide);
+                Assert.False(pairing.AdvancedBySeed);
+                Assert.False(tournament.IsFinished);
+            }
+            ids.Add(id);
+            records.Add(record);
+            actualResults.Add(winner);
+        }
+        int seedSide = tournament.EffectiveSeedOrder[0] == pairing.Player0 ? 0 : 1;
+        int expectedSide = needsTiebreak ? bySeed ? seedSide : decisiveSide : regularWinner;
+        int winningPlayer = expectedSide == -1 ? -1 : expectedSide == 0 ? pairing.Player0 : pairing.Player1;
+        Assert.Equal(expectedSide, pairing.WinnerSide);
+        Assert.Equal(needsTiebreak && bySeed, pairing.AdvancedBySeed);
+        Assert.True(tournament.IsFinished);
+        Assert.Equal(format == "single" ? (int?)winningPlayer : null, tournament.Champion);
+        Assert.Equal(actualResults, pairing.Games.Select(game => game.WinnerSide));
+        Assert.Equal(Enumerable.Range(0, actualResults.Count), pairing.Games.Select(game => game.Attempt));
+        Assert.Equal(actualResults.Count, pairing.Games.Select(game => game.Seed).Distinct().Count());
+        Assert.Equal(actualResults.Count, library.List().Count);
+        Assert.Equal(actualResults.Count, ids.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(tournament.Standings(), row =>
+        {
+            Assert.Equal(row.Player == winningPlayer ? 1 : 0, row.Wins);
+            Assert.Equal(expectedSide == -1 || row.Player == winningPlayer ? 0 : 1, row.Losses);
+            Assert.Equal(expectedSide == -1 ? 1 : row.Player == winningPlayer ? 3 : 0, row.Points);
+            Assert.Equal(expectedSide == -1 ? 1 : 0, row.Draws);
+        });
+        var summary = TournamentReport.Build(tournament, library);
+        Assert.Contains("正规局打满时胜场多者获胜，只有胜场相同才为整场平局。", summary.ToText());
+        Assert.DoesNotContain("需要决定", summary.ToText());
+        using var report = JsonDocument.Parse(summary.ToJson());
+        AssertCoverage(report.RootElement, actualResults.Count, actualResults.Count, 0, 0);
+        var match = ReportMatch(report.RootElement, pairing.Id);
+        Assert.Equal(JsonValueKind.Null, match.GetProperty("pendingDecision").ValueKind);
+        Assert.Equal(expectedSide, match.GetProperty("winnerSide").GetInt32());
+        Assert.Equal(new[] { actualResults.Count(result => result == 0), actualResults.Count(result => result == 1) },
+            match.GetProperty("wins").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(actualResults.Count(result => result == -1), match.GetProperty("draws").GetInt32());
+        for (int index = 0; index < records.Count; index++) Assert.Equal(records[index], library.Load(ids[index]).ToJson());
+        string finished = tournament.ToJson();
+        ChineseFailure(() => tournament.CreateGame(pairing));
         ChineseFailure(() => restored.CreateGame(resumedPair));
+        ChineseFailure(() => tournament.ReportGame(pairing, last));
+        ChineseFailure(() => tournament.GameSeed(pairing, regularResults.Length + (format == "single" ? 3 : 0)));
+        Assert.Equal(finished, tournament.ToJson());
+        Assert.Equal(finished, restored.ToJson());
     }
 
     [Theory]
@@ -592,6 +716,7 @@ public class T127_EliminationBestOfTests
 
     [Theory]
     [InlineData("version")]
+    [InlineData("ratingVersion")]
     [InlineData("rulesetMissing")]
     [InlineData("rulesetNull")]
     [InlineData("bestOf")]
@@ -606,8 +731,9 @@ public class T127_EliminationBestOfTests
     [InlineData("winner")]
     [InlineData("advanced")]
     [InlineData("earlyResult")]
+    [InlineData("earlyThreshold")]
     [InlineData("extraGame")]
-    public void VersionFourRejectsMalformedRulesAndImpossibleSeriesHistories(string defect)
+    public void VersionFiveRejectsMalformedRulesAndImpossibleSeriesHistories(string defect)
     {
         var db = Content();
         var tournament = Make(db, bestOf: 5);
@@ -615,12 +741,13 @@ public class T127_EliminationBestOfTests
         for (int index = 0; index < 8; index++) Report(tournament, pair, -1);
         string before = tournament.ToJson();
         var root = JsonNode.Parse(before).AsObject();
-        Assert.Equal(4, root["version"].GetValue<int>());
+        Assert.Equal(5, root["version"].GetValue<int>());
         var savedPair = root["roundsPlayed"][0][0].AsObject();
         var games = savedPair["games"].AsArray();
         switch (defect)
         {
             case "version": root["version"] = 3; break;
+            case "ratingVersion": root["version"] = 4; break;
             case "rulesetMissing": root.Remove("ruleset"); break;
             case "rulesetNull": root["ruleset"] = null; break;
             case "bestOf": root["ruleset"]["bestOf"] = 4; break;
@@ -635,6 +762,9 @@ public class T127_EliminationBestOfTests
             case "winner": savedPair["winnerSide"] = 1 - pair.WinnerSide.Value; break;
             case "advanced": savedPair["advancedBySeed"] = false; break;
             case "earlyResult": games[0]["winnerSide"] = 0; break;
+            case "earlyThreshold":
+                for (int index = 0; index < 3; index++) games[index]["winnerSide"] = 0;
+                break;
             case "extraGame": var extra = games[7].DeepClone(); extra["attempt"] = 8; games.Add(extra); break;
         }
         var error = Assert.Throws<FormatException>(() => Tournament.FromJson(db, root.ToJsonString()));
@@ -759,15 +889,19 @@ public class T127_EliminationBestOfTests
         Assert.Equal(progress, tournament.ToJson());
     }
 
-    [Fact]
-    public void PausedSeriesStillReportsItsScoresAndAllCompletedReplays()
+    [Theory]
+    [InlineData("0,-1,-1", 0, 1, 0, 2)]
+    [InlineData("0,1,-1", -1, 1, 1, 1)]
+    [InlineData("-1,-1,-1", -1, 0, 0, 3)]
+    public void CompletedRoundRobinSeriesPreservesScoresAndArchivesAfterReload(string sequence, int winner, int wins0, int wins1, int draws)
     {
         using var files = new TestDirectory();
-        var tournament = Make(Content(), "roundrobin");
+        var db = Content();
+        var tournament = Make(db, "roundrobin");
         var pair = Assert.Single(tournament.NextRound());
         var library = new ReplayLibrary(files.Root, clock: () => Epoch);
         var battles = new List<Battle>();
-        foreach (int result in new[] { 0, -1, -1 })
+        foreach (int result in Results(sequence))
         {
             int index = pair.Games.Count;
             var battle = Finish(tournament.CreateGame(pair), result);
@@ -776,7 +910,7 @@ public class T127_EliminationBestOfTests
             battles.Add(battle);
         }
         string pending = tournament.ToJson();
-        Assert.NotNull(tournament.PendingDecision(pair));
+        Assert.Null(tournament.PendingDecision(pair));
         Assert.Equal(3, library.List().Count);
         for (int index = 0; index < battles.Count; index++)
             library.SaveTournamentGame(tournament, pair, battles[index], index);
@@ -784,10 +918,31 @@ public class T127_EliminationBestOfTests
         using var report = JsonDocument.Parse(TournamentReport.Build(tournament, ReplayLibrary.OpenReadOnly(files.Root)).ToJson());
         AssertCoverage(report.RootElement, 3, 3, 0, 0);
         var match = ReportMatch(report.RootElement, pair.Id);
-        Assert.Equal(new[] { 1, 0 }, match.GetProperty("wins").EnumerateArray().Select(value => value.GetInt32()));
-        Assert.Equal(2, match.GetProperty("draws").GetInt32());
+        Assert.Equal(new[] { wins0, wins1 }, match.GetProperty("wins").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(draws, match.GetProperty("draws").GetInt32());
         Assert.Equal(tournament.PendingDecision(pair), match.GetProperty("pendingDecision").GetString());
-        Assert.Equal(JsonValueKind.Null, match.GetProperty("winnerSide").ValueKind);
+        Assert.Equal(winner, match.GetProperty("winnerSide").GetInt32());
+        Assert.Equal(pending, tournament.ToJson());
+        var resumed = Tournament.FromJson(db, pending);
+        var resumedPair = Assert.Single(resumed.Pairings);
+        Assert.Equal(winner, resumedPair.WinnerSide);
+        Assert.True(resumed.IsFinished);
+        Assert.False(resumedPair.AdvancedBySeed);
+        Assert.Equal(Results(sequence), resumedPair.Games.Select(game => game.WinnerSide));
+        var filesBefore = Snapshot(files.Root);
+        ChineseFailure(() => resumed.CreateGame(resumedPair));
+        ChineseFailure(() => resumed.ReportGame(resumedPair, battles[2]));
+        ChineseFailure(() => library.SaveTournamentGame(resumed, resumedPair, battles[2], 3));
+        Assert.Equal(filesBefore, Snapshot(files.Root));
+        Assert.Equal(3, library.List().Count);
+        using var completed = JsonDocument.Parse(TournamentReport.Build(resumed, ReplayLibrary.OpenReadOnly(files.Root)).ToJson());
+        AssertCoverage(completed.RootElement, 3, 3, 0, 0);
+        var completedMatch = ReportMatch(completed.RootElement, resumedPair.Id);
+        Assert.Equal(new[] { wins0, wins1 }, completedMatch.GetProperty("wins").EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(draws, completedMatch.GetProperty("draws").GetInt32());
+        Assert.Equal(winner, completedMatch.GetProperty("winnerSide").GetInt32());
+        Assert.Equal(report.RootElement.GetRawText(), completed.RootElement.GetRawText());
+        Assert.Equal(pending, resumed.ToJson());
         Assert.Equal(pending, tournament.ToJson());
     }
 

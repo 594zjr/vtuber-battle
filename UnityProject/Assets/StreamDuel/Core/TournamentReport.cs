@@ -310,9 +310,10 @@ namespace StreamDuel.Core
             {
                 output.Append("每场正规局上限 ").Append(Number(tournament.BestOf)).Append(" 局，先获得 ")
                     .Append(Number(tournament.BestOf / 2 + 1)).Append(" 胜获胜；平局计入局数，不计胜场。\n");
+                output.Append("正规局打满时胜场多者获胜，只有胜场相同才为整场平局。\n");
                 output.Append(tournament.IsElimination
-                    ? "正规局打满同分后最多加赛 3 局，首个非平局决定晋级；加赛仍全平按种子顺位晋级。\n"
-                    : "循环赛逐局记录；正规局打满但无人达到胜场门槛时保留比分，等待规则决定。\n");
+                    ? "淘汰赛整场平局后最多加赛 3 局，首个非平局决定晋级；加赛仍全平按种子顺位晋级。\n"
+                    : "循环赛整场平局双方各得 1 分，不加赛、不按种子裁定。\n");
             }
             if (tournament.IsElimination)
             {
@@ -327,7 +328,9 @@ namespace StreamDuel.Core
             }
             output.Append(tournament.IsElimination
                 ? "\n晋级排名（冠军 → 仍在赛 → 较晚淘汰；同阶段按种子顺序）\n"
-                : "\n积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
+                : tournament.Format == "swiss" && tournament.SeedMode == TournamentSeedMode.ByRating
+                    ? "\n积分榜（积分 → 对手分 → 直接对话分 → 排位种子顺序）\n"
+                    : "\n积分榜（积分 → 对手分 → 直接对话分 → 报名顺序）\n");
             if (standings.Count == 0) output.Append("暂无报名。\n");
             foreach (var row in standings)
                 output.Append(Number(row.Rank)).Append(" · 报名 #").Append(Number(row.Player + 1)).Append(' ').Append(row.Name)

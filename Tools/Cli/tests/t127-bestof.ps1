@@ -64,7 +64,7 @@ function Invoke-Cli([string]$Name, [string[]]$Parameters, [string[]]$Lines = @()
         Check ($result.Exit -eq $Exit) "$Name 退出码应为 $Exit，实际 $($result.Exit)。"
         Check (-not (Test-Path -LiteralPath (Join-Path $work 'saves'))) "$Name 写入了普通玩家档案。"
         if ($Exit -eq 0) { Check ([string]::IsNullOrWhiteSpace($result.Err)) "$Name 成功时出现标准错误。" }
-        else { Check ($result.Err -match '错误：|需要决定：') "$Name 没有中文错误或待决定提示。" }
+        else { Check ($result.Err.Contains('错误：')) "$Name 没有中文错误提示。" }
         return $result
     }
     finally {
@@ -74,11 +74,30 @@ function Invoke-Cli([string]$Name, [string[]]$Parameters, [string[]]$Lines = @()
 }
 
 function Fingerprint([string]$Path) {
-    $files = @($Path)
-    if (Test-Path -LiteralPath ($Path + '.replay-library') -PathType Container) {
-        $files += @(Get-ChildItem -LiteralPath ($Path + '.replay-library') -File -Recurse | ForEach-Object FullName)
+    $items = @()
+    foreach ($candidate in @($Path, ($Path + '.tournament.lock'), ($Path + '.replay-library'))) {
+        if (Test-Path -LiteralPath $candidate) {
+            $items += Get-Item -LiteralPath $candidate -Force
+            if (Test-Path -LiteralPath $candidate -PathType Container) {
+                $items += @(Get-ChildItem -LiteralPath $candidate -Recurse -Force)
+            }
+        }
     }
-    return (($files | Sort-Object | ForEach-Object { $_ + ':' + (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }) -join "`n")
+    $parent = Split-Path $Path -Parent
+    if (Test-Path -LiteralPath $parent -PathType Container) {
+        $prefix = [IO.Path]::GetFileName($Path) + '.tournament.tmp'
+        $items += @(Get-ChildItem -LiteralPath $parent -Force | Where-Object { $_.Name.StartsWith($prefix, [StringComparison]::Ordinal) })
+    }
+    return (($items | Sort-Object FullName -Unique | ForEach-Object {
+        $value = $_.FullName + ':' + $_.Attributes + ':' + $_.LastWriteTimeUtc.Ticks
+        if ($_.PSIsContainer) { $value + ':directory' }
+        else { $value + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+    }) -join "`n")
+}
+
+function Replay-Fingerprint([string]$Path) {
+    $item = Get-Item -LiteralPath $Path -Force
+    return ($item.LastWriteTimeUtc.Ticks.ToString() + ':' + (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash)
 }
 
 function Read-Tournament([string]$Path, $Database) {
@@ -147,7 +166,7 @@ function Verify-Games([string]$Name, [string]$Path, $Database, [int]$PerPairing,
     $tournament = Read-Tournament $Path $Database
     Check ($tournament.HasRuleset -and $tournament.AutoTiebreak -and $tournament.IsFinished -eq $Finished) "$Name 逐局配置或结束状态不正确。"
     $json = [IO.File]::ReadAllText($Path, $utf8) | ConvertFrom-Json -AsHashtable
-    Check ($json.version -eq 4 -and $json.ruleset.bestOf -eq 3) "$Name 未保存 v4 规则快照。"
+    Check ($json.version -eq 5 -and $json.ruleset.bestOf -eq 3) "$Name 未保存 v5 规则快照。"
     $report = Report "$Name-report" $Path
     Check ($report.version -eq 3 -and $report.bestOf -eq 3 -and $report.ruleset.banOne -and $report.ruleset.leadPick) "$Name 战报没有逐局赛制配置。"
     $matches = @($report.rounds | ForEach-Object { $_.matches } | Where-Object { $null -ne $_.player1 })
@@ -235,7 +254,7 @@ try {
     $null = Invoke-Cli 'swiss-refused' @('--tournament', $missing, '--tournament-ruleset', 'ranked', '--auto') @('2') 1
     Check (-not (Test-Path -LiteralPath (Split-Path $missing -Parent))) '拒绝参数仍创建了赛事目录。'
     $help = Invoke-Cli 'help' @('--help')
-    Check ($help.Out.Contains('--tournament-ruleset') -and $help.Out.Contains('墙钟') -and $help.Out.Contains('待决定')) '帮助缺少入口或执行边界。'
+    Check ($help.Out.Contains('--tournament-ruleset') -and $help.Out.Contains('墙钟') -and $help.Out.Contains('决胜加赛')) '帮助缺少入口或执行边界。'
     $checks.Add('PASS strict_new_flag_modes_auto_swiss_and_help')
 
     foreach ($format in @('single', 'double', 'roundrobin')) {
@@ -281,23 +300,45 @@ try {
     $checks.Add('PASS_checkpoint_orphan_archive_idempotency_and_readonly_snapshot')
 
     foreach ($format in @('single', 'roundrobin')) {
-        $path = Join-Path $run "$format-pending.json"
+        $path = Join-Path $run "$format-full-regulation.json"
         $tournament = New-ReadyTournament $path $db $codes.wait $codes.wait $format
         for ($i = 0; $i -lt 3; $i++) {
             $battle = Prepare-Game ($tournament.CreateGame($tournament.Pairings[0]))
             if ($format -eq 'single' -and $i -eq 0) { $battle.Surrender(1) } else { $battle.OfferDraw(0); $battle.RespondDraw(1, $true) }
             $null = Save-Game $path $tournament $battle
         }
-        $before = Fingerprint $path
-        $result = Invoke-Cli "$format-pending" @('--tournament', $path, '--pack-dir', $external, '--auto') @() 1
-        Check ($result.Err.Contains('需要决定') -and -not $result.Out.Contains('准备对局') -and (Fingerprint $path) -ceq $before) '待决定状态丢档或继续生成了对局。'
-        $null = Verify-Games "$format-pending" $path $db 3 $false
-        Check (-not [string]::IsNullOrEmpty((Report "$format-pending-decision" $path).rounds[0].matches[0].pendingDecision)) '战报遗漏待决定原因。'
+        $regularFiles = @{}
+        foreach ($item in Get-ChildItem -LiteralPath ($path + '.replay-library') -File -Filter '*.json' | Where-Object Name -cne 'index.json') {
+            $regularFiles[$item.FullName] = Replay-Fingerprint $item.FullName
+        }
+        Check ($regularFiles.Count -eq 3) '常规满局结算没有完整保存三局录像。'
+        $completedBefore = Fingerprint $path
+        $result = Invoke-Cli "$format-after-full-regulation" @('--tournament', $path, '--pack-dir', $external, '--auto')
+        Check (-not $result.Out.Contains('准备对局') -and $result.Out.Contains('赛事已结束。')) '已按满局比分完成的赛事仍启动第四局，或没有正常结束。'
+        $null = Verify-Games "$format-after-full-regulation" $path $db 3 $true
+        $match = (Report "$format-after-full-regulation-result" $path).rounds[0].matches[0]
+        Check ([string]::IsNullOrEmpty($match.pendingDecision) -and $match.draws -eq $(if ($format -eq 'single') { 2 } else { 3 }) -and
+            $match.winnerSide -eq $(if ($format -eq 'single') { 0 } else { -1 }) -and -not $match.advancedBySeed) '战报没有按满局领先或循环赛整场平局结算，或改写了真实平局。'
+        if ($format -eq 'single') {
+            Check (($match.wins -join ',') -ceq '1,0') '单败 1 胜 2 平未保留实际局比分。'
+        } else {
+            Check (($match.wins -join ',') -ceq '0,0') '循环赛三平错误记入胜场。'
+            foreach ($standing in (Read-Tournament $path $db).Standings()) {
+                Check ($standing.Points -eq 1 -and $standing.Draws -eq 1 -and $standing.Wins -eq 0 -and $standing.Losses -eq 0) '循环赛整场平局没有按原规则各记一分、一场平局。'
+            }
+        }
+        foreach ($recordPath in $regularFiles.Keys) { Check ((Replay-Fingerprint $recordPath) -ceq $regularFiles[$recordPath]) '满局结算后查询或续赛改写了已有录像。' }
+        Check ((Fingerprint $path) -ceq $completedBefore) '满局已完成赛事的续赛或报告改写了赛事、录像、索引或锁。'
     }
     $rrPath = Join-Path $run 'roundrobin-live-draws.json'
-    $null = Invoke-Cli 'roundrobin-live-draws' @('--tournament', $rrPath, '--tournament-ruleset', 'ranked', '--auto', '--pack', $db.PackId, '--pack-dir', $external) (@('1') + (Registration $codes.wait $codes.wait)) 1
-    $null = Verify-Games 'roundrobin-live-draws' $rrPath $db 3 $false
-    $checks.Add('PASS_unequal_elimination_and_roundrobin_draws_pause_without_data_loss')
+    $null = Invoke-Cli 'roundrobin-live-draws' @('--tournament', $rrPath, '--tournament-ruleset', 'ranked', '--auto', '--pack', $db.PackId, '--pack-dir', $external) (@('1') + (Registration $codes.wait $codes.wait))
+    $null = Verify-Games 'roundrobin-live-draws' $rrPath $db 3 $true
+    $rrComplete = Read-Tournament $rrPath $db
+    Check ($rrComplete.Pairings[0].WinnerSide -eq -1 -and -not $rrComplete.Pairings[0].AdvancedBySeed) '循环赛真实三平没有以整场平局结束。'
+    foreach ($standing in $rrComplete.Standings()) {
+        Check ($standing.Points -eq 1 -and $standing.Draws -eq 1 -and $standing.Wins -eq 0 -and $standing.Losses -eq 0) '循环赛自动三平没有保留原积分和整场平局计数。'
+    }
+    $checks.Add('PASS_full_regulation_leader_wins_roundrobin_draws_without_extra_game')
 
     $threePath = Join-Path $run 'three-games.json'
     $three = New-ReadyTournament $threePath $db $codes.hit $codes.wait
@@ -334,6 +375,95 @@ try {
     $before = Fingerprint $customPath
     $null = Invoke-Cli 'same-id-different-snapshot' @('--tournament', $customPath, '--pack-dir', $external, '--auto', '--tournament-ruleset', 'ranked') @() 1
     Check ((Fingerprint $customPath) -ceq $before) '同 ID 的不同规则快照被覆盖。'
+
+    # 报名读取真实档案；低分先报名，完整逐局赛制须保留反向评级顺位。
+    $ratingSources = @()
+    $ratingSourceBefore = @{}
+    foreach ($rating in @(1400, 1800)) {
+        $directory = Join-Path $run "rating-sources/$rating"
+        [void][IO.Directory]::CreateDirectory($directory)
+        $profile = [StreamDuel.Core.Profile]::new()
+        $value = [StreamDuel.Core.PlayerRating]::new()
+        $value.Rating = $rating; $value.Games = 7
+        $profile.Ratings[[StreamDuel.Core.Profile]::DefaultRatingFormat] = $value
+        $profilePath = Join-Path $directory 'profile.json'
+        [IO.File]::WriteAllText($profilePath, $profile.ToJson(), $utf8)
+        $ratingSources += $directory
+        $ratingSourceBefore[$profilePath] = Replay-Fingerprint $profilePath
+    }
+    $ratingLines = @('选手甲', $codes.hit, 'human', $ratingSources[0], '选手乙', $codes.wait, 'human', $ratingSources[1])
+    $ratingPath = Join-Path $run 'rating-complete/event.json'
+    $ratingArguments = @('--tournament', $ratingPath, '--format', 'single', '--tournament-ruleset', 'ranked', '--seed-by', 'rating', '--auto', '--pack', $db.PackId, '--pack-dir', $external)
+    $ratingResult = Invoke-Cli 'rating-ruleset-complete' $ratingArguments ($ratingLines + @(''))
+    $ratingTournament = Read-Tournament $ratingPath $db
+    $ratingJson = [IO.File]::ReadAllText($ratingPath, $utf8) | ConvertFrom-Json -AsHashtable
+    Check ($ratingResult.Out.Contains('赛事已结束。') -and $ratingTournament.SeedMode.ToString() -ceq 'ByRating' -and
+        $null -eq $ratingTournament.Seed -and ($ratingTournament.EffectiveSeedOrder -join ',') -ceq '1,0' -and
+        ($ratingTournament.RatingSeeds.Player -join ',') -ceq '0,1' -and ($ratingTournament.RatingSeeds.Rating -join ',') -ceq '1400,1800' -and
+        ($ratingTournament.RatingSeeds.Games -join ',') -ceq '7,7' -and ($ratingTournament.RatingSeeds.Season -join ',') -ceq '1,1') '真实评级多局赛事丢失冻结分数、场数、赛季或有效种子顺位。'
+    Check ($ratingJson.version -eq 5 -and $ratingJson.seedBy -ceq 'rating' -and $ratingJson.autoTiebreak -and
+        $ratingJson.ruleset.bestOf -eq 3 -and ($ratingJson.ratingSeeds.rating -join ',') -ceq '1400,1800' -and
+        -not [IO.File]::ReadAllText($ratingPath, $utf8).Contains('rating-sources')) 'v5 多局赛事遗漏评级/规则快照或泄露档案路径。'
+    $ratingRecords = Verify-Games 'rating-ruleset-complete' $ratingPath $db 2 $true
+    Check ($ratingTournament.Champion -eq 0 -and @($ratingTournament.Pairings[0].Games | Where-Object WinnerSide -eq $ratingTournament.Pairings[0].WinnerSide).Count -eq 2) '真实评级对阵没有由原报名进攻队赢足两局。'
+    foreach ($json in $ratingRecords) {
+        $record = [StreamDuel.Core.BattleRecord]::FromJson($json)
+        Check (@($record.Events | Where-Object Type -eq ([StreamDuel.Core.BattleRecordEventType]::Turn)).Count -gt 0) '评级多局夹具没有执行真实 AI 回合。'
+    }
+    $ratingFilesBefore = Fingerprint $ratingPath
+    $null = Invoke-Cli 'rating-ruleset-finished-resume' @('--tournament', $ratingPath, '--pack-dir', $external, '--auto')
+    $null = Report 'rating-ruleset-finished-report' $ratingPath
+    Check ((Fingerprint $ratingPath) -ceq $ratingFilesBefore) '完整评级赛事再次续赛或查询改写了赛事、录像、索引或锁。'
+
+    # CLI 先保存同一批报名；公共 API 生成一局真实检查点，再由 CLI 续完余下局。
+    $ratingResumePath = Join-Path $run 'rating-resume/event.json'
+    $null = Invoke-Cli 'rating-ruleset-register-checkpoint' @('--tournament', $ratingResumePath, '--format', 'single', '--tournament-ruleset', 'ranked', '--seed-by', 'rating', '--auto', '--pack', $db.PackId, '--pack-dir', $external) ($ratingLines + @('q'))
+    $ratingResume = Read-Tournament $ratingResumePath $db
+    Check ($ratingResume.Round -eq 0 -and $ratingResume.Players.Count -eq 2 -and $ratingResume.RatingSeeds.Count -eq 2) '评级多局报名断点不完整或提前开局。'
+    $null = $ratingResume.NextRound()
+    $firstId = Save-Game $ratingResumePath $ratingResume (Play-Game ($ratingResume.CreateGame($ratingResume.Pairings[0])))
+    $firstPath = Join-Path ($ratingResumePath + '.replay-library') ($firstId + '.json')
+    $firstBefore = Replay-Fingerprint $firstPath
+    $checkpointBefore = Fingerprint $ratingResumePath
+    $readOnly = Invoke-Cli 'rating-ruleset-mid-readonly' @('--tournament', $ratingResumePath, '--pack-dir', $external, '--seed-by', 'rating')
+    Check ($readOnly.Out.Contains('请加 --auto') -and (Fingerprint $ratingResumePath) -ceq $checkpointBefore) '评级多局中途只读查看改写了赛事、录像、索引或锁。'
+    $null = Invoke-Cli 'rating-ruleset-mid-mismatch' @('--tournament', $ratingResumePath, '--pack-dir', $external, '--auto', '--tournament-ruleset', 'casual') @() 1
+    Check ((Fingerprint $ratingResumePath) -ceq $checkpointBefore) '拒绝不同赛制快照时改变了评级赛事的任一文件。'
+    $null = Invoke-Cli 'rating-ruleset-mid-resume' @('--tournament', $ratingResumePath, '--pack-dir', $external, '--auto')
+    $ratingResumedRecords = Verify-Games 'rating-ruleset-mid-resume' $ratingResumePath $db 2 $true
+    Check ([IO.File]::ReadAllText($ratingResumePath, $utf8) -ceq [IO.File]::ReadAllText($ratingPath, $utf8) -and
+        ($ratingResumedRecords -join "`n") -ceq ($ratingRecords -join "`n") -and (Replay-Fingerprint $firstPath) -ceq $firstBefore) '评级多局断点续赛与不中断结果不同，或重写了已完成局。'
+    Check ((Report 'rating-ruleset-original-id' $ratingResumePath).rounds[0].matches[0].games[0].replay.id -ceq $firstId) '评级续赛没有保留原第一局录像编号。'
+    foreach ($profilePath in $ratingSourceBefore.Keys) {
+        Check ((Replay-Fingerprint $profilePath) -ceq $ratingSourceBefore[$profilePath] -and
+            @(Get-ChildItem -LiteralPath (Split-Path $profilePath -Parent) -Force).Count -eq 1) '赛事报名/续赛修改了来源档案或创建了档案锁。'
+    }
+    $checks.Add('PASS_rating_ruleset_v5_real_games_checkpoint_resume_and_readonly_files')
+
+    # 新旧独立入口都必须先解析为已知参数，再拒绝组合，不得读取来源或维护存档。
+    $freshConflict = Join-Path $run 'rating-conflict-must-not-exist/event.json'
+    $conflicts = @(
+        @('--tournament-seed', '127'), @('--no-auto-tiebreak'),
+        @('--ruleset', 'casual'), @('--ruleset', 'ranked'), @('--ruleset', 'chaos'),
+        @('--branch-compare', 'absent-original.json', 'absent-branch.json'),
+        @('--hotseat'), @('--advice'), @('--rating-history'),
+        @('--tournament-report', $ratingPath), @('--replay', 'absent-replay.json')
+    )
+    $conflictNumber = 0
+    foreach ($targetPath in @($ratingPath, $freshConflict)) {
+        $before = Fingerprint $targetPath
+        $base = @('--tournament', $targetPath, '--tournament-ruleset', 'ranked', '--seed-by', 'rating', '--auto', '--pack-dir', $external)
+        foreach ($extra in $conflicts) {
+            foreach ($arguments in @(,($base + $extra)) + @(,($extra + $base))) {
+                $result = Invoke-Cli ('rating-ruleset-conflict-' + (++$conflictNumber)) $arguments @() 1
+                Check ($result.Out.Length -eq 0 -and $result.Err -notmatch '未知参数|unknown|无法识别' -and
+                    (Fingerprint $targetPath) -ceq $before) '互斥参数没有提前按中文组合错误拒绝，或改变了已有赛事/库文件。'
+            }
+        }
+    }
+    Check (-not (Test-Path -LiteralPath (Split-Path $freshConflict -Parent))) '互斥参数创建了新赛事目录。'
+    $checks.Add('PASS_rating_ruleset_double_order_conflicts_preserve_existing_and_missing_files')
+
     foreach ($path in $sourceHashes.Keys) { Check ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ceq $sourceHashes[$path]) '验收修改了原内容数据。' }
     $checks.Add('PASS_old_format_and_exact_ruleset_snapshot_preserved_source_unchanged')
 }

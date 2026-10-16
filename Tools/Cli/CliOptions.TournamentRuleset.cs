@@ -31,11 +31,11 @@ namespace StreamDuel.Cli
                 throw new ArgumentException("--tournament-ruleset 只能与 --tournament 同用。");
             if (options.NoAutoTiebreak)
                 throw new ArgumentException("--tournament-ruleset 不能与 --no-auto-tiebreak 同用；逐局与加赛由赛事赛制决定。");
-            var allowed = new[] { "--tournament-ruleset", "--tournament", "--format", "--pack", "--pack-dir", "--auto", "--tournament-seed" };
+            var allowed = new[] { "--tournament-ruleset", "--tournament", "--format", "--pack", "--pack-dir", "--auto", "--tournament-seed", "--seed-by" };
             var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
             if (unsupported.Length > 0)
                 throw new ArgumentException("--tournament-ruleset 不能与 " + string.Join("、", unsupported)
-                    + " 同用；请只提供赛事、内容包、自动代打与赛事种子参数。");
+                    + " 同用；请只提供赛事、内容包、自动代打与排种子参数。");
         }
     }
 }

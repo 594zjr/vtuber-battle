@@ -29,19 +29,16 @@ namespace StreamDuel.Cli
             Console.WriteLine("每局重新使用原报名队伍；禁用：" + (ruleset.BanOne ? "开启" : "关闭")
                 + "；首发选择：" + (ruleset.LeadPick ? "开启" : "关闭") + "。");
             Console.WriteLine("赛事自动代打即时使用普通 AI；保存计时配置，不按墙钟截断 AI 行动。");
-            Console.WriteLine("常规局打满后的待决定情形会保留逐局记录并暂停；淘汰赛同分时最多加赛 3 次，仍平按种子顺位晋级。");
+            Console.WriteLine("常规局打满后，胜场多的一方赢下整场，胜场相等才算整场平局。");
+            Console.WriteLine(tournament.IsElimination
+                ? "淘汰赛整场平局时最多进行 3 次决胜加赛，首个非平局决定整场胜方；仍平按种子顺位晋级。"
+                : "循环赛整场平局按原积分规则计分，不加赛、不按种子裁定。");
         }
 
         private static bool RunTournamentRuleset(Tournament tournament, Pairing pairing, TournamentFileStore file)
         {
             while (!pairing.WinnerSide.HasValue)
             {
-                string pending = tournament.PendingDecision(pairing);
-                if (!string.IsNullOrEmpty(pending))
-                {
-                    Console.Error.WriteLine(pending + " 已保存所有已完成局，本场保持待赛，不继续生成对局。");
-                    return false;
-                }
                 int game = pairing.Games.Count;
                 if (game >= tournament.BestOf + 3)
                     throw new InvalidOperationException("逐局记录超过赛事上限但仍未裁定，已停止继续对战。");

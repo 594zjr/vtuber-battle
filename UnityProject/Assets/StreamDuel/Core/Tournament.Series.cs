@@ -10,7 +10,7 @@ namespace StreamDuel.Core
 
         public bool HasRuleset { get { return seriesRuleset != null; } }
         public Ruleset Ruleset { get { return seriesRuleset?.Copy(); } }
-        int MaximumGameIndex { get { return HasRuleset ? BestOf + 2 : 3; } }
+        int MaximumGameIndex { get { return HasRuleset ? IsElimination ? BestOf + 2 : BestOf - 1 : 3; } }
 
         void InitializeSeries(Ruleset ruleset)
         {
@@ -30,13 +30,8 @@ namespace StreamDuel.Core
             if (pairing == null) throw new ArgumentNullException(nameof(pairing), "对阵不能为空。");
             if (pairing.Id < 0 || pairing.Id >= pairings.Count || !ReferenceEquals(pairings[pairing.Id], pairing))
                 throw new ArgumentException("这场对阵不属于本赛事。", nameof(pairing));
-            if (!HasRuleset || pairing.IsBye || pairing.WinnerSide.HasValue || pairing.Games.Count != BestOf) return null;
-            if (!IsElimination)
-                return "需要决定：循环赛已打满规定局数但无人达到胜场门槛，平局或加赛的整场处理规则尚未确定；比分及各局记录已保留。";
-            int first = pairing.Games.Count(game => game.WinnerSide == 0);
-            int second = pairing.Games.Count(game => game.WinnerSide == 1);
-            return first == second ? null
-                : "需要决定：已打满规定局数，双方胜场不等但均未达到门槛，尚未明确按领先比分结束还是继续加赛；比分及各局记录已保留。";
+            // 满局按胜场结算，只有淘汰赛的整场平局进入加赛，没有待人工裁定的状态。
+            return null;
         }
 
         void ApplySeriesGame(Pairing pairing, TournamentGame game)
@@ -49,14 +44,19 @@ namespace StreamDuel.Core
                 int second = pairing.Games.Count(item => item.WinnerSide == 1) + (game.WinnerSide == 1 ? 1 : 0);
                 if (first >= BestOf / 2 + 1) winner = 0;
                 else if (second >= BestOf / 2 + 1) winner = 1;
+                else if (game.Attempt == BestOf - 1)
+                {
+                    if (first != second) winner = first > second ? 0 : 1;
+                    else if (!IsElimination) winner = -1;
+                }
             }
             else
             {
-                // 规定局数同分后的决胜局沿用 T-118；不把顺位裁决写成某一局获胜。
+                // 淘汰赛整场同分后的独立决胜局沿用 T-118；不把顺位裁决写成某一局获胜。
                 if (game.WinnerSide != -1) winner = game.WinnerSide;
                 else if (game.Attempt == BestOf + 2)
                 {
-                    var seeds = EffectiveEliminationSeeds();
+                    var seeds = EffectiveSeedOrder.ToArray();
                     winner = Array.IndexOf(seeds, pairing.Player0) < Array.IndexOf(seeds, pairing.Player1) ? 0 : 1;
                     advancedBySeed = true;
                 }

@@ -34,6 +34,8 @@ namespace StreamDuel.Cli
                 ValidateSavedTournamentRuleset(options, tournament);
                 if (options.TournamentFormat != null && options.TournamentFormat != tournament.Format)
                     throw new ArgumentException("--format 与已保存的赛事赛制不一致，不能更改续赛事制；原文件未修改。");
+                if (options.TournamentSeedByRating && tournament.SeedMode != TournamentSeedMode.ByRating)
+                    throw new ArgumentException("--seed-by rating 与已保存的排种子方式不一致，不能更改续赛方式；原文件未修改。");
                 ValidateTournamentTiebreakOptions(options, tournament.Format);
                 if (options.TournamentSeed.HasValue && options.TournamentSeed != tournament.Seed)
                     throw new ArgumentException("--tournament-seed 与已保存的赛事种子不一致，不能在续赛时更改；原文件未修改。");
@@ -63,10 +65,11 @@ namespace StreamDuel.Cli
                 int? rounds = format == "swiss" ? ReadTournamentRounds() : 0;
                 if (!rounds.HasValue) return 0;
                 bool elimination = format == Tournament.SingleElimination || format == Tournament.DoubleElimination;
-                tournament = new Tournament(db, format, rounds.Value, elimination ? new TournamentOptions
+                tournament = new Tournament(db, format, rounds.Value, elimination || options.TournamentSeedByRating ? new TournamentOptions
                 {
                     Seed = options.TournamentSeed,
-                    AutoTiebreak = options.Auto && !options.NoAutoTiebreak
+                    AutoTiebreak = elimination && options.Auto && !options.NoAutoTiebreak,
+                    SeedMode = options.TournamentSeedByRating ? TournamentSeedMode.ByRating : TournamentSeedMode.Default
                 } : null, TournamentRuleset(options));
                 file.Save(tournament);
             }
@@ -86,12 +89,16 @@ namespace StreamDuel.Cli
                 if (!options.Auto) Console.WriteLine("手工报分模式不生成对战录像，默认关闭自动加赛。");
                 if (tournament.AutoTiebreak)
                     Console.WriteLine("加赛派生使用赛事种子：" + (tournament.Seed ?? 0).ToString(CultureInfo.InvariantCulture)
-                        + (tournament.Seed.HasValue ? "（也用于初始种子顺位）。" : "（未指定时按 0 派生，初始顺位仍按报名顺序）。"));
+                        + (tournament.Seed.HasValue ? "（也用于初始种子顺位）。"
+                            : tournament.SeedMode == TournamentSeedMode.ByRating
+                                ? "（未指定时按 0 派生，初始顺位按排位快照）。"
+                                : "（未指定时按 0 派生，初始顺位仍按报名顺序）。"));
             }
             Console.WriteLine("赛事存档：" + file.Path);
             foreach (var player in tournament.Players) PrintTournamentNameHint(player.Id, player.Name);
             if (tournament.Round == 0 && !RegisterTournamentPlayers(tournament, file))
                 return QuitTournament(file);
+            PrintTournamentRatingOrder(tournament);
 
             bool archiveFailed = false;
             while (!tournament.IsFinished)
@@ -213,7 +220,12 @@ namespace StreamDuel.Cli
                 if (code == null) return false;
                 try
                 {
-                    tournament.AddPlayer(name, code);
+                    if (tournament.SeedMode == TournamentSeedMode.ByRating)
+                    {
+                        if (!ReadTournamentRatingSource(out var profile, out var computerLevel)) return false;
+                        tournament.AddPlayer(name, code, profile, computerLevel);
+                    }
+                    else tournament.AddPlayer(name, code);
                 }
                 catch (Exception ex) when (ex is ArgumentException || ex is FormatException || ex is InvalidOperationException)
                 {
@@ -223,6 +235,7 @@ namespace StreamDuel.Cli
                 file.Save(tournament);
                 Console.WriteLine("已保存报名：" + TournamentPlayerName(tournament.Players[tournament.Players.Count - 1])
                     + "（共 " + tournament.Players.Count + " 人）");
+                PrintTournamentRatingSnapshot(tournament, tournament.Players.Count - 1);
             }
         }
 

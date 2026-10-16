@@ -25,6 +25,7 @@ namespace StreamDuel.Cli
                     return 0;
                 }
 
+                if (options.BranchCompareSource != null) return CompareBranchFiles(options);
                 if (options.RatingMode) return RunRatingCommand(options);
                 if (options.CardMode) return PrintCards(options);
                 if (options.BranchReplay != null) return PlayBranch(options);
@@ -109,14 +110,19 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
             Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
-            Console.WriteLine("                    可搭配 --format、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
+            Console.WriteLine("                    可搭配 --format、--seed-by、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
             Console.WriteLine("  --format single|double  仅用于赛事：直接创建单败或双败淘汰赛；续赛时必须与已存赛制一致。");
             Console.WriteLine("                    CLI 新建淘汰赛默认按报名顺序排种子，双败默认开启总决赛重置；不接受 --seed。");
+            Console.WriteLine("  --seed-by rating  仅用于赛事：按当前季默认排位分、场数、报名顺序排种子，四种赛制均支持。");
+            Console.WriteLine("                    报名额外选择真人或普通/困难/专家电脑，可提供只读档案目录；无档案真人 1500，电脑 1400/1600/1800。");
+            Console.WriteLine("                    分数快照随赛事保存；续赛省略时保留原方式，显式 rating 不能改变旧赛事方式。坏档案拒绝报名。");
+            Console.WriteLine("                    不能与 --tournament-seed 同用；淘汰赛可搭配 --auto 与 --no-auto-tiebreak，自动加赛按未指定赛事种子的 0 派生。");
             Console.WriteLine("  --tournament-seed 整数  淘汰赛种子 0..4294967295，用于种子顺位和加赛派生；续赛不能更改已存种子。");
             Console.WriteLine("  --tournament-ruleset 编号  为新赛事显式选择 casual、ranked 或 chaos，须与 --tournament、--auto 同用。");
             Console.WriteLine("                    支持单败、双败和循环赛（菜单选1），不支持瑞士轮；每局按快照进行禁用/首发并独立归档、保存检查点。");
             Console.WriteLine("                    续赛默认读取规则快照，显式编号必须与快照相同；不能升级旧赛事或搭配 --no-auto-tiebreak。");
-            Console.WriteLine("                    自动赛事保留计时配置但不按墙钟截断 AI；遇待决定的满局比分暂停并保留记录，不擅自判胜。");
+            Console.WriteLine("                    可搭配 --seed-by rating；自动赛事保留计时配置但不按墙钟截断 AI。满局按胜场多者胜，胜场相等才算整场平局。");
+            Console.WriteLine("                    仅淘汰赛整场平局最多决胜加赛 3 次；循环赛平局按原积分计分，不加赛、不按种子裁定。");
             Console.WriteLine("  --no-auto-tiebreak  关闭新建淘汰赛的自动加赛，平局保持待赛，重赛分出胜负后手工报分。");
             Console.WriteLine("                    新建淘汰赛配合 --auto 默认自动加赛，最多 3 次仍平按种子顺位晋级；原场和每次加赛先归档再登记结果。");
             Console.WriteLine("                    手工新建默认关闭加赛；已开启赛事必须用 --auto 续赛，省略时只读提示，不接受手工报分绕过录像。");
@@ -149,6 +155,9 @@ namespace StreamDuel.Cli
             Console.WriteLine("                    回合从 1 开始；0/1 对应录像第一/第二方。--ai normal|hard|expert 指定电脑难度，默认 normal。");
             Console.WriteLine("                    独立手动模式，仅可另加 --save-dir、--pack-dir；严格检查原录像版本、下架策略及内容指纹。");
             Console.WriteLine("                    完成后只追加带来源备注的新录像到 replay-library，保留所有旧记录；不累计正式战绩，q 或输入结束不保存。");
+            Console.WriteLine("  --branch-compare 原录像文件 接手录像文件  只读对照结局、双方剩余人数/总血量、回合数及接手后的关键回合。");
+            Console.WriteLine("                    仅可搭配 --pack-dir；按录像内容包严格校验来源、完整终局、版本和内容指纹，不支持库编号或 --save-dir。");
+            Console.WriteLine("                    结果写到标准输出；不修改输入、档案、录像库或索引，不另存报告。");
             Console.WriteLine("  --replay-code 码  从 SD1- 分享码回看，按码内内容包与指纹校验；与 --replay 互斥。含空白或换行时请将整段码加引号。");
             Console.WriteLine("  --replay-best-effort  显式允许内容指纹不同的录像尽力重放，并显示结果可能不同的提示；仅用于回看，不放行未来版本、缺包或无效记录。");
             Console.WriteLine("  --share           对局结束或回放全部播放后输出分享码，可复制给别人回看；提前退出不输出。");
