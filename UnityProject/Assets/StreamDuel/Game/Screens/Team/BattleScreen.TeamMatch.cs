@@ -73,6 +73,7 @@ namespace StreamDuel.Game
 
         void SubmitTeamBan(int foeIndex)
         {
+            if (TournamentBattleActive) { SubmitTournamentPosition(foeIndex); return; }
             if (teamMatch == null || b == null || b.Phase != Phase.Ban || b.HasChosenBan(0)) return;
             b.ChooseBan(0, foeIndex);
             // 删除队员后详情索引须重新定位；名单变化与下一阶段均由 Core 决定。
@@ -128,10 +129,10 @@ namespace StreamDuel.Game
         {
             GUI.Label(new Rect(24, 12, 1000, 44), C("开播对决", Accent) + "  选择禁用", sBig);
             DrawTeamMatchFanNotice();
-            if (GUI.Button(new Rect(1400, 18, 176, 36), "返回组队", sBtn)) Do(RequestTeamScreen);
+            if (GUI.Button(new Rect(1400, 18, 176, 36), TournamentBattleActive ? "返回赛事" : "返回组队", sBtn)) Do(RequestTeamScreen);
             GUI.Label(new Rect(24, 62, 1500, 32), "从对手六人中禁用一位；双方确认后由规则引擎统一移除。此时不计时。", sText);
-            DrawTeamBanCards(1, 104, "对手阵容 · 选择一位禁用");
-            DrawTeamBanCards(0, 388, "你的阵容 · 点卡片查看详情");
+            DrawTeamBanCards(1 - BattleViewerSide, 104, "对手阵容 · 选择一位禁用");
+            DrawTeamBanCards(BattleViewerSide, 388, "你的阵容 · 点卡片查看详情");
             DrawDetail(new Rect(24, 690, 1552, 192));
         }
 
@@ -144,7 +145,7 @@ namespace StreamDuel.Game
 
         void DrawTeamBanCards(int side, float y, string title)
         {
-            GUI.Label(new Rect(24, y, 1500, 28), C(title, side == 0 ? Mine : Foe), sTitle);
+            GUI.Label(new Rect(24, y, 1500, 28), C(title, side == BattleViewerSide ? Mine : Foe), sTitle);
             float width = (1552f - 5 * 12) / 6;
             for (int i = 0; i < b.Sides[side].Team.Count; i++)
             {
@@ -156,9 +157,9 @@ namespace StreamDuel.Game
                 GUI.Label(new Rect(r.x + 74, r.y + 44, width - 86, 26), TypeTag(fighter.Def), sSmall);
                 GUI.Label(new Rect(r.x + 12, r.y + 80, width - 24, 58), "人设·" + db.Personas[fighter.Def.Persona].Name, sSmall);
                 int index = i;
-                if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side == 1 ? "禁用这位主播" : "查看详情", sBtn))
+                if (GUI.Button(new Rect(r.x + 12, r.y + 176, width - 24, 40), side != BattleViewerSide ? "禁用这位主播" : "查看详情", sBtn))
                 {
-                    if (side == 1) Do(() => SubmitTeamBan(index));
+                    if (side != BattleViewerSide) Do(() => SubmitTeamBan(index));
                     else Do(() => { detailKind = "pet"; detailSide = side; detailIdx = index; detailScroll = Vector2.zero; });
                 }
                 if (GUI.Button(new Rect(r.x, r.y, width, 166), GUIContent.none, GUIStyle.none))

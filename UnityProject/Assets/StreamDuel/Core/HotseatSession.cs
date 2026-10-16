@@ -44,6 +44,19 @@ namespace StreamDuel.Core
             get { return TextInput.ForDisplay(battle).Log.AsReadOnly(); }
         }
 
+        /// <summary>在没有私密待提交选择的阶段边界接入现有对战；调用方保留原 Battle 的所有权。</summary>
+        public HotseatSession(Battle battle)
+        {
+            if (battle == null) throw new ArgumentNullException(nameof(battle));
+            if (battle.Phase == Phase.Over)
+                throw new InvalidOperationException("对战已经结束，不能接入同屏选择。");
+            if (battle.Phase == Phase.Ban && (battle.HasChosenBan(0) || battle.HasChosenBan(1))
+                || battle.Phase == Phase.Lead && (battle.HasChosenLead(0) || battle.HasChosenLead(1)))
+                throw new InvalidOperationException("禁用或首发已有部分选择，不能恢复未公开的同屏提交。");
+            this.battle = battle;
+            StartStage(0);
+        }
+
         public HotseatSession(ContentDb db, IList<string> teamA, IList<string> teamB,
             string nameA, string nameB, BattleOptions opt)
         {

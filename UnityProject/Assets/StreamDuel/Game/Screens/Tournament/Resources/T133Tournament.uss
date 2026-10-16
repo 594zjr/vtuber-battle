@@ -1,0 +1,37 @@
+.sd-tournament { flex-grow: 1; min-height: 0; padding: 24px 36px; background-color: #0c1124; color: #e8ebfa; font-size: 23px; white-space: normal; }
+.sd-tournament .title { font-size: 40px; color: #ffb547; margin-right: 28px; }
+.sd-tournament .subtitle { font-size: 28px; color: #b9ddff; margin-top: 14px; margin-bottom: 10px; }
+.sd-tournament .muted { color: #a9b8d6; font-size: 21px; white-space: normal; margin: 6px 12px 6px 0; }
+.sd-tournament .row { flex-direction: row; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
+.sd-tournament .body { flex-grow: 1; min-height: 0; }
+.sd-tournament .scroll { flex-grow: 1; min-height: 0; margin-top: 12px; }
+.sd-tournament .status { min-height: 30px; flex-shrink: 0; color: #ffd28d; margin-top: 8px; white-space: normal; }
+.sd-tournament .button { min-height: 48px; padding: 8px 18px; margin: 6px 10px 6px 0; font-size: 23px; color: #e8ebfa; background-color: #243455; border-width: 2px; border-color: #5c739c; border-radius: 8px; white-space: normal; }
+.sd-tournament .button:hover { background-color: #354c76; }
+.sd-tournament .button:focus { border-color: #ffd28d; }
+.sd-tournament .button:disabled { color: #8491aa; background-color: #1c263e; border-color: #34415c; }
+.sd-tournament .primary { background-color: #ffb547; color: #14203c; }
+.sd-tournament .selected { border-color: #ffb547; background-color: #354463; }
+.sd-tournament .field { width: 340px; margin: 8px 18px 8px 0; font-size: 22px; flex-shrink: 0; }
+.sd-tournament .field > .unity-base-field__label { width: 135px; min-width: 135px; color: #c7d1e6; white-space: normal; }
+.sd-tournament .unity-base-field__input { min-height: 42px; background-color: #192642; color: #e8ebfa; padding: 4px 8px; border-color: #61769a; border-width: 1px; border-radius: 4px; }
+.sd-tournament .unity-base-popup-field__text { color: #e8ebfa; white-space: normal; }
+.sd-tournament .unity-text-field__input { color: #e8ebfa; }
+.sd-tournament .unity-toggle__input { min-height: 32px; padding: 0; border-width: 0; background-color: rgba(0, 0, 0, 0); }
+.sd-tournament .save-picker { flex-grow: 1; min-width: 340px; max-width: 970px; margin-right: 12px; font-size: 22px; }
+.sd-tournament .save-picker > .unity-base-field__label { min-width: 110px; }
+.sd-tournament .tiebreak { margin: 10px 0; }
+.sd-tournament .entry { background-color: #151f37; border-bottom-width: 1px; border-bottom-color: #344764; padding: 10px 16px; margin-bottom: 8px; flex-shrink: 0; }
+.sd-tournament .entry-number { font-size: 26px; color: #7ccad9; width: 44px; }
+.sd-tournament .standings { max-width: 1520px; margin-bottom: 18px; flex-shrink: 0; }
+.sd-tournament .standing { background-color: #16223b; border-bottom-width: 1px; border-bottom-color: #344764; padding: 5px 0; }
+.sd-tournament .rank-cell { width: 110px; padding: 6px 12px; }
+.sd-tournament .name-cell { width: 520px; padding: 6px 12px; white-space: normal; }
+.sd-tournament .score-cell { width: 320px; padding: 6px 12px; }
+.sd-tournament .detail { background-color: #182640; padding: 10px 16px; border-left-width: 4px; border-left-color: #ffb547; margin-top: 8px; flex-shrink: 0; }
+.sd-tournament .selected-title { font-size: 23px; white-space: normal; }
+.sd-tournament .pairing { width: 330px; min-height: 126px; margin-right: 36px; margin-bottom: 18px; -unity-text-align: middle-left; }
+.sd-tournament .bracket { min-width: 100%; padding-bottom: 20px; flex-shrink: 0; }
+.sd-tournament .bracket-lane { flex-wrap: nowrap; align-items: stretch; }
+.sd-tournament .bracket-column { width: 366px; flex-shrink: 0; justify-content: space-around; }
+.sd-tournament .report-text { font-size: 24px; white-space: normal; padding: 16px; }

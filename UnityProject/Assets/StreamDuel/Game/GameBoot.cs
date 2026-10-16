@@ -48,6 +48,8 @@ namespace StreamDuel.Game
             router.Register(ScreenIds.Replay, () => new ReplayScreen());
             router.Register(ScreenIds.Settings, () => new SettingsScreen());
             router.Register(ScreenIds.Online, () => new OnlineScreen());
+            var tournamentState = new TournamentScreenState();
+            router.Register(ScreenIds.Tournament, () => new TournamentScreen(legacy, tournamentState));
             legacy.MainMenuRequested = () => router.Show(ScreenIds.Menu);
             legacy.TeamScreenRequested = () => router.Show(ScreenIds.Team);
             // 旧版验收入口继续直接开局；玩家和主菜单验收从正式菜单进入。
