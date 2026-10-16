@@ -89,6 +89,7 @@ namespace StreamDuel.Core
             if (w == null) return;
             p.Statuses.Remove(w);
             Add(Node.TurnStart, "【人设·" + t.Name + "】" + p.Name + " 移除了自身的「" + Db.Statuses[w.Id].Name + "」", "trait", s);
+            Emit(BattleEventKind.StatusRemove, p, w.Id);
         }
 
         void PersonaTurnEnd(int s, Fighter p)

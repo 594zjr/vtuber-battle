@@ -7,7 +7,7 @@ namespace StreamDuel.Core
 {
     public sealed class SpectatorFeed
     {
-        public const int ProtocolVersion = 1;
+        public const int ProtocolVersion = 2;
         readonly Battle source;
         readonly int delayTurns;
         readonly string opening;
@@ -35,20 +35,21 @@ namespace StreamDuel.Core
             if (delayTurns < 0) throw new ArgumentOutOfRangeException(nameof(delayTurns), "观战延迟不能为负数。");
             this.delayTurns = delayTurns;
             var record = source.Record;
+            SpectatorProtocol.ValidateRecord(source.Db, record);
             string contentHash = source.Db.ContentHash();
             if (record.PackId != source.Db.PackId || record.ContentHash != null && record.ContentHash != contentHash)
                 throw new InvalidOperationException("内容不一致，不能重建观战开局。");
             var names = record.Names == null ? new[] { "你", "对手" } : record.Names.ToArray();
             var teams = record.Teams.Select(team => (IList<string>)team.ToList()).ToArray();
-            SpectatorProtocol.ValidateOpening(source.Db, names, teams);
-            shadow = new Battle(source.Db, teams, names,
-                new BattleOptions { Seed = record.Seed, LeadPick = record.LeadPick, BanOne = record.BanOne });
-            opening = "{\"type\":\"spectator_start\",\"version\":1,\"seq\":0,\"packId\":" + NetJson.Quote(record.PackId)
+            shadow = SpectatorProtocol.CreateBattle(source.Db, record);
+            opening = "{\"type\":\"spectator_start\",\"version\":2,\"seq\":0,\"packId\":" + NetJson.Quote(record.PackId)
                 + ",\"contentHash\":" + NetJson.Quote(contentHash) + ",\"seed\":" + SpectatorProtocol.Number(record.Seed)
                 + ",\"names\":[" + string.Join(",", names.Select(NetJson.Quote)) + "]"
                 + ",\"teams\":[" + string.Join(",", teams.Select(team => "[" + string.Join(",", team.Select(NetJson.Quote)) + "]")) + "]"
                 + ",\"leadPick\":" + (record.LeadPick ? "true" : "false")
                 + ",\"banOne\":" + (record.BanOne ? "true" : "false")
+                + ",\"recordVersion\":" + SpectatorProtocol.Number(record.Version)
+                + ",\"modifiers\":[" + string.Join(",", shadow.Modifiers.Select(NetJson.Quote)) + "]"
                 + ",\"hash\":" + NetJson.Quote(SpectatorProtocol.Hash(shadow)) + "}";
         }
 
@@ -72,7 +73,7 @@ namespace StreamDuel.Core
                 CaptureEvents();
                 if (shadow.Phase != Phase.Over || shadow.StateHash() != source.StateHash())
                     throw new InvalidOperationException("观战重演终局与真实对战不一致。");
-                ending = "{\"type\":\"spectator_end\",\"version\":1,\"seq\":" + SpectatorProtocol.Number((long)frames.Count + 1)
+                ending = "{\"type\":\"spectator_end\",\"version\":2,\"seq\":" + SpectatorProtocol.Number((long)frames.Count + 1)
                     + ",\"turn\":" + SpectatorProtocol.Number(shadow.Turn)
                     + ",\"hash\":" + NetJson.Quote(SpectatorProtocol.Hash(shadow)) + "}";
             }
@@ -81,6 +82,7 @@ namespace StreamDuel.Core
 
         void CaptureEvents()
         {
+            SpectatorProtocol.ValidateVersion(source.Record.Version);
             if (source.Record.Events.Count < frames.Count) throw new InvalidOperationException("对战记录不能删除已经发布的观战事件。");
             while (frames.Count < source.Record.Events.Count)
             {
@@ -89,13 +91,12 @@ namespace StreamDuel.Core
                 int beforeTurn = shadow.Turn;
                 uint rng = entry.RngState.Value;
                 var next = shadow.Clone();
-                next.RestoreReplayRng(rng);
+                SpectatorProtocol.ApplyEvent(next, entry, source.Record.Version);
                 string kind, actionFields;
                 if (entry.Type == BattleRecordEventType.Turn)
                 {
                     kind = "turn";
                     string a0 = SpectatorProtocol.Wire(entry.A0), a1 = SpectatorProtocol.Wire(entry.A1);
-                    next.ResolveTurn(entry.A0, entry.A1);
                     // 原始非法输入仍由 Core 纠正；线路只传标准行动，并验证两种输入等价。
                     if (!SpectatorProtocol.SameAction(entry.A0, BattleAction.FromWire(a0))
                         || !SpectatorProtocol.SameAction(entry.A1, BattleAction.FromWire(a1)))
@@ -107,21 +108,30 @@ namespace StreamDuel.Core
                     }
                     actionFields = ",\"a0\":" + NetJson.Quote(a0) + ",\"a1\":" + NetJson.Quote(a1);
                 }
+                else if (entry.Type == BattleRecordEventType.Surrender || entry.Type == BattleRecordEventType.DrawOffer
+                    || entry.Type == BattleRecordEventType.DrawResponse)
+                {
+                    kind = entry.Type == BattleRecordEventType.Surrender ? "surrender"
+                        : entry.Type == BattleRecordEventType.DrawOffer ? "drawOffer" : "drawResponse";
+                    actionFields = ",\"side\":" + SpectatorProtocol.Number(entry.Side);
+                    if (entry.Type == BattleRecordEventType.DrawResponse)
+                        actionFields += ",\"accept\":" + (entry.Accepted ? "true" : "false");
+                }
                 else
                 {
                     kind = entry.Type == BattleRecordEventType.Replace ? "replace"
                         : entry.Type == BattleRecordEventType.Lead ? "lead"
                         : entry.Type == BattleRecordEventType.Ban ? "ban"
                         : throw new InvalidOperationException("未知观战事件类型。");
-                    SpectatorProtocol.ApplySelection(next, kind, entry.Side, entry.To);
                     actionFields = ",\"side\":" + SpectatorProtocol.Number(entry.Side) + ",\"to\":" + SpectatorProtocol.Number(entry.To);
                 }
-                string message = "{\"type\":\"spectator_event\",\"version\":1,\"seq\":" + SpectatorProtocol.Number((long)frames.Count + 1)
+                string message = "{\"type\":\"spectator_event\",\"version\":2,\"seq\":" + SpectatorProtocol.Number((long)frames.Count + 1)
                     + ",\"turn\":" + SpectatorProtocol.Number(beforeTurn) + ",\"event\":" + NetJson.Quote(kind)
                     + ",\"rng\":" + SpectatorProtocol.Number(rng) + actionFields
                     + ",\"hash\":" + NetJson.Quote(SpectatorProtocol.Hash(next)) + "}";
-                // 终局行动可能不增加 Turn，但它依然占用了一个完整回合。
-                long readyTurn = entry.Type == BattleRecordEventType.Turn ? Math.Max((long)beforeTurn + 1, next.Turn) : next.Turn;
+                // 终局协商同样不能绕过延迟；选手确认完局后才由 Finish 公开。
+                long readyTurn = entry.Type == BattleRecordEventType.Turn || next.Phase == Phase.Over
+                    ? Math.Max((long)beforeTurn + 1, next.Turn) : next.Turn;
                 frames.Add(new Frame { Message = message, ReadyTurn = readyTurn });
                 shadow = next;
             }
@@ -166,6 +176,7 @@ namespace StreamDuel.Core
         readonly INetTransport transport;
         readonly string contentHash;
         long nextSequence;
+        int protocolVersion;
 
         public Battle Battle { get; private set; }
         public string Error { get; private set; }
@@ -200,7 +211,9 @@ namespace StreamDuel.Core
         void Receive(string message)
         {
             var obj = SpectatorProtocol.Object(message);
-            if (NetJson.Integer(obj, "version", 0, int.MaxValue) != SpectatorFeed.ProtocolVersion)
+            int version = (int)NetJson.Integer(obj, "version", 1, int.MaxValue);
+            if (version != 1 && version != SpectatorFeed.ProtocolVersion
+                || protocolVersion != 0 && version != protocolVersion)
                 throw new FormatException("观战协议版本不同。");
             long sequence = NetJson.Integer(obj, "seq", 0, int.MaxValue);
             if (sequence != nextSequence) throw new FormatException("观战消息顺序不匹配。");
@@ -208,7 +221,7 @@ namespace StreamDuel.Core
             if (IsFinished) throw new FormatException("观战已经结束，不能接收额外消息。");
             if (type == "spectator_start")
             {
-                ReceiveOpening(obj);
+                ReceiveOpening(obj, version);
                 return;
             }
             if (Battle == null) throw new FormatException("开局信息到达前不能接收观战事件。");
@@ -228,31 +241,48 @@ namespace StreamDuel.Core
             uint rng = (uint)NetJson.Integer(obj, "rng", 0, uint.MaxValue);
             // 先在副本上确认阶段、动作和结果，坏帧不能污染已经展示的对战。
             var next = Battle.Clone();
-            next.RestoreReplayRng(rng);
+            var entry = new BattleRecordEvent { RngState = rng };
             if (kind == "turn")
             {
                 SpectatorProtocol.Keys(obj, "type", "version", "seq", "turn", "event", "rng", "hash", "a0", "a1");
-                next.ResolveTurn(BattleAction.FromWire(NetJson.Text(obj, "a0")), BattleAction.FromWire(NetJson.Text(obj, "a1")));
+                entry.Type = BattleRecordEventType.Turn;
+                entry.A0 = BattleAction.FromWire(NetJson.Text(obj, "a0"));
+                entry.A1 = BattleAction.FromWire(NetJson.Text(obj, "a1"));
+            }
+            else if (version == 2 && (kind == "surrender" || kind == "drawOffer" || kind == "drawResponse"))
+            {
+                if (kind == "drawResponse")
+                {
+                    SpectatorProtocol.Keys(obj, "type", "version", "seq", "turn", "event", "rng", "hash", "side", "accept");
+                    entry.Accepted = SpectatorProtocol.Boolean(obj, "accept");
+                }
+                else SpectatorProtocol.Keys(obj, "type", "version", "seq", "turn", "event", "rng", "hash", "side");
+                entry.Type = kind == "surrender" ? BattleRecordEventType.Surrender
+                    : kind == "drawOffer" ? BattleRecordEventType.DrawOffer : BattleRecordEventType.DrawResponse;
+                entry.Side = (int)NetJson.Integer(obj, "side", kind == "surrender" ? -1 : 0, 1);
             }
             else
             {
                 SpectatorProtocol.Keys(obj, "type", "version", "seq", "turn", "event", "rng", "hash", "side", "to");
-                int side = (int)NetJson.Integer(obj, "side", 0, 1);
-                int to = (int)NetJson.Integer(obj, "to", 0, 5);
-                SpectatorProtocol.ApplySelection(next, kind, side, to);
+                entry.Type = kind == "replace" ? BattleRecordEventType.Replace
+                    : kind == "lead" ? BattleRecordEventType.Lead
+                    : kind == "ban" ? BattleRecordEventType.Ban : throw new FormatException("未知观战事件类型。");
+                entry.Side = (int)NetJson.Integer(obj, "side", 0, 1);
+                entry.To = (int)NetJson.Integer(obj, "to", 0, 5);
             }
+            // 协议 2 可在直播期间首次出现终止事件；由引擎同步升级该局录像，而非改写已确认的副本。
+            SpectatorProtocol.ApplyEvent(next, entry, version == 1 ? BattleRecord.DefaultVersion : BattleRecord.CurrentVersion);
             SpectatorProtocol.VerifyHash(obj, next);
             Battle = next;
             nextSequence++;
         }
 
-        void ReceiveOpening(Dictionary<string, object> obj)
+        void ReceiveOpening(Dictionary<string, object> obj, int version)
         {
             if (Battle != null || nextSequence != 0) throw new FormatException("不能重复发送观战开局信息。");
-            SpectatorProtocol.Keys(obj, "type", "version", "seq", "packId", "contentHash", "seed", "names", "teams", "leadPick", "banOne", "hash");
-            if (NetJson.Text(obj, "packId") != db.PackId) throw new FormatException("观战内容包不同。");
-            if (NetJson.Text(obj, "contentHash") != contentHash || db.ContentHash() != contentHash)
-                throw new FormatException("观战内容指纹不一致。");
+            if (version == 1)
+                SpectatorProtocol.Keys(obj, "type", "version", "seq", "packId", "contentHash", "seed", "names", "teams", "leadPick", "banOne", "hash");
+            else SpectatorProtocol.Keys(obj, "type", "version", "seq", "packId", "contentHash", "seed", "names", "teams", "leadPick", "banOne", "hash", "recordVersion", "modifiers");
             var names = NetJson.Array(obj, "names").Select(value => value as string
                 ?? throw new FormatException("双方名字必须是字符串。")).ToArray();
             var teams = NetJson.Array(obj, "teams").Select(value =>
@@ -261,15 +291,26 @@ namespace StreamDuel.Core
                 return (IList<string>)members.Select(member => member as string
                     ?? throw new FormatException("队伍成员必须是主播编号字符串。")).ToList();
             }).ToArray();
-            SpectatorProtocol.ValidateOpening(db, names, teams);
-            var initial = new Battle(db, teams, names, new BattleOptions
+            var record = new BattleRecord
             {
+                Version = version == 1 ? BattleRecord.DefaultVersion : (int)NetJson.Integer(obj, "recordVersion", 1, int.MaxValue),
+                PackId = NetJson.Text(obj, "packId"),
+                ContentHash = NetJson.Text(obj, "contentHash"),
+                Names = names,
+                Teams = teams,
                 Seed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue),
                 LeadPick = SpectatorProtocol.Boolean(obj, "leadPick"),
-                BanOne = SpectatorProtocol.Boolean(obj, "banOne")
-            });
+                BanOne = SpectatorProtocol.Boolean(obj, "banOne"),
+                Modifiers = version == 1 ? null : NetJson.Array(obj, "modifiers").Select(value => value as string
+                    ?? throw new FormatException("观战规则修饰器必须是字符串。")).ToList()
+            };
+            SpectatorProtocol.ValidateRecord(db, record);
+            if (record.ContentHash != contentHash || db.ContentHash() != contentHash)
+                throw new FormatException("观战内容指纹不一致。");
+            var initial = SpectatorProtocol.CreateBattle(db, record);
             SpectatorProtocol.VerifyHash(obj, initial);
             Battle = initial;
+            protocolVersion = version;
             nextSequence = 1;
         }
     }
@@ -290,24 +331,39 @@ namespace StreamDuel.Core
             catch (FormatException) { return BattleAction.Pass().ToWire(); }
         }
 
-        internal static void ApplySelection(Battle battle, string kind, int side, int to)
+        internal static void ValidateVersion(int version)
         {
-            if (side < 0 || side > 1 || to < 0 || to > 5) throw new FormatException("观战选择位置无效。");
-            if (kind == "replace") battle.Replace(side, to);
-            else if (kind == "lead") battle.ChooseLead(side, to);
-            else if (kind == "ban") battle.ChooseBan(side, to);
-            else throw new FormatException("未知观战事件类型。");
+            if (version < 1 || version > BattleRecord.CurrentVersion) throw new FormatException("观战录像版本不受支持。");
         }
 
-        internal static void ValidateOpening(ContentDb db, string[] names, IList<string>[] teams)
+        internal static void ApplyEvent(Battle battle, BattleRecordEvent entry, int version)
         {
-            if (names.Length != 2 || names.Any(name => name == null) || teams.Length != 2)
-                throw new FormatException("观战开局必须包含双方名字和双方队伍。");
-            foreach (var team in teams)
+            ValidateVersion(version);
+            BattleRecord.ValidateEventVersion(version, entry);
+            if (entry.Type == BattleRecordEventType.Replace || entry.Type == BattleRecordEventType.Lead || entry.Type == BattleRecordEventType.Ban)
+                if (entry.Side < 0 || entry.Side > 1 || entry.To < 0 || entry.To > 5) throw new FormatException("观战选择位置无效。");
+            Replay.ApplyEvent(battle, entry);
+        }
+
+        internal static void ValidateRecord(ContentDb db, BattleRecord record)
+        {
+            var compatibility = Replay.Check(db, record);
+            if (!compatibility.CanReplay) throw new FormatException("观战开局无效：" + compatibility.Reason);
+            foreach (var team in record.Teams)
             {
                 var errors = TeamCheck.Validate(db, null, team);
                 if (errors.Count > 0) throw new FormatException("观战队伍无效：" + string.Join("；", errors));
             }
+        }
+
+        internal static Battle CreateBattle(ContentDb db, BattleRecord record)
+        {
+            var battle = new Battle(db, record.Teams, record.Names ?? new[] { "你", "对手" }, new BattleOptions
+            {
+                Seed = record.Seed, LeadPick = record.LeadPick, BanOne = record.BanOne, Modifiers = record.Modifiers
+            });
+            battle.Record.Version = record.Version;
+            return battle;
         }
 
         internal static bool Boolean(Dictionary<string, object> obj, string key)

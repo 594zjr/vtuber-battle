@@ -194,6 +194,40 @@ try {
     }
     $checks.Add('中盘加入与持续输入等待接收；固定两回合延迟；观众掉线不影响选手；多观众终局一致且零存档')
 
+    $wave2 = [IO.File]::ReadAllText((Join-Path (Split-Path $cliDll) 'Content/Packs/original_wave2.json')) | ConvertFrom-Json
+    $wave2Team = @($wave2.streamers | Select-Object -First 6 | ForEach-Object { $_.id }) -join ','
+    $mixedContent = @('--packs','original,original_wave2')
+    $mixedHost = Start-Cli 'mixed-lan-host' ($mixedContent + @('--lan-host','观战整合复验','--spectate-port','0',
+        '--seed','58','--team',$hostTeam,'--timer','60,30'))
+    $mixedViewPort = [int](Wait-Output $mixedHost '(?m)^观战端口：([0-9]+)\r?$').Groups[1].Value
+    $mixedPlayPort = [int](Wait-Output $mixedHost '(?m)^监听端口：([0-9]+)\r?$').Groups[1].Value
+    $mixedViewer = Start-Cli 'mixed-viewer' ($mixedContent + @('--watch',"127.0.0.1:$mixedViewPort",'--hash'))
+    $null = Wait-Output $mixedHost '观众已连接'
+    $mixedGuest = Start-Cli 'mixed-guest' ($mixedContent + @('--join',"127.0.0.1:$mixedPlayPort",'--team',$wave2Team,'--auto'))
+    $null = Wait-Output $mixedHost '选择行动（q 退出）> '
+    $null = Wait-Output $mixedViewer '观战开始'
+    $mixedHost.Process.StandardInput.WriteLine('/surrender')
+    $mixedHostResult = Wait-Cli $mixedHost 0
+    $mixedGuestResult = Wait-Cli $mixedGuest 0
+    $mixedViewerResult = Wait-Cli $mixedViewer 0
+    $mixedHash = Final-Hash $mixedHostResult.Out
+    Assert-Check ((Final-Hash $mixedGuestResult.Out) -ceq $mixedHash -and
+        (Final-Hash $mixedViewerResult.Out) -ceq $mixedHash) '计时混合包投降后观众终局哈希不一致。'
+    Assert-Check ($mixedHostResult.Out.Contains('局域网房间：观战整合复验') -and
+        $mixedHostResult.Out.Contains('已启用房主计时：')) '开放观战破坏了LAN广播或计时。'
+    Assert-Check ($mixedViewerResult.Out.Contains('观战结束：客机 获胜') -and
+        $mixedViewerResult.Out.Contains('阵容来源声明：') -and
+        $mixedViewerResult.Out.Contains($wave2.streamers[0].id)) '混合观战漏掉终止事件或来源声明。'
+    foreach ($result in @($mixedHostResult, $mixedGuestResult, $mixedViewerResult)) {
+        Assert-Check ($result.Err.Length -eq 0) '混合包投降观战出现错误输出。'
+    }
+    foreach ($player in @($mixedHost, $mixedGuest)) {
+        $profile = [IO.File]::ReadAllText((Join-Path $player.WorkingDirectory 'saves/profile.json')) | ConvertFrom-Json
+        Assert-Check ($profile.ratings.'默认'.games -eq 1) '投降观战导致选手排位局数漏记或重复。'
+    }
+    Assert-NoSave $mixedViewer
+    $checks.Add('LAN开房与早到观众、房主计时、混合包来源声明、投降终局及双方评级一体化通过，观众不存档')
+
     $interruptedHost = Start-Cli 'interrupted-host' @('--host', '0', '--spectate-port', '0')
     $interruptedPort = [int](Wait-Output $interruptedHost '(?m)^观战端口：([0-9]+)\r?$').Groups[1].Value
     $interruptedViewer = Start-Cli 'interrupted-viewer' @('--watch', "127.0.0.1:$interruptedPort")
@@ -218,6 +252,29 @@ try {
         @{ Name = 'watch-level'; Extra = @('--level','normal') },
         @{ Name = 'watch-report'; Extra = @('--report','unused.md') },
         @{ Name = 'watch-save'; Extra = @('--save-dir','saves') },
+        @{ Name = 'watch-timer'; Extra = @('--timer','10,30') },
+        @{ Name = 'watch-lan-host'; Extra = @('--lan-host','观战参数检查') },
+        @{ Name = 'watch-lan-list'; Extra = @('--lan-list') },
+        @{ Name = 'watch-share'; Extra = @('--share') },
+        @{ Name = 'watch-replay-code'; Extra = @('--replay-code','unused') },
+        @{ Name = 'watch-replay-best'; Extra = @('--replay-best-effort') },
+        @{ Name = 'watch-replays'; Extra = @('--replays') },
+        @{ Name = 'watch-team-code'; Extra = @('--team-code','unused') },
+        @{ Name = 'watch-export-team'; Extra = @('--export-team') },
+        @{ Name = 'watch-hotseat'; Extra = @('--hotseat') },
+        @{ Name = 'watch-team-b'; Extra = @('--team-b',$guestTeam) },
+        @{ Name = 'watch-name-a'; Extra = @('--name-a','甲') },
+        @{ Name = 'watch-name-b'; Extra = @('--name-b','乙') },
+        @{ Name = 'watch-random'; Extra = @('--random-teams') },
+        @{ Name = 'watch-advice'; Extra = @('--advice') },
+        @{ Name = 'watch-tournament'; Extra = @('--tournament','unused.json') },
+        @{ Name = 'watch-tournament-report'; Extra = @('--tournament-report','unused.json') },
+        @{ Name = 'watch-json'; Extra = @('--json') },
+        @{ Name = 'watch-card'; Extra = @('--card','bell') },
+        @{ Name = 'watch-cards'; Extra = @('--cards','original') },
+        @{ Name = 'watch-glossary'; Extra = @('--glossary') },
+        @{ Name = 'watch-calc'; Extra = @('--calc','bell','1','enka') },
+        @{ Name = 'watch-matchup'; Extra = @('--matchup',$hostTeam,'vs',$guestTeam) },
         @{ Name = 'watch-duplicate'; Extra = @('--watch','127.0.0.1:1') }
     )
     foreach ($case in $cases) {
@@ -242,7 +299,7 @@ try {
     $list = Wait-Cli $listChild 0
     Assert-Check ($list.Out.Contains('original') -and -not $list.Out.Contains('只读观战')) '列包模式意外开始观战。'
     Assert-NoSave $listChild
-    $checks.Add('18组非法组合/重复/端口检查；list-packs只列包；显式默认选项也拒绝')
+    $checks.Add('完整只读参数边界：新增计时、回放分享、队伍导出、同屏、赛事和查询选项均在连接前拒绝；list-packs保持只列包')
     [IO.File]::WriteAllText((Join-Path $runDirectory 'report.json'), (@{ Status='PASS'; FinalHash=$hash; Checks=$checks.ToArray() } | ConvertTo-Json -Depth 5), $utf8)
     Write-Output "PASS：$($checks.Count) 组观战与 CLI 检查；证据：$runDirectory"
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using StreamDuel.Core;
 
@@ -32,7 +33,8 @@ namespace StreamDuel.Cli
                         {
                             started = true;
                             Console.WriteLine("观战开始；种子：" + battle.Seed);
-                            PrintTeams(battle);
+                            PrintTeams(TextInput.ForDisplay(battle));
+                            PrintMixedNotices(db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
                         }
                         PrintNewLog(battle, ref logIndex);
                         if (options.Hash && !viewer.IsFinished && battle.Record.Events.Count != hashEventCount)
@@ -46,10 +48,11 @@ namespace StreamDuel.Cli
                     {
                         if (battle == null || battle.Phase != Phase.Over)
                             throw new IOException("观战结束标记缺少完整的终局。");
-                        Console.WriteLine("观战结束：" + (battle.Winner < 0 ? "平局" : battle.Sides[battle.Winner].Name + " 获胜"));
+                        var display = TextInput.ForDisplay(battle);
+                        Console.WriteLine("观战结束：" + (display.Winner < 0 ? "平局" : display.Sides[display.Winner].Name + " 获胜"));
                         Console.WriteLine("最终状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
-                        PrintTeams(battle);
-                        Console.WriteLine(BattleSummary.From(battle).ToText());
+                        PrintTeams(display);
+                        Console.WriteLine(BattleSummary.From(display).ToText());
                         return 0;
                     }
                     Thread.Sleep(10);

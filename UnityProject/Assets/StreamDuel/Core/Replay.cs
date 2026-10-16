@@ -5,7 +5,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum BattleRecordEventType { Turn, Replace, Lead, Ban }
+    public enum BattleRecordEventType { Turn, Replace, Lead, Ban, Surrender, DrawOffer, DrawResponse }
 
     public sealed class BattleRecordEvent
     {
@@ -14,18 +14,24 @@ namespace StreamDuel.Core
         public BattleAction A1 { get; set; }
         public int Side { get; set; }
         public int To { get; set; }
+        public bool Accepted { get; set; }
         // AI 选择也消耗同一随机流，回放不调用 AI，所以必须保存结算前的位置。
         public uint? RngState { get; set; }
     }
 
     public sealed class BattleRecord
     {
-        public int Version { get; set; } = 2;
+        public const int CurrentVersion = 3;
+        public const int DefaultVersion = 2;
+        public const int TerminationVersion = 3;
+
+        public int Version { get; set; } = DefaultVersion;
         public string ContentHash { get; set; }
         public uint Seed { get; set; }
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
         public bool BanOne { get; set; }
+        public List<string> Modifiers { get; set; }
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
         public List<BattleRecordEvent> Events { get; } = new List<BattleRecordEvent>();
@@ -43,6 +49,16 @@ namespace StreamDuel.Core
             }
             if (LeadPick) sb.Append(",\"leadPick\":true");
             if (BanOne) sb.Append(",\"banOne\":true");
+            if (Modifiers != null && Modifiers.Count > 0)
+            {
+                sb.Append(",\"modifiers\":[");
+                for (int i = 0; i < Modifiers.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    WriteString(sb, Modifiers[i]);
+                }
+                sb.Append(']');
+            }
             if (Names != null)
             {
                 if (Names.Length != 2) throw new FormatException("对战记录必须包含两个名称");
@@ -69,6 +85,7 @@ namespace StreamDuel.Core
             {
                 if (i > 0) sb.Append(',');
                 var e = Events[i];
+                ValidateEventVersion(Version, e);
                 if (e.Type == BattleRecordEventType.Turn)
                 {
                     sb.Append("{\"type\":\"turn\",\"a0\":");
@@ -84,6 +101,13 @@ namespace StreamDuel.Core
                     sb.Append(",\"side\":");
                     sb.Append(e.Side.ToString(CultureInfo.InvariantCulture));
                     sb.Append(",\"to\":").Append(e.To.ToString(CultureInfo.InvariantCulture));
+                }
+                else if (e.Type == BattleRecordEventType.Surrender || e.Type == BattleRecordEventType.DrawOffer || e.Type == BattleRecordEventType.DrawResponse)
+                {
+                    sb.Append("{\"type\":");
+                    WriteString(sb, e.Type == BattleRecordEventType.Surrender ? "surrender" : e.Type == BattleRecordEventType.DrawOffer ? "drawOffer" : "drawResponse");
+                    sb.Append(",\"side\":").Append(e.Side.ToString(CultureInfo.InvariantCulture));
+                    if (e.Type == BattleRecordEventType.DrawResponse) sb.Append(",\"accept\":").Append(e.Accepted ? "true" : "false");
                 }
                 else throw new FormatException("未知回放事件类型：" + e.Type);
                 if (e.RngState.HasValue) sb.Append(",\"rng\":").Append(e.RngState.Value.ToString(CultureInfo.InvariantCulture));
@@ -118,6 +142,13 @@ namespace StreamDuel.Core
                 if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
                 record.BanOne = enabled;
             }
+            if (root.TryGetValue("modifiers", out var modifiersValue))
+            {
+                var modifiers = ReadArray(modifiersValue, "modifiers");
+                record.Modifiers = new List<string>();
+                for (int i = 0; i < modifiers.Count; i++)
+                    record.Modifiers.Add(ReadString(modifiers[i], "modifiers[" + i + "]"));
+            }
             if (root.TryGetValue("names", out var namesValue))
             {
                 var names = ReadArray(namesValue, "names");
@@ -147,11 +178,37 @@ namespace StreamDuel.Core
                     e.Side = (int)ReadInteger(Required(obj, "side"), "side", 0, 1);
                     e.To = (int)ReadInteger(Required(obj, "to"), "to", 0, int.MaxValue);
                 }
+                else if (type == "surrender" || type == "drawOffer" || type == "drawResponse")
+                {
+                    e.Type = type == "surrender" ? BattleRecordEventType.Surrender : type == "drawOffer" ? BattleRecordEventType.DrawOffer : BattleRecordEventType.DrawResponse;
+                    e.Side = (int)ReadInteger(Required(obj, "side"), "side", type == "surrender" ? -1 : 0, 1);
+                    if (e.Type == BattleRecordEventType.DrawResponse)
+                    {
+                        if (!(Required(obj, "accept") is bool accepted)) throw new FormatException("accept 必须是布尔值");
+                        e.Accepted = accepted;
+                    }
+                }
                 else throw new FormatException("未知回放事件类型：" + type);
+                ValidateEventVersion(record.Version, e);
                 if (obj.TryGetValue("rng", out var state)) e.RngState = (uint)ReadInteger(state, "rng", 0, uint.MaxValue);
                 record.Events.Add(e);
             }
             return record;
+        }
+
+        internal static void ValidateEventVersion(int version, BattleRecordEvent entry)
+        {
+            if (entry == null) throw new FormatException("回放事件不能为空");
+            bool termination = entry.Type == BattleRecordEventType.Surrender || entry.Type == BattleRecordEventType.DrawOffer
+                || entry.Type == BattleRecordEventType.DrawResponse || entry.Type == BattleRecordEventType.Turn
+                && (entry.A0.Type == ActionType.Surrender || entry.A1.Type == ActionType.Surrender);
+            if (termination && version < TerminationVersion) throw new FormatException("投降或和局事件需要录像版本 3。");
+            if (entry.Type == BattleRecordEventType.Turn
+                && (entry.A0.Type == ActionType.Surrender || entry.A1.Type == ActionType.Surrender))
+                throw new FormatException("投降必须使用独立 surrender 录像事件，不能记录为普通回合。");
+            if (entry.Type == BattleRecordEventType.Surrender && (entry.Side < -1 || entry.Side > 1)
+                || (entry.Type == BattleRecordEventType.DrawOffer || entry.Type == BattleRecordEventType.DrawResponse) && (entry.Side < 0 || entry.Side > 1))
+                throw new FormatException("终局协商事件的对战方不合法。");
         }
 
         static void WriteAction(StringBuilder sb, BattleAction action)
@@ -212,7 +269,7 @@ namespace StreamDuel.Core
         }
     }
 
-    public static class Replay
+    public static partial class Replay
     {
         public static Battle Run(ContentDb db, BattleRecord r)
         {
@@ -225,18 +282,36 @@ namespace StreamDuel.Core
                     throw new InvalidOperationException("内容不一致：记录指纹 " + r.ContentHash + "，当前指纹 " + contentHash);
             }
             if (r.PackId != db.PackId) throw new InvalidOperationException("回放内容包不匹配：" + r.PackId + " / " + db.PackId);
+            return RunEvents(db, r);
+        }
+
+        static Battle RunEvents(ContentDb db, BattleRecord r)
+        {
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
-                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne });
+                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
             foreach (var e in r.Events)
             {
-                if (e.RngState.HasValue) battle.RestoreReplayRng(e.RngState.Value);
-                if (e.Type == BattleRecordEventType.Turn) battle.ResolveTurn(e.A0, e.A1);
-                else if (e.Type == BattleRecordEventType.Replace) battle.Replace(e.Side, e.To);
-                else if (e.Type == BattleRecordEventType.Lead) battle.ChooseLead(e.Side, e.To);
-                else if (e.Type == BattleRecordEventType.Ban) battle.ChooseBan(e.Side, e.To);
-                else throw new FormatException("未知回放事件类型：" + e.Type);
+                BattleRecord.ValidateEventVersion(r.Version, e);
+                ApplyEvent(battle, e);
             }
             return battle;
+        }
+
+        internal static void ApplyEvent(Battle battle, BattleRecordEvent entry)
+        {
+            if (entry.RngState.HasValue) battle.RestoreReplayRng(entry.RngState.Value);
+            switch (entry.Type)
+            {
+                case BattleRecordEventType.Turn: battle.ResolveTurn(entry.A0, entry.A1); break;
+                case BattleRecordEventType.Replace: battle.Replace(entry.Side, entry.To); break;
+                case BattleRecordEventType.Lead: battle.ChooseLead(entry.Side, entry.To); break;
+                case BattleRecordEventType.Ban: battle.ChooseBan(entry.Side, entry.To); break;
+                case BattleRecordEventType.Surrender:
+                    battle.ResolveSurrenders(entry.Side == -1 || entry.Side == 0, entry.Side == -1 || entry.Side == 1); break;
+                case BattleRecordEventType.DrawOffer: battle.OfferDraw(entry.Side); break;
+                case BattleRecordEventType.DrawResponse: battle.RespondDraw(entry.Side, entry.Accepted); break;
+                default: throw new FormatException("未知回放事件类型：" + entry.Type);
+            }
         }
     }
 
