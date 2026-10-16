@@ -25,6 +25,10 @@ namespace StreamDuel.Cli
         public string SaveDir = "saves";
         public string ReplayFile;
         public string ReplayCode;
+        public string BranchReplay;
+        public int? BranchTurn;
+        public int? BranchSide;
+        public AiLevel BranchAi = AiLevel.Normal;
         public bool ReplayBestEffort;
         public string ReportFile;
         public string TournamentFile;
@@ -186,6 +190,7 @@ namespace StreamDuel.Cli
                     && option != "--report" && option != "--tournament" && option != "--tournament-report" && option != "--format"
                     && option != "--save-dir" && option != "--replay" && option != "--replay-code" && option != "--pack-dir"
                     && option != "--host" && option != "--join" && option != "--timer" && option != "--lan-host"
+                    && option != "--branch" && option != "--turn" && option != "--side" && option != "--ai"
                     && option != "--spectate-port" && option != "--watch")
                     throw new ArgumentException("未知参数：" + (option ?? "空参数") + "；使用 --help 查看用法。");
 
@@ -194,6 +199,39 @@ namespace StreamDuel.Cli
                 string value = args[i];
                 switch (option)
                 {
+                    case "--branch":
+                    case "--turn":
+                    case "--side":
+                    case "--ai":
+                        if (provided.Count(item => item == option) > 1)
+                            throw new ArgumentException(option + " 不能重复指定。");
+                        if (option == "--branch")
+                        {
+                            if (string.IsNullOrWhiteSpace(value))
+                                throw new ArgumentException("--branch 需要非空的录像文件路径或录像库编号。");
+                            options.BranchReplay = value;
+                        }
+                        else if (option == "--turn")
+                        {
+                            int turn;
+                            if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out turn) || turn < 1)
+                                throw new ArgumentException("--turn 必须是从 1 开始的十进制整数回合号。");
+                            options.BranchTurn = turn;
+                        }
+                        else if (option == "--side")
+                        {
+                            if (value != "0" && value != "1")
+                                throw new ArgumentException("--side 只能是 0（录像第一方）或 1（录像第二方）。");
+                            options.BranchSide = value == "0" ? 0 : 1;
+                        }
+                        else
+                        {
+                            if (value == "normal") options.BranchAi = AiLevel.Normal;
+                            else if (value == "hard") options.BranchAi = AiLevel.Hard;
+                            else if (value == "expert") options.BranchAi = AiLevel.Expert;
+                            else throw new ArgumentException("--ai 只能是 normal（普通）、hard（困难）或 expert（专家）。");
+                        }
+                        break;
                     case "--format":
                         if (options.TournamentFormat != null) throw new ArgumentException("--format 不能重复指定。");
                         if (value != "single" && value != "double")
@@ -327,6 +365,21 @@ namespace StreamDuel.Cli
             ValidateCardOptions(options, provided);
             if (!options.Help)
             {
+                if (options.BranchReplay == null && (options.BranchTurn.HasValue || options.BranchSide.HasValue || provided.Contains("--ai")))
+                    throw new ArgumentException("--turn、--side 和 --ai 只能与 --branch 同用。");
+                if (options.BranchReplay != null)
+                {
+                    if (!options.BranchTurn.HasValue || !options.BranchSide.HasValue)
+                        throw new ArgumentException("--branch 必须同时指定 --turn 回合 和 --side 0或1。");
+                    var allowed = new HashSet<string>(StringComparer.Ordinal)
+                    { "--branch", "--turn", "--side", "--ai", "--save-dir", "--pack-dir" };
+                    var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
+                    if (unsupported.Length > 0)
+                        throw new ArgumentException("--branch 是独立的手动接手模式，只可搭配 --turn、--side、--ai、--save-dir、--pack-dir；不能与 "
+                            + string.Join("、", unsupported) + " 同用。");
+                    string duplicate = provided.GroupBy(option => option).FirstOrDefault(group => group.Count() > 1)?.Key;
+                    if (duplicate != null) throw new ArgumentException(duplicate + " 不能重复指定。");
+                }
                 if (options.TournamentFormat != null && options.TournamentFile == null)
                     throw new ArgumentException("--format 只能与 --tournament 同用。");
                 if (options.Json && options.TournamentReportFile == null)
