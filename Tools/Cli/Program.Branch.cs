@@ -55,6 +55,8 @@ namespace StreamDuel.Cli
             PrintTerminationCommands();
             Console.WriteLine("继承的对方求和可用 /draw accept 同意，或 /draw reject 拒绝。");
             int logIndex = battle.Log.Count;
+            // 接手页从当前局面开始，只显示后续新结算的解说。
+            commentaryOutput.Add(battle, new CommentaryOutput { NextEvent = battle.Events.Count });
             Func<string, int?> readNumber = prompt => ReadNumber(prompt,
                 line => HandleBranchCommand(battle, humanSide, line));
             try

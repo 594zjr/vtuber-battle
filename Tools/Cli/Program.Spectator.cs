@@ -41,7 +41,7 @@ namespace StreamDuel.Cli
                             for (int index = 0; index < QuickChat.Count; index++)
                                 Console.WriteLine("  /say " + index + "：" + QuickChat.Text(index));
                         }
-                        PrintNewLog(battle, ref logIndex);
+                        PrintNewLog(battle, ref logIndex, commentaryKey: viewer);
                         if (options.Hash && !viewer.IsFinished && battle.Record.Events.Count != hashEventCount)
                         {
                             hashEventCount = battle.Record.Events.Count;

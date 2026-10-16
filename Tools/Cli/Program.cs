@@ -437,9 +437,10 @@ namespace StreamDuel.Cli
             return 0;
         }
 
-        private static void PrintNewLog(Battle battle, ref int index)
+        private static void PrintNewLog(Battle battle, ref int index, object commentaryKey = null)
         {
             if (index >= battle.Log.Count) return;
+            object identity = commentaryKey ?? battle;
             battle = TextInput.ForDisplay(battle);
             string node = null;
             int turn = -1;
@@ -454,6 +455,7 @@ namespace StreamDuel.Cli
                 }
                 Console.WriteLine("  " + entry.Text);
             }
+            PrintCommentary(battle, identity: identity);
         }
     }
 }

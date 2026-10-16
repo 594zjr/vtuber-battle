@@ -75,6 +75,7 @@ namespace StreamDuel.Cli
                     }
                     Console.WriteLine("  " + entry.Text);
                 }
+                PrintCommentary(battle, turn.Key);
             }
 
             if (battle.Phase == Phase.Over)
