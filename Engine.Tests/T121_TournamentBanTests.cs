@@ -606,6 +606,147 @@ public class T121_TournamentBanTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void DoubleBanReplayCanBranchAndContinueWithoutDowngradingOrChangingItsSource(int humanSide)
+    {
+        using var files = new TestDirectory();
+        var db = BattleTests.LoadPack("original");
+        var tournament = Make(db, "roundrobin", 2, 2);
+        var pairing = Assert.Single(tournament.NextRound());
+        AutoCompleteBans(tournament, pairing);
+        var source = tournament.CreateBattle(pairing);
+        Finish(source);
+        string original = source.Record.ToJson(), logs = Json(source.Log);
+        ulong originalState = source.StateHash();
+        double originalNext = source.Clone().Random();
+        byte[] originalBytes = Encoding.UTF8.GetBytes(original);
+        string sourcePath = Path.Combine(files.Root, "source-record.txt");
+        File.WriteAllBytes(sourcePath, originalBytes);
+        Assert.True(source.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn) >= 2);
+        Assert.Equal(4, BattleRecord.BranchVersion);
+        Assert.Equal(5, BattleRecord.MultiBanVersion);
+        Assert.Equal(BattleRecord.MultiBanVersion, source.Record.Version);
+        var sourceCursor = new ReplayCursor(db, source.Record, 1);
+        sourceCursor.Seek(1);
+        var expected = sourceCursor.Current.Clone();
+
+        var branch = ReplayBranch.Start(db, source.Record, 2, humanSide, AiLevel.Normal);
+        var repeated = ReplayBranch.Start(db, source.Record, 2, humanSide, AiLevel.Normal);
+
+        Assert.Equal(2, branch.BanCount);
+        Assert.Equal(2, branch.Record.BanCount);
+        Assert.Equal(BattleRecord.MultiBanVersion, branch.Record.Version);
+        Assert.True(branch.IsBranch);
+        Assert.Equal(Phase.Choose, branch.Phase);
+        Assert.Equal(2, branch.Turn);
+        Assert.Equal(Json(expected.Sides), Json(branch.Sides));
+        Assert.Equal(expected.Need, branch.Need);
+        Assert.Equal(expected.ActedFirst, branch.ActedFirst);
+        Assert.All(branch.Sides, side => Assert.Equal(4, side.Team.Count));
+        Assert.Equal(Json(source.Record.Events.Take(4).ToArray()), Json(branch.Record.Events.Take(4).ToArray()));
+        Assert.Equal(4, branch.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Ban));
+        var info = Assert.Single(branch.Record.Events, entry => entry.Type == BattleRecordEventType.Branch).Branch;
+        Assert.Equal(2, info.Turn);
+        Assert.Equal(humanSide, info.HumanSide);
+        Assert.Equal(AiLevel.Normal, info.Level);
+        Assert.Equal(ReplayBranch.DeriveSeed(source.Seed, 2), info.Seed);
+        using (var sha = SHA256.Create())
+            Assert.Equal(string.Concat(sha.ComputeHash(originalBytes).Select(value => value.ToString("x2", CultureInfo.InvariantCulture))), info.SourceHash);
+        Assert.Equal(new Rng(info.Seed).Next(), branch.Clone().Random());
+        var opening = branch.Clone();
+        Finish(branch);
+        Finish(repeated);
+        Assert.Equal(branch.StateHash(), repeated.StateHash());
+        Assert.Equal(branch.Record.ToJson(), repeated.Record.ToJson());
+        var replay = Replay.Run(db, BattleRecord.FromJson(branch.Record.ToJson()));
+        Assert.Equal(branch.StateHash(), replay.StateHash());
+        Assert.Equal(Json(branch.Log), Json(replay.Log));
+        Assert.Equal(branch.Clone().Random(), replay.Clone().Random());
+        var branchCursor = new ReplayCursor(db, branch.Record, 2);
+        branchCursor.Seek(1);
+        Assert.Equal(opening.StateHash(), branchCursor.Current.StateHash());
+        Assert.Equal(opening.Record.ToJson(), branchCursor.Current.Record.ToJson());
+        branchCursor.ToEnd();
+        Assert.Equal(branch.StateHash(), branchCursor.Current.StateHash());
+
+        var downgraded = BattleRecord.FromJson(branch.Record.ToJson());
+        downgraded.Version = BattleRecord.BranchVersion;
+        Assert.Throws<FormatException>(() => downgraded.ToJson());
+        Assert.False(Replay.Check(db, downgraded).CanReplay);
+        Assert.Throws<FormatException>(() => Replay.Run(db, downgraded));
+        var library = files.Library();
+        string id = library.Save(branch.Record, BattleSummary.From(branch));
+        var stored = library.Load(id);
+        Assert.True(stored.IsBranch);
+        Assert.Equal(BattleRecord.MultiBanVersion, stored.Version);
+        Assert.Equal(branch.StateHash(), Replay.Run(db, stored).StateHash());
+        Assert.Equal(original, source.Record.ToJson());
+        Assert.Equal(logs, Json(source.Log));
+        Assert.Equal(originalState, source.StateHash());
+        Assert.Equal(originalNext, source.Clone().Random());
+        Assert.Equal(originalBytes, File.ReadAllBytes(sourcePath));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public void PracticeBranchesCannotImpersonateFormalGamesEvenWithTheSameBansSeedAndWinner(int bans)
+    {
+        using var files = new TestDirectory();
+        using var genuineFiles = new TestDirectory();
+        var db = BattleTests.LoadPack("original");
+        var tournament = Make(db, "roundrobin", 2, bans);
+        var pairing = Assert.Single(tournament.NextRound());
+        AutoCompleteBans(tournament, pairing);
+        var source = tournament.CreateBattle(pairing);
+        source.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        source.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        source.Surrender(1);
+        tournament.ReportResult(pairing, source.Winner);
+        var branch = ReplayBranch.Start(db, source.Record, 2, 0, AiLevel.Normal);
+        branch.ResolveTurn(BattleAction.Pass(), BattleAction.Pass());
+        branch.Surrender(1);
+        Assert.True(branch.IsBranch);
+        Assert.Equal(source.Winner, branch.Winner);
+        Assert.Equal(source.Seed, branch.Seed);
+        Assert.Equal(Json(source.Record.Events.Where(entry => entry.Type == BattleRecordEventType.Ban).ToArray()),
+            Json(branch.Record.Events.Where(entry => entry.Type == BattleRecordEventType.Ban).ToArray()));
+        var library = files.Library();
+        var empty = Files(files.Root);
+        var error = Assert.Throws<InvalidOperationException>(() => library.SaveTournament(tournament, pairing, branch));
+        Assert.Matches("[\u3400-\u9fff]", error.Message);
+        AssertFilesEqual(empty, files.Root);
+
+        string branchId = library.Save(branch.Record, BattleSummary.From(branch));
+        Assert.Equal(branch.StateHash(), Replay.Run(db, library.Load(branchId)).StateHash());
+        var genuineLibrary = genuineFiles.Library();
+        string genuineId = genuineLibrary.SaveTournament(tournament, pairing, source);
+        var genuineMetadata = (Dictionary<string, object>)Object(File.ReadAllText(Path.Combine(genuineFiles.Root, genuineId + ".json")))["library"];
+        string branchPath = Path.Combine(files.Root, branchId + ".json");
+        var substituted = Object(File.ReadAllText(branchPath));
+        var branchMetadata = (Dictionary<string, object>)substituted["library"];
+        branchMetadata["tournament"] = genuineMetadata["tournament"];
+        File.WriteAllText(branchPath, Json(substituted), new UTF8Encoding(false));
+        var before = Files(files.Root);
+        string saved = tournament.ToJson();
+
+        var report = TournamentReport.Build(tournament, ReplayLibrary.OpenReadOnly(files.Root, PackPolicy.Empty));
+
+        using var parsed = JsonDocument.Parse(report.ToJson());
+        var root = parsed.RootElement;
+        var row = MatchRow(root, pairing.Id);
+        Assert.Equal("mismatch", row.GetProperty("replay").GetProperty("status").GetString());
+        Assert.Equal(branchId, row.GetProperty("replay").GetProperty("id").GetString());
+        Assert.Equal(0, root.GetProperty("coverage").GetProperty("archivedGames").GetInt32());
+        Assert.Equal(1, root.GetProperty("coverage").GetProperty("invalidGames").GetInt32());
+        foreach (string key in new[] { "maxDamage", "mostKos", "mostAppearances" })
+            Assert.Equal(JsonValueKind.Null, root.GetProperty(key).ValueKind);
+        Assert.Equal(saved, tournament.ToJson());
+        AssertFilesEqual(before, files.Root);
+    }
+
+    [Theory]
     [InlineData("single", 1, false)]
     [InlineData("single", 1, true)]
     [InlineData("single", 2, false)]

@@ -111,7 +111,7 @@ namespace StreamDuel.Core
 
         internal bool MatchesBanRecord(Pairing pairing, BattleRecord record)
         {
-            if (record == null || record.Events.Any(entry => entry == null)) return false;
+            if (record == null || record.Events.Any(entry => entry == null) || record.IsBranch) return false;
             int count = record.BanCount > 0 ? record.BanCount : record.BanOne ? 1 : 0;
             if (count != BanCount || record.Events.Count(entry => entry.Type == BattleRecordEventType.Ban) != BanCount * 2)
                 return false;

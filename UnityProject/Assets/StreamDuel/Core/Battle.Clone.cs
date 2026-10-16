@@ -6,7 +6,7 @@
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
 // BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、BanCount、Modifiers、Names、Teams、Events；
-// BattleRecordEvent：Type、A0、A1、Side、To、Accepted、RngState。
+// BattleRecordEvent：Type、A0、A1、Side、To、Accepted、RngState、Branch（不可变元数据共享）。
 // BattleEvent：LogIndex、Turn、Side、Slot、Amount、Node、Id、Kind。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
 using System;
@@ -153,6 +153,7 @@ namespace StreamDuel.Core
                     Side = entry.Side,
                     To = entry.To,
                     Accepted = entry.Accepted,
+                    Branch = entry.Branch,
                     RngState = entry.RngState
                 });
             }

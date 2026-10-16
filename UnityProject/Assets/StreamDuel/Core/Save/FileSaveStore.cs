@@ -96,6 +96,8 @@ namespace StreamDuel.Core
             {
                 var profile = LoadProfile();
                 profile.Record(battle, playerSide);
+                // 接手局经过同样的终局校验，但不能触发排位结算或重写正式档案。
+                if (battle.IsBranch) return profile;
                 if (opponentRating != null)
                 {
                     PlayerRating current;

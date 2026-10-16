@@ -149,6 +149,7 @@ namespace StreamDuel.Core
                 Side = source.Side,
                 To = source.To,
                 Accepted = source.Accepted,
+                Branch = source.Branch,
                 RngState = source.RngState
             };
         }

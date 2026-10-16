@@ -435,6 +435,12 @@ namespace StreamDuel.Core
                 Names = source.Record.Names == null ? null : source.Record.Names.ToArray(),
                 Teams = source.Record.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
+            // 预测不携带普通历史，但不能把练习分支丢失为正式对战身份。
+            foreach (var entry in source.Record.Events.Where(item => item != null && item.Type == BattleRecordEventType.Branch))
+                Record.Events.Add(new BattleRecordEvent
+                {
+                    Type = entry.Type, Branch = entry.Branch, RngState = entry.RngState
+                });
             for (int s = 0; s < Sides.Length; s++)
             {
                 Need[s] = source.Need[s];

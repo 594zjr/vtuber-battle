@@ -334,8 +334,8 @@ namespace StreamDuel.Core
 
         internal static void ValidateVersion(int version)
         {
-            // 观战 v2 没有传递禁用配额，不能把 v4 两人禁用静默当作一人禁用。
-            if (version < 1 || version > BattleRecord.TerminationVersion) throw new FormatException("观战录像版本不受支持，当前观战协议不支持每方禁用两人。");
+            // 观战 v2 没有接手事件和禁用配额，不能静默丢弃 v4/v5 的执行语义。
+            if (version < 1 || version > BattleRecord.TerminationVersion) throw new FormatException("观战录像版本不受支持，当前观战协议不支持接手分支或每方禁用两人。");
         }
 
         internal static void ApplyEvent(Battle battle, BattleRecordEvent entry, int version)

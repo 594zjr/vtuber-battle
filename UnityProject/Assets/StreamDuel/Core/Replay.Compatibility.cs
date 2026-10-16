@@ -110,6 +110,12 @@ namespace StreamDuel.Core
                 try { BattleRecord.ValidateEventVersion(r.Version, entry); }
                 catch (FormatException error) { return error.Message; }
                 if (entry.Type == BattleRecordEventType.Turn) continue;
+                if (entry.Type == BattleRecordEventType.Branch)
+                {
+                    if (entry.Branch.Seed != ReplayBranch.DeriveSeed(r.Seed, entry.Branch.Turn))
+                        return "分支录像的派生种子不正确。";
+                    continue;
+                }
                 if (entry.Type == BattleRecordEventType.Surrender || entry.Type == BattleRecordEventType.DrawOffer
                     || entry.Type == BattleRecordEventType.DrawResponse) continue;
                 if (entry.Type == BattleRecordEventType.Replace || entry.Type == BattleRecordEventType.Lead

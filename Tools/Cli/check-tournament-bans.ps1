@@ -181,7 +181,7 @@ function Assert-Report([string]$Name, [string]$Path, [bool]$Archived) {
         Check ($match.replay.status -ceq 'saved') '实际自动对局没有可重放归档。'
         $record = $library.Load($match.replay.id)
         if ($tournament.BanCount -eq 1) { Check ($record.BanOne -and $record.BanCount -eq 0) '单禁用没有沿用旧BanOne规范。' }
-        if ($tournament.BanCount -eq 2) { Check (-not $record.BanOne -and $record.BanCount -eq 2 -and $record.Version -eq 4) '双禁用未采用版本4录像。' }
+        if ($tournament.BanCount -eq 2) { Check (-not $record.BanOne -and $record.BanCount -eq 2 -and $record.Version -eq 5) '双禁用未采用版本5录像。' }
         $events = @($record.Events | Where-Object { $_.Type -eq [StreamDuel.Core.BattleRecordEventType]::Ban })
         Check ($events.Count -eq $pairing.Bans.Count) '录像与赛事禁用数量不同。'
         for ($i = 0; $i -lt $events.Count; $i++) {
@@ -344,10 +344,45 @@ try {
     $null = Assert-Report 'ordered-single-report' $orderedPath $true
     $checks.Add('PASS 自定义种子顺序存档续赛按有效种子选择并保存完整录像')
 
+    $branchTournamentPath = Join-Path $run 'auto-2.json'
+    $branchSourceBefore = Fingerprint $branchTournamentPath
+    $sourceTournament = Read-Tournament $branchTournamentPath
+    $sourceLibrary = [StreamDuel.Core.ReplayLibrary]::OpenReadOnly($branchTournamentPath + '.replay-library', $policy)
+    $sourceReport = [StreamDuel.Core.TournamentReport]::Build($sourceTournament, $sourceLibrary).ToJson() | ConvertFrom-Json -AsHashtable
+    $sourceId = $sourceReport.rounds[0].matches[0].replay.id
+    $sourceRecord = $sourceLibrary.Load($sourceId)
+    $sourceFile = Join-Path ($branchTournamentPath + '.replay-library') ($sourceId + '.json')
+    foreach ($side in @(0, 1)) {
+        $expected = [StreamDuel.Core.ReplayBranch]::Start($db, $sourceRecord, 1, $side, [StreamDuel.Core.AiLevel]::Normal)
+        $switches = @($expected.LegalFor($side).Switches)
+        Check ($switches.Count -gt 0) '双禁用接手夹具没有合法替补。'
+        $slot = [int]$switches[0]
+        $human = [StreamDuel.Core.BattleAction]::SwitchTo($slot)
+        $foe = [StreamDuel.Core.Ai]::Choose($expected, 1 - $side, [StreamDuel.Core.AiLevel]::Normal)
+        if ($side -eq 0) { $expected.ResolveTurn($human, $foe) } else { $expected.ResolveTurn($foe, $human) }
+        $expected.Surrender($side)
+        $saveDirectory = Join-Path $run "two-ban-branch-$side"
+        $null = Invoke-Cli "two-ban-branch-$side" @('--branch', $sourceFile, '--turn', '1', '--side', [string]$side,
+            '--save-dir', $saveDirectory) @([string]($slot + 6), '/surrender')
+        $files = @(Get-ChildItem -LiteralPath (Join-Path $saveDirectory 'replay-library') -File -Filter '*.json' | Where-Object { $_.Name -ne 'index.json' })
+        Check ($files.Count -eq 1) '双禁用接手没有且仅有一份新分支录像。'
+        $actual = [StreamDuel.Core.BattleRecord]::FromJson([IO.File]::ReadAllText($files[0].FullName, $utf8))
+        Check ($actual.IsBranch -and $actual.BanCount -eq 2 -and $actual.Version -eq 5 -and
+            $actual.ToJson() -ceq $expected.Record.ToJson()) '接手双禁用录像没有保留版本、禁用前缀或真实选择。'
+        $replayed = [StreamDuel.Core.Replay]::Run($db, $actual)
+        Check ($replayed.StateHash() -eq $expected.StateHash() -and $replayed.Winner -eq 1 - $side -and
+            $replayed.Sides[0].Team.Count -eq 4 -and $replayed.Sides[1].Team.Count -eq 4) '双禁用接手录像无法独立复现四人对阵终局。'
+        Check (-not (Test-Path -LiteralPath (Join-Path $saveDirectory 'profile.json')) -and
+            -not (Test-Path -LiteralPath (Join-Path $saveDirectory 'replays'))) '接手双禁用录像写入了正式战绩或普通录像。'
+    }
+    Check ((Fingerprint $branchTournamentPath) -ceq $branchSourceBefore) '接手双禁用录像改写了源赛事或旁库。'
+    $checks.Add('PASS 双禁用v5录像两侧接手、保留禁用前缀、实际换人后独立重放且不改源赛事/正式战绩')
+
     $fresh = Join-Path $run 'must-not-create/fresh.json'
     $invalidOptions = @(@('--bans'), @('--bans', ''), @('--bans', '-1'), @('--bans', '3'),
         @('--bans', '01'), @('--bans', '+1'), @('--bans', '1.0'), @('--bans', ' 1'), @('--bans', '一'),
-        @('--bans', '0', '--bans', '0'), @('--bans', '1', '--ban'))
+        @('--bans', '0', '--bans', '0'), @('--bans', '1', '--ban'),
+        @('--bans', '1', '--branch', $sourceFile, '--turn', '1', '--side', '0'))
     for ($i = 0; $i -lt $invalidOptions.Count; $i++) {
         $bad = Invoke-Cli "invalid-bans-$i" (@('--tournament', $fresh) + $invalidOptions[$i]) @() 1
         Check ($bad.Out.Length -eq 0 -and -not $bad.Err.Contains('未知参数')) '无效参数未由bans/互斥校验拒绝。'
@@ -355,7 +390,8 @@ try {
     $conflicts = @(@(), @('--auto'), @('--list-packs'), @('--replays'), @('--replay', 'missing.json'),
         @('--replay-code', 'SD1-invalid'), @('--glossary'), @('--card', 'bell'), @('--cards', 'original'),
         @('--hotseat'), @('--host', '0'), @('--join', '127.0.0.1:1'), @('--watch', '127.0.0.1:1'),
-        @('--lan-list'), @('--calc', 'bell', '1', 'kei'), @('--tournament-report', $manual))
+        @('--lan-list'), @('--calc', 'bell', '1', 'kei'), @('--tournament-report', $manual),
+        @('--branch', $sourceFile, '--turn', '1', '--side', '0'), @('--turn', '1'), @('--side', '0'), @('--ai', 'normal'))
     for ($i = 0; $i -lt $conflicts.Count; $i++) {
         foreach ($first in @($true, $false)) {
             $arguments = if ($first) { @('--bans', '1') + $conflicts[$i] } else { $conflicts[$i] + @('--bans', '1') }

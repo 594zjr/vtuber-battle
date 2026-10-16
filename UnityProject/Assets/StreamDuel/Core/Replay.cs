@@ -5,7 +5,7 @@ using System.Text;
 
 namespace StreamDuel.Core
 {
-    public enum BattleRecordEventType { Turn, Replace, Lead, Ban, Surrender, DrawOffer, DrawResponse }
+    public enum BattleRecordEventType { Turn, Replace, Lead, Ban, Surrender, DrawOffer, DrawResponse, Branch }
 
     public sealed class BattleRecordEvent
     {
@@ -15,16 +15,18 @@ namespace StreamDuel.Core
         public int Side { get; set; }
         public int To { get; set; }
         public bool Accepted { get; set; }
+        public ReplayBranchInfo Branch { get; set; }
         // AI 选择也消耗同一随机流，回放不调用 AI，所以必须保存结算前的位置。
         public uint? RngState { get; set; }
     }
 
     public sealed class BattleRecord
     {
-        public const int CurrentVersion = 4;
+        public const int CurrentVersion = 5;
         public const int DefaultVersion = 2;
         public const int TerminationVersion = 3;
-        public const int MultiBanVersion = 4;
+        public const int BranchVersion = 4;
+        public const int MultiBanVersion = 5;
 
         public int Version { get; set; } = DefaultVersion;
         public string ContentHash { get; set; }
@@ -37,6 +39,16 @@ namespace StreamDuel.Core
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
         public List<BattleRecordEvent> Events { get; } = new List<BattleRecordEvent>();
+        public ReplayBranchInfo Branch
+        {
+            get
+            {
+                for (int i = Events.Count - 1; i >= 0; i--)
+                    if (Events[i]?.Type == BattleRecordEventType.Branch) return Events[i].Branch;
+                return null;
+            }
+        }
+        public bool IsBranch { get { return Branch != null; } }
 
         public string ToJson()
         {
@@ -112,6 +124,16 @@ namespace StreamDuel.Core
                     WriteString(sb, e.Type == BattleRecordEventType.Surrender ? "surrender" : e.Type == BattleRecordEventType.DrawOffer ? "drawOffer" : "drawResponse");
                     sb.Append(",\"side\":").Append(e.Side.ToString(CultureInfo.InvariantCulture));
                     if (e.Type == BattleRecordEventType.DrawResponse) sb.Append(",\"accept\":").Append(e.Accepted ? "true" : "false");
+                }
+                else if (e.Type == BattleRecordEventType.Branch)
+                {
+                    sb.Append("{\"type\":\"branch\",\"sourceHash\":");
+                    WriteString(sb, e.Branch.SourceHash);
+                    sb.Append(",\"turn\":").Append(e.Branch.Turn.ToString(CultureInfo.InvariantCulture));
+                    sb.Append(",\"humanSide\":").Append(e.Branch.HumanSide.ToString(CultureInfo.InvariantCulture));
+                    sb.Append(",\"level\":");
+                    WriteString(sb, e.Branch.Level.ToString());
+                    sb.Append(",\"seed\":").Append(e.Branch.Seed.ToString(CultureInfo.InvariantCulture));
                 }
                 else throw new FormatException("未知回放事件类型：" + e.Type);
                 if (e.RngState.HasValue) sb.Append(",\"rng\":").Append(e.RngState.Value.ToString(CultureInfo.InvariantCulture));
@@ -197,6 +219,17 @@ namespace StreamDuel.Core
                         e.Accepted = accepted;
                     }
                 }
+                else if (type == "branch")
+                {
+                    e.Type = BattleRecordEventType.Branch;
+                    string levelName = ReadString(Required(obj, "level"), "level");
+                    if (!Enum.TryParse(levelName, out AiLevel level) || !Enum.IsDefined(typeof(AiLevel), level)
+                        || levelName != level.ToString()) throw new FormatException("分支录像的电脑难度无效。");
+                    e.Branch = new ReplayBranchInfo(ReadString(Required(obj, "sourceHash"), "sourceHash"),
+                        (int)ReadInteger(Required(obj, "turn"), "turn", 1, int.MaxValue),
+                        (int)ReadInteger(Required(obj, "humanSide"), "humanSide", 0, 1), level,
+                        (uint)ReadInteger(Required(obj, "seed"), "seed", 0, uint.MaxValue));
+                }
                 else throw new FormatException("未知回放事件类型：" + type);
                 ValidateEventVersion(record.Version, e);
                 if (obj.TryGetValue("rng", out var state)) e.RngState = (uint)ReadInteger(state, "rng", 0, uint.MaxValue);
@@ -209,13 +242,19 @@ namespace StreamDuel.Core
         {
             if (BanCount < 0 || BanCount > 2) throw new FormatException("录像每方禁用人数只能是 0、1 或 2。");
             int count = BanCount > 0 ? BanCount : BanOne ? 1 : 0;
-            if (count == 2 && Version < MultiBanVersion) throw new FormatException("每方禁用两人需要录像版本 4。");
+            if (count == 2 && Version < MultiBanVersion) throw new FormatException("每方禁用两人需要录像版本 5。");
             return count;
         }
 
         internal static void ValidateEventVersion(int version, BattleRecordEvent entry)
         {
             if (entry == null) throw new FormatException("回放事件不能为空");
+            if (entry.Type == BattleRecordEventType.Branch)
+            {
+                if (version < BranchVersion) throw new FormatException("接手分支事件需要录像版本 4。");
+                ReplayBranch.ValidateInfo(entry.Branch);
+            }
+            else if (entry.Branch != null) throw new FormatException("分支来源只能用于 branch 录像事件。");
             bool termination = entry.Type == BattleRecordEventType.Surrender || entry.Type == BattleRecordEventType.DrawOffer
                 || entry.Type == BattleRecordEventType.DrawResponse || entry.Type == BattleRecordEventType.Turn
                 && (entry.A0.Type == ActionType.Surrender || entry.A1.Type == ActionType.Surrender);
@@ -328,6 +367,7 @@ namespace StreamDuel.Core
                     battle.ResolveSurrenders(entry.Side == -1 || entry.Side == 0, entry.Side == -1 || entry.Side == 1); break;
                 case BattleRecordEventType.DrawOffer: battle.OfferDraw(entry.Side); break;
                 case BattleRecordEventType.DrawResponse: battle.RespondDraw(entry.Side, entry.Accepted); break;
+                case BattleRecordEventType.Branch: battle.ApplyReplayBranch(entry.Branch); break;
                 default: throw new FormatException("未知回放事件类型：" + entry.Type);
             }
         }
