@@ -9,8 +9,12 @@ namespace StreamDuel.Core
     {
         public const int CurrentVersion = 1;
 
-        public bool FastPlay, TurnTimer;
+        public bool FastPlay, TurnTimer, ColorblindMode;
         public bool Animations = true;
+        public double AnimationSpeed = 1;
+        public int TurnSeconds = 10;
+        public bool Fullscreen;
+        public int Width = 1600, Height = 900;
         public AiLevel AiLevel = StreamDuel.Core.AiLevel.Normal;
         public string DefaultPack = "fan_asoul_vr";
         public string Language = "zh-CN";
@@ -18,16 +22,33 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
+            double speed = ValidSpeed(AnimationSpeed);
+            int seconds = ValidInt(TurnSeconds, 1, 300, 10);
+            int width = ValidInt(Width, 640, 7680, 1600);
+            int height = ValidInt(Height, 360, 4320, 900);
             var text = new StringBuilder("{\"aiLevel\":");
             WriteString(text, AiLevel.ToString());
+            // 可选字段不改变旧默认设置的编码，旧存档缺省时仍使用原窗口与计时。
+            if (speed != 1)
+                text.Append(",\"animationSpeed\":").Append(speed.ToString(CultureInfo.InvariantCulture));
             text.Append(",\"animations\":").Append(Animations ? "true" : "false");
+            // 缺省即关闭，保留旧设置的序列化形状；开启时才写入新增选项。
+            if (ColorblindMode) text.Append(",\"colorblindMode\":true");
             text.Append(",\"defaultPack\":");
             WriteString(text, DefaultPack);
             text.Append(",\"fastPlay\":").Append(FastPlay ? "true" : "false");
+            if (Fullscreen) text.Append(",\"fullscreen\":true");
+            if (height != 900)
+                text.Append(",\"height\":").Append(height.ToString(CultureInfo.InvariantCulture));
             text.Append(",\"language\":");
             WriteString(text, Language);
+            if (seconds != 10)
+                text.Append(",\"turnSeconds\":").Append(seconds.ToString(CultureInfo.InvariantCulture));
             text.Append(",\"turnTimer\":").Append(TurnTimer ? "true" : "false");
-            return text.Append(",\"version\":").Append(Version.ToString(CultureInfo.InvariantCulture)).Append('}').ToString();
+            text.Append(",\"version\":").Append(Version.ToString(CultureInfo.InvariantCulture));
+            if (width != 1600)
+                text.Append(",\"width\":").Append(width.ToString(CultureInfo.InvariantCulture));
+            return text.Append('}').ToString();
         }
 
         public static GameSettings FromJson(string json)
@@ -49,6 +70,13 @@ namespace StreamDuel.Core
             settings.FastPlay = ReadBool(source, "fastPlay", settings.FastPlay);
             settings.TurnTimer = ReadBool(source, "turnTimer", settings.TurnTimer);
             settings.Animations = ReadBool(source, "animations", settings.Animations);
+            settings.ColorblindMode = ReadBool(source, "colorblindMode", settings.ColorblindMode);
+            if (source.TryGetValue("animationSpeed", out var speed) && speed is double numberSpeed)
+                settings.AnimationSpeed = ValidSpeed(numberSpeed);
+            settings.TurnSeconds = ReadInt(source, "turnSeconds", 1, 300, settings.TurnSeconds);
+            settings.Fullscreen = ReadBool(source, "fullscreen", settings.Fullscreen);
+            settings.Width = ReadInt(source, "width", 640, 7680, settings.Width);
+            settings.Height = ReadInt(source, "height", 360, 4320, settings.Height);
             settings.DefaultPack = ReadText(source, "defaultPack", settings.DefaultPack);
             settings.Language = ReadText(source, "language", settings.Language);
             if (source.TryGetValue("aiLevel", out var value))
@@ -69,6 +97,23 @@ namespace StreamDuel.Core
         static bool ReadBool(Dictionary<string, object> source, string key, bool fallback)
         {
             return source.TryGetValue(key, out var value) && value is bool flag ? flag : fallback;
+        }
+
+        static double ValidSpeed(double value)
+        {
+            return value == 0.5 || value == 1 || value == 2 ? value : 1;
+        }
+
+        static int ValidInt(int value, int minimum, int maximum, int fallback)
+        {
+            return value >= minimum && value <= maximum ? value : fallback;
+        }
+
+        static int ReadInt(Dictionary<string, object> source, string key, int minimum, int maximum, int fallback)
+        {
+            return source.TryGetValue(key, out var value) && value is double number
+                && number >= minimum && number <= maximum && number == Math.Truncate(number)
+                ? (int)number : fallback;
         }
 
         static string ReadText(Dictionary<string, object> source, string key, string fallback)

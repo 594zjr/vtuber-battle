@@ -21,6 +21,8 @@ namespace StreamDuel.Core
             {
                 errors.Add(Loc.T("team.err.size", team == null ? 0 : team.Count));
             }
+            string packReason = db.Policy.PackReason(db.PackId);
+            if (packReason != null) { errors.Add(packReason); return errors; }
             if (team == null) return errors;
 
             var seen = new HashSet<string>();
@@ -37,6 +39,8 @@ namespace StreamDuel.Core
             var members = new List<StreamerDef>();
             foreach (var id in team)
             {
+                string disabled = db.Policy.StreamerReason(id);
+                if (disabled != null) { errors.Add(disabled); continue; }
                 var streamer = db.Streamers.FirstOrDefault(s => s.Id == id);
                 if (streamer == null) errors.Add(Loc.T("team.err.missing", id ?? Loc.T("team.id.empty")));
                 else members.Add(streamer);

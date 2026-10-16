@@ -7,14 +7,20 @@ namespace StreamDuel.Core
 {
     public sealed class TeamPreset
     {
+        // 原名用于存档和队伍码保真；显示时统一走过滤后的属性。
         public string Name = "";
         public string PackId = "";
         public List<string> Ids = new List<string>();
+
+        public TextInputResult NameInput { get { return TextInput.Clean(Name, TextInputKind.TeamName); } }
+        public string DisplayName { get { return NameInput.Text; } }
 
         public List<string> Check(ContentDb db, string seasonId)
         {
             if (db == null) throw new ArgumentNullException(nameof(db));
             var errors = new List<string>();
+            string disabledPack = db.Policy.PackReason(PackId);
+            if (disabledPack != null) { errors.Add(disabledPack); return errors; }
             if (!string.Equals(PackId, db.PackId, StringComparison.Ordinal))
                 errors.Add("这套队伍属于其他内容包");
             errors.AddRange(TeamCheck.Validate(db, seasonId, Ids));

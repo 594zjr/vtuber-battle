@@ -12,7 +12,6 @@ namespace StreamDuel.Game
         [NonSerialized] UIDocument document;
         [NonSerialized] VisualElement root;
         [NonSerialized] IScreen current;
-        [NonSerialized] Action<bool> setLegacyVisible;
         [NonSerialized] bool initialized;
         [NonSerialized] bool restorePending;
 
@@ -25,17 +24,17 @@ namespace StreamDuel.Game
         public object CurrentArgs { get; private set; }
         internal bool IsInitialized => initialized;
 
-        public void Initialize(UIDocument uiDocument, ScreenResources resources, Action<bool> legacyVisibility)
+        public void Initialize(UIDocument uiDocument, ScreenResources resources, Action<bool> legacyVisibility = null)
         {
             if (initialized) throw new InvalidOperationException("界面路由已经初始化。");
             if (uiDocument == null) throw new ArgumentNullException(nameof(uiDocument));
             if (resources == null || resources.PanelSettings == null || resources.Theme == null
                 || resources.RegularFont == null || resources.BoldFont == null)
                 throw new InvalidOperationException("界面资源不完整，请检查 StreamDuelUI 的面板、主题和中文字体。");
-            if (legacyVisibility == null) throw new ArgumentNullException(nameof(legacyVisibility));
             document = uiDocument;
             Resources = resources;
-            setLegacyVisible = legacyVisibility;
+            // 保留旧调用方的可选参数，但只允许关闭旧入口。
+            legacyVisibility?.Invoke(false);
             document.panelSettings = resources.PanelSettings;
             initialized = true;
             TryBindRoot();
@@ -44,7 +43,7 @@ namespace StreamDuel.Game
         public void Register(string screenId, Func<IScreen> factory)
         {
             if (string.IsNullOrWhiteSpace(screenId)) throw new ArgumentException("界面编号不能为空。", nameof(screenId));
-            if (screenId == ScreenIds.Legacy) throw new ArgumentException("旧版界面由路由管理。", nameof(screenId));
+            if (screenId == "legacy") throw new ArgumentException("旧版界面已移除。", nameof(screenId));
             if (factory == null) throw new ArgumentNullException(nameof(factory));
             factories.Add(screenId, factory);
         }
@@ -54,24 +53,13 @@ namespace StreamDuel.Game
             if (!initialized) throw new InvalidOperationException("界面路由尚未初始化。");
             if (!isActiveAndEnabled) throw new InvalidOperationException("界面路由尚未启用。");
             Func<IScreen> factory = null;
-            if (screenId != ScreenIds.Legacy && (screenId == null || !factories.TryGetValue(screenId, out factory)))
+            if (screenId == null || !factories.TryGetValue(screenId, out factory))
                 throw new ArgumentException("未注册的界面：" + screenId, nameof(screenId));
             if (!TryBindRoot())
             {
                 CurrentScreenId = screenId;
                 CurrentArgs = args;
                 restorePending = true;
-                setLegacyVisible(false);
-                return;
-            }
-            if (screenId == ScreenIds.Legacy)
-            {
-                ReleaseCurrent();
-                root.style.display = DisplayStyle.None;
-                CurrentScreenId = screenId;
-                CurrentArgs = args;
-                restorePending = false;
-                setLegacyVisible(true);
                 return;
             }
             IScreen next = factory();
@@ -88,8 +76,7 @@ namespace StreamDuel.Game
                 next.Dispose();
                 throw;
             }
-            // 新页构建成功后才替换旧页；菜单打开时旧对战的计时和输入一起暂停。
-            setLegacyVisible(false);
+            // 新页构建成功后才替换旧页，构建失败时保留当前页面。
             ReleaseCurrent();
             current = next;
             CurrentScreenId = screenId;
@@ -118,14 +105,12 @@ namespace StreamDuel.Game
             restorePending = CurrentScreenId != null;
             ReleaseCurrent();
             if (root != null) root.style.display = DisplayStyle.None;
-            setLegacyVisible(false);
         }
 
         void OnDestroy()
         {
             ReleaseCurrent();
             factories.Clear();
-            setLegacyVisible = null;
             CurrentArgs = null;
         }
 

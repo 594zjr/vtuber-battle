@@ -10,7 +10,13 @@ namespace StreamDuel.Core
     {
         public static string Markdown(Battle b)
         {
+            return Markdown(b, 0);
+        }
+
+        public static string Markdown(Battle b, int viewerSide)
+        {
             if (b == null) throw new ArgumentNullException(nameof(b));
+            if (viewerSide < 0 || viewerSide >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(viewerSide));
             var text = new StringBuilder("# 对战战报\n\n");
             text.Append("内容包：").Append(Inline(b.Db.PackName)).Append('\n').Append('\n');
             if (!string.IsNullOrEmpty(b.Db.PackNotice))
@@ -57,7 +63,26 @@ namespace StreamDuel.Core
             }
 
             AppendSummary(text, b);
+            AppendReview(text, b, viewerSide);
             return text.ToString();
+        }
+
+        static void AppendReview(StringBuilder text, Battle b, int viewerSide)
+        {
+            text.Append("## ").Append(Inline(Loc.Current.T("review.heading"))).Append("\n\n");
+            if (b.Phase != Phase.Over)
+            {
+                text.Append(Inline(Loc.Current.T("review.unfinished"))).Append("\n\n");
+                return;
+            }
+            text.Append(Inline(Loc.Current.T("review.perspective", b.Sides[viewerSide].Name))).Append("\n\n");
+            var moments = BattleReview.KeyMoments(b, viewerSide);
+            if (moments.Count == 0) text.Append(Inline(Loc.Current.T("review.empty"))).Append("\n\n");
+            else
+            {
+                foreach (var moment in moments) text.Append("- ").Append(Inline(moment.Text)).Append('\n');
+                text.Append('\n');
+            }
         }
 
         static void AppendSummary(StringBuilder text, Battle b)

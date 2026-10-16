@@ -18,7 +18,11 @@ public static class UiSmokeEditor
     static double started;
     static double stoppedAt = -1;
     static int stoppedUpdates;
-    static string ExitMarker => Path.Combine(Application.dataPath, "../Library/t59-editor-exit.txt");
+    static bool BattleMode => Environment.GetCommandLineArgs().Contains("--battle-ui-smoke")
+        || Environment.GetCommandLineArgs().Contains("--smoke-test");
+    static string TaskId => BattleMode ? "T67" : "T59";
+    static string ExitMarker => Path.Combine(Application.dataPath, "../Library/" + TaskId.ToLowerInvariant() + "-editor-exit.txt");
+    static string ConsolePath => Path.Combine(Application.dataPath, "../Logs/" + TaskId + "/editor-console.json");
 
     [Serializable]
     sealed class ConsoleResult
@@ -30,16 +34,10 @@ public static class UiSmokeEditor
         public bool completed;
     }
 
-    [Serializable]
-    sealed class LegacySmokeResult
-    {
-        public bool completed = false;
-        public int errors = -1, warnings = -1;
-    }
-
     static UiSmokeEditor()
     {
-        if (Environment.GetCommandLineArgs().Contains("UiSmokeEditor.Run"))
+        if (Environment.GetCommandLineArgs().Contains("UiSmokeEditor.Run")
+            || Environment.GetCommandLineArgs().Contains("BattleUiSmokeEditor.Run"))
         {
             started = EditorApplication.timeSinceStartup;
             EditorApplication.update += Poll;
@@ -50,8 +48,10 @@ public static class UiSmokeEditor
     {
         if (File.Exists(ExitMarker)) File.Delete(ExitMarker);
         var args = Environment.GetCommandLineArgs();
-        if (!args.Contains("--ui-smoke-test") && !args.Contains("--smoke-test"))
+        if (!args.Contains("--ui-smoke-test") && !BattleMode)
             throw new InvalidOperationException("编辑器验收必须提供隔离的冒烟输出目录。");
+        if (args.Contains("--ui-smoke-test") && BattleMode)
+            throw new ArgumentException("路由验收与对战验收不能同时启动。");
         int sizeIndex = Array.IndexOf(args, "--smoke-size");
         int initialWidth = 1280, initialHeight = 720;
         if (sizeIndex >= 0)
@@ -84,7 +84,7 @@ public static class UiSmokeEditor
         var group = sizesType.GetMethod("GetGroup").Invoke(sizes, new[] { Enum.Parse(groupType, "Standalone") });
         var sizeType = assembly.GetType("UnityEditor.GameViewSize", true);
         var sizeKind = assembly.GetType("UnityEditor.GameViewSizeType", true);
-        object size = Activator.CreateInstance(sizeType, new[] { Enum.Parse(sizeKind, "FixedResolution"), (object)newWidth, newHeight, "T59 验收" });
+        object size = Activator.CreateInstance(sizeType, new[] { Enum.Parse(sizeKind, "FixedResolution"), (object)newWidth, newHeight, TaskId + " 验收" });
         // 尺寸仅在本次编辑器进程中添加，不调用全局尺寸配置的保存接口。
         group.GetType().GetMethod("AddCustomSize").Invoke(group, new[] { size });
         int total = (int)group.GetType().GetMethod("GetTotalCount").Invoke(group, null);
@@ -109,7 +109,7 @@ public static class UiSmokeEditor
                 if (!settled && elapsed < 10) return;
                 int code = int.Parse(File.ReadAllText(ExitMarker));
                 // 停止 Play 后仍要观察清理阶段的 Console，不能只凭停止前的零计数退出。
-                string consolePath = Path.Combine(Application.dataPath, "../Logs/T59/editor-console.json");
+                string consolePath = ConsolePath;
                 var result = JsonUtility.FromJson<ConsoleResult>(File.ReadAllText(consolePath));
                 var type = typeof(Editor).Assembly.GetType("UnityEditor.LogEntries", true);
                 object[] counts = { 0, 0, 0 };
@@ -129,7 +129,7 @@ public static class UiSmokeEditor
             {
                 return;
             }
-            if (EditorApplication.timeSinceStartup - started > 360)
+            if (EditorApplication.timeSinceStartup - started > (BattleMode ? 600 : 360))
             {
                 Finish(false, 1);
                 return;
@@ -152,20 +152,14 @@ public static class UiSmokeEditor
             }
             else
             {
-                int index = Array.IndexOf(args, "--smoke-test");
-                if (index >= 0 && BattleScreen.SmokeCompleted)
+                if (BattleUiSmoke.RequestedWidth > 0) SetSize(BattleUiSmoke.RequestedWidth, BattleUiSmoke.RequestedHeight);
+                if (BattleMode && BattleUiSmoke.Completed)
                 {
                     // 只读取本轮运行公开的精确路径，不扫描可能含旧 run-* 结果的输出目录。
-                    string path = BattleScreen.SmokeReportPath;
+                    string path = BattleUiSmoke.ReportPath;
                     if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                        throw new InvalidOperationException("本轮旧版冒烟验收没有写出报告。");
-                    var result = new LegacySmokeResult();
-                    JsonUtility.FromJsonOverwrite(File.ReadAllText(path), result);
-                    if (result.errors < 0 || result.warnings < 0)
-                        throw new InvalidOperationException("本轮旧版冒烟报告缺少有效的错误或警告计数。");
-                    bool passed = result.completed && result.errors == 0 && result.warnings == 0
-                        && BattleScreen.SmokeExitCode == 0;
-                    Finish(result.completed, passed ? 0 : 1);
+                        throw new InvalidOperationException("本轮对战界面验收没有写出报告。");
+                    Finish(true, BattleUiSmoke.ExitCode);
                 }
             }
         }
@@ -186,7 +180,7 @@ public static class UiSmokeEditor
             unityVersion = Application.unityVersion,
             errors = (int)counts[0], warnings = (int)counts[1], logs = (int)counts[2], completed = completed
         };
-        string path = Path.Combine(Application.dataPath, "../Logs/T59/editor-console.json");
+        string path = ConsolePath;
         Directory.CreateDirectory(Path.GetDirectoryName(path));
         File.WriteAllText(path, JsonUtility.ToJson(result, true));
         exitCode = completed && result.errors == 0 && result.warnings == 0 ? requestedExitCode : 1;

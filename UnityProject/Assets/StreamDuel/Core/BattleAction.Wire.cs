@@ -16,20 +16,23 @@ namespace StreamDuel.Core
                     break;
                 case ActionType.Pass:
                     return "P";
+                case ActionType.Surrender:
+                    return "Q";
             }
-            throw new FormatException("行动不能编码：只支持技能 S0～S4、换人 W0～W5 或跳过 P");
+            throw new FormatException("行动不能编码：只支持技能 S0～S4、换人 W0～W5、跳过 P 或投降 Q");
         }
 
         public static BattleAction FromWire(string wire)
         {
             if (wire == "P") return Pass();
+            if (wire == "Q") return Surrender();
             if (wire != null && wire.Length == 2)
             {
                 char index = wire[1];
                 if (wire[0] == 'S' && index >= '0' && index <= '4') return Skill(index - '0');
                 if (wire[0] == 'W' && index >= '0' && index <= '5') return SwitchTo(index - '0');
             }
-            throw new FormatException("行动编码无效：必须是 S0～S4、W0～W5 或 P");
+            throw new FormatException("行动编码无效：必须是 S0～S4、W0～W5、P 或 Q");
         }
     }
 }
