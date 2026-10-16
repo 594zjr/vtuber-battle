@@ -22,6 +22,7 @@ namespace StreamDuel.Core
                 TeamPresetJson.WriteString(text, Format);
                 if (IsElimination) WriteEliminationConfiguration(text);
                 text.Append(",\"rounds\":").Append(requestedRounds.ToString(CultureInfo.InvariantCulture));
+                if (BanCount > 0) text.Append(",\"banCount\":").Append(BanCount.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"packId\":");
                 TeamPresetJson.WriteString(text, packId);
                 text.Append(",\"contentHash\":");

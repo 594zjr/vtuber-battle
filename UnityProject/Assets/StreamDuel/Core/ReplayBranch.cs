@@ -54,6 +54,7 @@ namespace StreamDuel.Core
             battle.Record.PackId = source.PackId;
             battle.Record.LeadPick = source.LeadPick;
             battle.Record.BanOne = source.BanOne;
+            battle.Record.BanCount = source.BanCount;
             battle.Record.Modifiers = source.Modifiers;
             battle.Record.Names = source.Names;
             battle.Record.Teams = source.Teams;

@@ -1,11 +1,11 @@
 // 为避免模拟局修改真实对战，新增下列类型的字段时必须同步本文件的复制逻辑：
 // Battle：Db（共享）、Seed、Sides、Log、Turn、Phase、Winner、Need、ActedFirst、rng、
-// leadChoices、banChoices、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
+// leadChoices、banChoices、secondBanChoices、banCount、leadPickAfterBan、modifiers、drawOffers、lastDrawOfferTurns、Record、fighterStats、battleEvents；eventsView 按本对象列表重新建立。
 // SideState：Name、Active、Team；Fighter：Def（共享 Db 定义）、Slot、Side、Hp、MaxHp、
 // EnteredTurn、Fainted、LastSkillIndex、FirstControlImmunityUsed、EndureUsed、Stages、Skills、Statuses、Fields。
 // SkillSlot：Id、Pp、Max、Fifth；StatusInst：Id、Left；FieldInst：Id、Turns、Stacks。
 // LogEntry：Turn、Side、Node、Text、Kind、SnapActive、SnapHp。
-// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、Modifiers、Names、Teams、Events；
+// BattleRecord：Version、ContentHash、Seed、PackId、LeadPick、BanOne、BanCount、Modifiers、Names、Teams、Events；
 // BattleRecordEvent：Type、A0、A1、Side、To、Accepted、RngState、Branch（不可变元数据共享）。
 // BattleEvent：LogIndex、Turn、Side、Slot、Amount、Node、Id、Kind。
 // FighterStats：StreamerId、DamageDealt、DamageTaken、Kos、TurnsActive、Fainted、SkillUses。
@@ -34,11 +34,13 @@ namespace StreamDuel.Core
             CopyTerminationFrom(source);
             rng = new Rng(source.rng.State);
             leadPickAfterBan = source.leadPickAfterBan;
+            banCount = source.banCount;
             modifiers = new List<string>(source.modifiers).AsReadOnly();
             Array.Copy(source.Need, Need, Need.Length);
             Array.Copy(source.ActedFirst, ActedFirst, ActedFirst.Length);
             Array.Copy(source.leadChoices, leadChoices, leadChoices.Length);
             Array.Copy(source.banChoices, banChoices, banChoices.Length);
+            Array.Copy(source.secondBanChoices, secondBanChoices, secondBanChoices.Length);
 
             // 统计以 Fighter 对象为键，必须沿用队伍复制时建立的身份映射。
             var fighters = new Dictionary<Fighter, Fighter>();
@@ -136,6 +138,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                BanCount = source.BanCount,
                 Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()

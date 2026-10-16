@@ -23,7 +23,8 @@ namespace StreamDuel.Core
             var root = live.Clone();
             // 历史不参与未来结算；只清理独立副本，避免分支重复复制整场日志。
             root.Log.Clear();
-            root.Record.Events.Clear();
+            // 接手标记不参与估值，但副本仍须保留练习身份。
+            root.Record.Events.RemoveAll(entry => entry.Type != BattleRecordEventType.Branch);
             root.ClearEventHistory();
             return root;
         }

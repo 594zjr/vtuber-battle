@@ -131,6 +131,7 @@ namespace StreamDuel.Core
                 PackId = source.PackId,
                 LeadPick = source.LeadPick,
                 BanOne = source.BanOne,
+                BanCount = source.BanCount,
                 Modifiers = source.Modifiers == null ? null : new List<string>(source.Modifiers),
                 Names = source.Names == null ? null : (string[])source.Names.Clone(),
                 Teams = source.Teams.Select(team => (IList<string>)new List<string>(team)).ToArray()

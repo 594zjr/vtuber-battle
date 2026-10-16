@@ -32,6 +32,7 @@ namespace StreamDuel.Core
         public SpectatorFeed(Battle b, int delayTurns)
         {
             source = b ?? throw new ArgumentNullException(nameof(b));
+            if (source.BanCount == 2) throw new InvalidOperationException("当前观战协议不支持每方禁用两人。");
             if (delayTurns < 0) throw new ArgumentOutOfRangeException(nameof(delayTurns), "观战延迟不能为负数。");
             this.delayTurns = delayTurns;
             var record = source.Record;
@@ -271,7 +272,7 @@ namespace StreamDuel.Core
                 entry.To = (int)NetJson.Integer(obj, "to", 0, 5);
             }
             // 协议 2 可在直播期间首次出现终止事件；由引擎同步升级该局录像，而非改写已确认的副本。
-            SpectatorProtocol.ApplyEvent(next, entry, version == 1 ? BattleRecord.DefaultVersion : BattleRecord.CurrentVersion);
+            SpectatorProtocol.ApplyEvent(next, entry, version == 1 ? BattleRecord.DefaultVersion : BattleRecord.TerminationVersion);
             SpectatorProtocol.VerifyHash(obj, next);
             Battle = next;
             nextSequence++;
@@ -333,7 +334,8 @@ namespace StreamDuel.Core
 
         internal static void ValidateVersion(int version)
         {
-            if (version < 1 || version > BattleRecord.CurrentVersion) throw new FormatException("观战录像版本不受支持。");
+            // 观战 v2 没有接手事件和禁用配额，不能静默丢弃 v4/v5 的执行语义。
+            if (version < 1 || version > BattleRecord.TerminationVersion) throw new FormatException("观战录像版本不受支持，当前观战协议不支持接手分支或每方禁用两人。");
         }
 
         internal static void ApplyEvent(Battle battle, BattleRecordEvent entry, int version)
@@ -347,6 +349,8 @@ namespace StreamDuel.Core
 
         internal static void ValidateRecord(ContentDb db, BattleRecord record)
         {
+            ValidateVersion(record.Version);
+            if (record.ValidateBanSettings() == 2) throw new FormatException("当前观战协议不支持每方禁用两人。");
             var compatibility = Replay.Check(db, record);
             if (!compatibility.CanReplay) throw new FormatException("观战开局无效：" + compatibility.Reason);
             foreach (var team in record.Teams)
@@ -360,7 +364,7 @@ namespace StreamDuel.Core
         {
             var battle = new Battle(db, record.Teams, record.Names ?? new[] { "你", "对手" }, new BattleOptions
             {
-                Seed = record.Seed, LeadPick = record.LeadPick, BanOne = record.BanOne, Modifiers = record.Modifiers
+                Seed = record.Seed, LeadPick = record.LeadPick, BanOne = record.BanOne, BanCount = record.BanCount, Modifiers = record.Modifiers
             });
             battle.Record.Version = record.Version;
             return battle;

@@ -22,10 +22,11 @@ namespace StreamDuel.Core
 
     public sealed class BattleRecord
     {
-        public const int CurrentVersion = 4;
+        public const int CurrentVersion = 5;
         public const int DefaultVersion = 2;
         public const int TerminationVersion = 3;
         public const int BranchVersion = 4;
+        public const int MultiBanVersion = 5;
 
         public int Version { get; set; } = DefaultVersion;
         public string ContentHash { get; set; }
@@ -33,6 +34,7 @@ namespace StreamDuel.Core
         public string PackId { get; set; }
         public bool LeadPick { get; set; }
         public bool BanOne { get; set; }
+        public int BanCount { get; set; }
         public List<string> Modifiers { get; set; }
         public string[] Names { get; set; }
         public IList<string>[] Teams { get; set; }
@@ -50,6 +52,7 @@ namespace StreamDuel.Core
 
         public string ToJson()
         {
+            int banCount = ValidateBanSettings();
             var sb = new StringBuilder();
             sb.Append("{\"seed\":").Append(Seed.ToString(CultureInfo.InvariantCulture)).Append(",\"packId\":");
             WriteString(sb, PackId);
@@ -60,7 +63,8 @@ namespace StreamDuel.Core
                 WriteString(sb, ContentHash);
             }
             if (LeadPick) sb.Append(",\"leadPick\":true");
-            if (BanOne) sb.Append(",\"banOne\":true");
+            if (banCount == 1) sb.Append(",\"banOne\":true");
+            else if (banCount == 2) sb.Append(",\"banCount\":2");
             if (Modifiers != null && Modifiers.Count > 0)
             {
                 sb.Append(",\"modifiers\":[");
@@ -164,6 +168,11 @@ namespace StreamDuel.Core
                 if (!(banOne is bool enabled)) throw new FormatException("banOne 必须是布尔值");
                 record.BanOne = enabled;
             }
+            if (root.TryGetValue("banCount", out var banCount))
+                record.BanCount = (int)ReadInteger(banCount, "banCount", 0, 2);
+            int effectiveBanCount = record.ValidateBanSettings();
+            record.BanOne = effectiveBanCount == 1;
+            record.BanCount = effectiveBanCount == 2 ? 2 : 0;
             if (root.TryGetValue("modifiers", out var modifiersValue))
             {
                 var modifiers = ReadArray(modifiersValue, "modifiers");
@@ -227,6 +236,14 @@ namespace StreamDuel.Core
                 record.Events.Add(e);
             }
             return record;
+        }
+
+        internal int ValidateBanSettings()
+        {
+            if (BanCount < 0 || BanCount > 2) throw new FormatException("录像每方禁用人数只能是 0、1 或 2。");
+            int count = BanCount > 0 ? BanCount : BanOne ? 1 : 0;
+            if (count == 2 && Version < MultiBanVersion) throw new FormatException("每方禁用两人需要录像版本 5。");
+            return count;
         }
 
         internal static void ValidateEventVersion(int version, BattleRecordEvent entry)
@@ -326,8 +343,9 @@ namespace StreamDuel.Core
 
         static Battle RunEvents(ContentDb db, BattleRecord r)
         {
+            r.ValidateBanSettings();
             var battle = new Battle(db, r.Teams, r.Names ?? new[] { "你", "对手" },
-                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, Modifiers = r.Modifiers });
+                new BattleOptions { Seed = r.Seed, LeadPick = r.LeadPick, BanOne = r.BanOne, BanCount = r.BanCount, Modifiers = r.Modifiers });
             foreach (var e in r.Events)
             {
                 BattleRecord.ValidateEventVersion(r.Version, e);

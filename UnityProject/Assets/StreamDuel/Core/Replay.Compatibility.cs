@@ -80,6 +80,9 @@ namespace StreamDuel.Core
 
         static string StructureError(ContentDb db, BattleRecord r)
         {
+            int banCount;
+            try { banCount = r.ValidateBanSettings(); }
+            catch (FormatException error) { return error.Message; }
             if (r.Teams == null || r.Teams.Length != 2) return "录像必须包含两支队伍。";
             if (r.Names != null && (r.Names.Length != 2 || r.Names[0] == null || r.Names[1] == null))
                 return "录像必须包含两个有效的玩家名称。";
@@ -89,7 +92,8 @@ namespace StreamDuel.Core
             {
                 var team = r.Teams[side];
                 if (team == null || team.Count == 0) return "录像队伍 " + (side + 1) + " 为空。";
-                if (r.BanOne && team.Count < 2) return "录像启用了禁用，但队伍不足两位主播。";
+                if (banCount == 1 && team.Count < 2) return "录像启用了禁用，但队伍不足两位主播。";
+                if (banCount == 2 && team.Count < 3) return "录像启用了每方禁用两人，但队伍不足三位主播。";
                 foreach (string id in team)
                 {
                     if (string.IsNullOrEmpty(id)) return "录像队伍包含空的主播编号。";

@@ -48,11 +48,11 @@ public class T93_ReplayCompatTests
     }
 
     [Fact]
-    public void CurrentVersionSupportsFourWhileOrdinaryNewBattlesStillUseTwo()
+    public void CurrentVersionSupportsFiveWhileOrdinaryNewBattlesStillUseTwo()
     {
         var db = BattleTests.LoadPack("original");
-        // T-116 接手事件使用 v4；终局事件仍用 v3，没有新事件的普通录像继续保留 v2。
-        Assert.Equal(4, BattleRecord.CurrentVersion);
+        // T-121 每方两人禁用使用 v5；接手仍用 v4，终局用 v3，普通录像保留 v2。
+        Assert.Equal(5, BattleRecord.CurrentVersion);
         Assert.Equal(3, BattleRecord.TerminationVersion);
         Assert.Equal(4, BattleRecord.BranchVersion);
         Assert.Equal(2, BattleRecord.DefaultVersion);

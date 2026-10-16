@@ -160,7 +160,7 @@ namespace StreamDuel.Core
             for (int side = 0; side < 2; side++)
                 if (record.Teams[side] == null || !record.Teams[side].SequenceEqual(players[side].Team)
                     || record.Names[side] != players[side].Name) return false;
-            return true;
+            return tournament.MatchesBanRecord(pairing, record);
         }
 
         static void Accumulate(Battle battle, Pairing pairing, string replayId,
@@ -244,6 +244,15 @@ namespace StreamDuel.Core
                     output.Append("；").Append(Result(match.Pairing)).Append("；录像：");
                     if (match.ReplayId != null) output.Append(match.ReplayId).Append("；");
                     output.Append(match.Message).Append('\n');
+                    if (tournament.BanCount > 0 && !match.Pairing.IsBye)
+                    {
+                        output.Append("本场禁用：");
+                        if (match.Pairing.Bans.Count == 0) output.Append("尚未选择");
+                        else output.Append(string.Join("、", match.Pairing.Bans.Select(ban =>
+                            (ban.Side == 0 ? "甲方禁用 " : "乙方禁用 ") + tournament.ReportDb.Streamer(ban.StreamerId).Name)));
+                        output.Append("（已选 ").Append(Number(match.Pairing.Bans.Count)).Append('/')
+                            .Append(Number(tournament.BanCount * 2)).Append("）。\n");
+                    }
                 }
             }
             output.Append("\n数据之最（仅含已保存且严格复算的录像）\n已完成实战 ").Append(Number(completed))
@@ -268,6 +277,7 @@ namespace StreamDuel.Core
             var output = new StringBuilder("{\"version\":1,\"packId\":");
             String(output, tournament.ReportPackId);
             output.Append(",\"format\":"); String(output, tournament.Format);
+            if (tournament.BanCount > 0) output.Append(",\"banCount\":").Append(Number(tournament.BanCount));
             output.Append(",\"roundCount\":").Append(Number(tournament.Rounds)).Append(",\"playedRounds\":").Append(Number(tournament.Round))
                 .Append(",\"isFinished\":").Append(tournament.IsFinished ? "true" : "false");
             if (tournament.IsElimination)
@@ -306,6 +316,7 @@ namespace StreamDuel.Core
                         output.Append(",\"bracketRound\":").Append(Number(pairing.BracketRound));
                     }
                     output.Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append(",\"result\":"); String(output, Result(pairing));
+                    if (tournament.BanCount > 0) Tournament.WriteBans(output, pairing, tournament.ReportDb);
                     output.Append(",\"replay\":{\"status\":"); String(output, match.Status);
                     output.Append(",\"id\":"); String(output, match.ReplayId);
                     output.Append(",\"message\":"); String(output, match.Message);
