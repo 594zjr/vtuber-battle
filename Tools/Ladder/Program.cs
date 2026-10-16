@@ -17,6 +17,8 @@ namespace StreamDuel.Ladder
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
             try
             {
+                if (args != null && args.Contains("--compare-styles"))
+                    return StyleComparison.Run(args, LoadPack);
                 if (args != null && args.Contains("--compare-expert"))
                     return ExpertComparison.Run(args, LoadPack);
                 var options = Options.Parse(args);

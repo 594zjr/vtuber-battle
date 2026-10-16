@@ -341,73 +341,73 @@
   },
   "streamers": [
     {
-      "id": "og3_liling", "name": "栗铃踏拍", "org": "原创", "type": "song", "type2": "game",
+      "id": "og3_liling", "aiStyle": "og3_liling", "name": "栗铃踏拍", "org": "原创", "type": "song", "type2": "game",
       "stats": { "hp": 365, "atk": 210, "def": 255, "spa": 235, "sdef": 260, "spd": 330 },
       "persona": "og3_toe_count", "skills": [ "og3_bell_skip", "og3_rhythm_route", "og3_tempo_tip", "og3_ribbon_rest" ], "fifth": "og3_spark_chorus",
       "blurb": "快攻：戴栗子铃跳节奏游戏，把每次踩拍唱成小曲。"
     },
     {
-      "id": "og3_yaye", "name": "芽页邮筒", "org": "原创", "type": "talk", "type2": "asmr",
+      "id": "og3_yaye", "aiStyle": "og3_yaye", "name": "芽页邮筒", "org": "原创", "type": "talk", "type2": "asmr",
       "stats": { "hp": 420, "atk": 210, "def": 280, "spa": 285, "sdef": 300, "spd": 220 },
       "persona": "og3_letter_warmth", "skills": [ "og3_envelope_wave", "og3_paper_rustle", "og3_petals_cover", "og3_slow_letter" ], "fifth": "og3_mailbox_reply",
       "blurb": "消耗：住在纸邮筒里的读信主播，用折页声慢慢续航。"
     },
     {
-      "id": "og3_rongjiao", "name": "绒角投影", "org": "原创", "type": "horror", "type2": "art",
+      "id": "og3_rongjiao", "aiStyle": "og3_rongjiao", "name": "绒角投影", "org": "原创", "type": "horror", "type2": "art",
       "stats": { "hp": 390, "atk": 210, "def": 260, "spa": 315, "sdef": 285, "spd": 285 },
       "persona": "og3_curtain_courage", "skills": [ "og3_shadow_peek", "og3_lantern_paint", "og3_scene_hold", "og3_curtain_soft" ], "fifth": "og3_shadow_parade",
       "blurb": "控制：画软绒小怪演灯影剧，让惊喜在眨眼间停一拍。"
     },
     {
-      "id": "og3_paochi", "name": "泡尺工坊", "org": "原创", "type": "tech",
+      "id": "og3_paochi", "aiStyle": "og3_paochi", "name": "泡尺工坊", "org": "原创", "type": "tech",
       "stats": { "hp": 390, "atk": 200, "def": 270, "spa": 320, "sdef": 285, "spd": 275 },
       "persona": "og3_workshop_apron", "skills": [ "og3_bubble_gauge", "og3_color_circuit", "og3_scale_tuning", "og3_cushion_patch" ], "fifth": "og3_workshop_bloom",
       "blurb": "强化：直播制作泡泡测量仪，调好刻度再展示彩色花火。"
     },
     {
-      "id": "og3_ruandian", "name": "软垫咚咚", "org": "原创", "type": "meme", "type2": "tech",
+      "id": "og3_ruandian", "aiStyle": "og3_ruandian", "name": "软垫咚咚", "org": "原创", "type": "meme", "type2": "tech",
       "stats": { "hp": 430, "atk": 300, "def": 315, "spa": 190, "sdef": 280, "spd": 190 },
       "persona": "og3_cushion_spring", "skills": [ "og3_pillow_bounce", "og3_button_tap", "og3_ribbon_mirror", "og3_fuzzy_brace" ], "fifth": "og3_round_trip",
       "blurb": "反击：给小发明装软垫的整活主播，慢半拍也能弹回惊喜。"
     },
     {
-      "id": "og3_miantang", "name": "绵糖茶帽", "org": "原创", "type": "asmr",
+      "id": "og3_miantang", "aiStyle": "og3_miantang", "name": "绵糖茶帽", "org": "原创", "type": "asmr",
       "stats": { "hp": 415, "atk": 200, "def": 285, "spa": 290, "sdef": 310, "spd": 220 },
       "persona": "og3_tea_tray_relay", "skills": [ "og3_teacup_ripple", "og3_sugar_chat", "og3_warm_sip", "og3_cozy_wrap" ], "fifth": "og3_froth_circle",
       "blurb": "辅助：戴茶杯帽直播温柔拟音，为队友接力备好茶点。"
     },
     {
-      "id": "og3_zhiyuan", "name": "纸鸢卷卷", "org": "原创", "type": "art",
+      "id": "og3_zhiyuan", "aiStyle": "og3_zhiyuan", "name": "纸鸢卷卷", "org": "原创", "type": "art",
       "stats": { "hp": 385, "atk": 200, "def": 260, "spa": 325, "sdef": 275, "spd": 300 },
       "persona": "og3_clean_margin", "skills": [ "og3_kite_line", "og3_petal_signal", "og3_wind_palette", "og3_fold_reset" ], "fifth": "og3_sky_scroll",
       "blurb": "强化：边画风筝边收集纸星，攒好灵感再铺开长空画卷。"
     },
     {
-      "id": "og3_guodong", "name": "果冻转盘", "org": "原创", "type": "game", "type2": "meme",
+      "id": "og3_guodong", "aiStyle": "og3_guodong", "name": "果冻转盘", "org": "原创", "type": "game", "type2": "meme",
       "stats": { "hp": 380, "atk": 315, "def": 260, "spa": 200, "sdef": 260, "spd": 320 },
       "persona": "og3_finish_confetti", "skills": [ "og3_jelly_hop", "og3_spin_stamp", "og3_pad_charge", "og3_fruit_pause" ], "fifth": "og3_rotary_finish",
       "blurb": "快攻：用果冻按键直播跳跃游戏，过线后抛开彩纸再出发。"
     },
     {
-      "id": "og3_xingguan", "name": "星罐慢音", "org": "原创", "type": "song", "type2": "asmr",
+      "id": "og3_xingguan", "aiStyle": "og3_xingguan", "name": "星罐慢音", "org": "原创", "type": "song", "type2": "asmr",
       "stats": { "hp": 420, "atk": 200, "def": 280, "spa": 310, "sdef": 310, "spd": 210 },
       "persona": "og3_seat_lights", "skills": [ "og3_star_chime", "og3_feather_echo", "og3_night_cushion", "og3_quiet_reserve" ], "fifth": "og3_glow_cadence",
       "blurb": "消耗：把晚安小调装进星罐，留住余音等待温柔回合。"
     },
     {
-      "id": "og3_yunkou", "name": "云扣拼拼", "org": "原创", "type": "tech", "type2": "art",
+      "id": "og3_yunkou", "aiStyle": "og3_yunkou", "name": "云扣拼拼", "org": "原创", "type": "tech", "type2": "art",
       "stats": { "hp": 395, "atk": 205, "def": 275, "spa": 315, "sdef": 280, "spd": 275 },
       "persona": "og3_pattern_memory", "skills": [ "og3_cloud_click", "og3_tile_trace", "og3_pattern_reset", "og3_fold_cover" ], "fifth": "og3_mosaic_complete",
       "blurb": "反击：直播拼装会变色的云窗，记住来招再整理对手强化。"
     },
     {
-      "id": "og3_modi", "name": "蘑笛巡游", "org": "原创", "type": "horror",
+      "id": "og3_modi", "aiStyle": "og3_modi", "name": "蘑笛巡游", "org": "原创", "type": "horror",
       "stats": { "hp": 385, "atk": 310, "def": 265, "spa": 215, "sdef": 260, "spd": 310 },
       "persona": "og3_story_coda", "skills": [ "og3_mushroom_step", "og3_story_lantern", "og3_curiosity_pause", "og3_path_breath" ], "fifth": "og3_puppet_encore",
       "blurb": "控制：提蘑菇灯直播木偶探秘，用好奇停拍接上轻快谢幕。"
     },
     {
-      "id": "og3_jufan", "name": "橘帆飞票", "org": "原创", "type": "game",
+      "id": "og3_jufan", "aiStyle": "og3_jufan", "name": "橘帆飞票", "org": "原创", "type": "game",
       "stats": { "hp": 370, "atk": 260, "def": 260, "spa": 210, "sdef": 265, "spd": 320 },
       "persona": "og3_spare_ticket", "skills": [ "og3_ticket_dash", "og3_sail_clap", "og3_crease_sprint", "og3_juice_break" ], "fifth": "og3_sunny_landing",
       "blurb": "快攻：折橘色纸帆直播竞速，口袋里总留一张再试票。"
