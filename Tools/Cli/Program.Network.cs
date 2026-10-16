@@ -198,7 +198,7 @@ namespace StreamDuel.Cli
         }
 
         static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null,
-            bool exportReport = true)
+            bool exportReport = true, bool recordProfile = true)
         {
             var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
@@ -259,16 +259,19 @@ namespace StreamDuel.Cli
                 Console.Error.WriteLine("警告：录像库保存失败：" + ex.Message);
                 libraryFailed = true;
             }
-            var profile = ProfileStore.Record(battle, options.SaveDir, mySide, opponentRating);
-            var stats = profile.Packs[battle.Db.PackId];
-            Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
-            if (opponentRating != null)
+            if (recordProfile)
             {
-                var rating = profile.Ratings[Profile.DefaultRatingFormat];
-                Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
-                    + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+                var profile = ProfileStore.Record(battle, options.SaveDir, mySide, opponentRating);
+                var stats = profile.Packs[battle.Db.PackId];
+                Console.WriteLine("本包战绩：" + stats.Wins + " 胜 / " + stats.Losses + " 负 / " + stats.Draws + " 平");
+                if (opponentRating != null)
+                {
+                    var rating = profile.Ratings[Profile.DefaultRatingFormat];
+                    Console.WriteLine("本机排位（" + Profile.DefaultRatingFormat + "）：" + rating.Rating + " 分 · "
+                        + RatingSystem.TierOf(rating.Rating).Name + " · " + rating.Games + " 局");
+                }
+                Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
             }
-            Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
             return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed ? 0 : 1;
         }
     }

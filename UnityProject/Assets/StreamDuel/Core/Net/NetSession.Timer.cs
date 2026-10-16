@@ -93,6 +93,8 @@ namespace StreamDuel.Core
         private void BeginRevealTimerIfReady()
         {
             int peer = 1 - MySide;
+            if (rulesetProtocol && !revealTimerStarted && commitments[peer] != null && !revealed[peer] && AllCommitmentsReady())
+                ResetMatchWait();
             if (Clock == null || revealTimerStarted || !TimerParticipant(peer)
                 || commitments[peer] == null || revealed[peer] || !AllCommitmentsReady()) return;
             revealTimerStarted = true;
@@ -103,12 +105,14 @@ namespace StreamDuel.Core
         private void BeginHashTimer()
         {
             hashWaitSeconds = 0;
+            ResetMatchWait();
             if (Clock != null) TimerRevision++;
         }
 
         public void Tick(double seconds)
         {
             if (!ValidSeconds(seconds)) throw new ArgumentOutOfRangeException(nameof(seconds), "推进时间必须是有限、非负的秒数。");
+            if (TickMatchSynchronization(seconds)) return;
             if (Clock == null || Battle == null || Terminal) return;
             if (TickTerminationBarrier(seconds)) return;
             double remaining = seconds;

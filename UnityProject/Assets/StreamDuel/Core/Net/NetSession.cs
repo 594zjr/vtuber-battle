@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace StreamDuel.Core
 {
-    public enum NetState { Handshake, Choose, Replace, Waiting, Over, Desync, Error }
+    public enum NetState { Handshake, Choose, Replace, Waiting, Over, Desync, Error, Ban, Lead }
 
     public sealed partial class NetSession
     {
@@ -29,6 +29,7 @@ namespace StreamDuel.Core
         private Phase phase;
         private int turn;
         private uint rngCheckpoint;
+        private bool peerHelloReceived;
 
         private sealed class HashStamp
         {
@@ -38,19 +39,20 @@ namespace StreamDuel.Core
 
         public NetSession(ContentDb db, INetTransport t, bool host, IList<string> myTeam, string myName, uint? seed,
             double? turnSeconds = null, double? bankSeconds = null, bool enableTermination = false,
-            PlayerRating rating = null)
+            PlayerRating rating = null, Ruleset ruleset = null, bool legacyCasual = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             MySide = host ? 0 : 1;
-            terminationEnabled = enableTermination;
+            terminationEnabled = enableTermination || ruleset != null && !legacyCasual;
             this.myTeam = myTeam == null ? null : new List<string>(myTeam);
             this.myName = myName;
+            if (!ConfigureRuleset(ruleset, legacyCasual, turnSeconds, bankSeconds)) return;
             string ratingMetadata = WriteRatingHello(rating);
             // 只由主机在建立会话时生成一次种子，之后不再读取时间。
             hostSeed = host ? seed ?? unchecked((uint)Environment.TickCount) : (uint?)null;
             if (!ConfigureTimer(host, turnSeconds, bankSeconds)) return;
-            var errors = TeamCheck.Validate(db, null, this.myTeam);
+            var errors = TeamCheck.Validate(db, matchRuleset == null ? null : matchRuleset.Season, this.myTeam);
             if (errors.Count > 0 || myName == null)
             {
                 Fault(NetState.Error, errors.Count > 0 ? "本方队伍不合法：" + string.Join("；", errors) : "本方名字不能为 null。");
@@ -62,7 +64,7 @@ namespace StreamDuel.Core
                 + ",\"contentHash\":" + NetJson.Quote(contentHash)
                 + ",\"seed\":" + (hostSeed.HasValue ? hostSeed.Value.ToString(CultureInfo.InvariantCulture) : "null")
                 + ",\"name\":" + NetJson.Quote(myName)
-                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + ratingMetadata + "}");
+                + ",\"team\":[" + string.Join(",", this.myTeam.Select(NetJson.Quote)) + "]" + TimerHello() + TerminationHello() + ratingMetadata + RulesetHello() + "}");
         }
 
         public void Poll()
@@ -144,7 +146,13 @@ namespace StreamDuel.Core
                 ReceiveHello(obj);
                 return true;
             }
+            if (ReceiveMatchControl(type, obj)) return true;
             if (Battle == null) throw new FormatException("握手完成前不能发送行动、补位或哈希。");
+            if (rulesetProtocol)
+            {
+                RequireGameNumber(obj);
+                if (matchStage != MatchSyncStage.Playing) throw new FormatException("本局尚未完成开局确认，或正在确认终局比分。");
+            }
             if (type == "hash")
             {
                 ReceiveHash(obj);
@@ -166,7 +174,7 @@ namespace StreamDuel.Core
 
         private void ReceiveHello(Dictionary<string, object> obj)
         {
-            if (Battle != null) throw new FormatException("对方重复发送握手。");
+            if (Battle != null || peerHelloReceived) throw new FormatException("对方重复发送握手。");
             long version = NetJson.Integer(obj, "version", 0, int.MaxValue);
             if (version != SessionProtocolVersion) throw new FormatException("协议版本不同：本端 " + Number(SessionProtocolVersion) + "，对方 " + version + "。");
             ReceiveTerminationHello(obj);
@@ -180,6 +188,7 @@ namespace StreamDuel.Core
                     + "，当前指纹 " + currentContentHash + "，对方指纹 " + peerContentHash + "。");
             if (!string.Equals(contentHash, peerContentHash, StringComparison.Ordinal))
                 throw new FormatException("内容不一致：本端指纹 " + contentHash + "，对方指纹 " + peerContentHash + "。");
+            ReceiveRulesetHello(obj);
             string name = NetJson.Text(obj, "name");
             var team = new List<string>();
             foreach (var item in NetJson.Array(obj, "team"))
@@ -187,7 +196,7 @@ namespace StreamDuel.Core
                 if (!(item is string id)) throw new FormatException("握手队伍必须包含主播编号字符串。");
                 team.Add(id);
             }
-            var errors = TeamCheck.Validate(db, null, team);
+            var errors = TeamCheck.Validate(db, matchRuleset == null ? null : matchRuleset.Season, team);
             if (errors.Count > 0) throw new FormatException("对方队伍不合法：" + string.Join("；", errors));
             uint sharedSeed;
             if (MySide == 0)
@@ -197,7 +206,16 @@ namespace StreamDuel.Core
                 sharedSeed = hostSeed.Value;
             }
             else sharedSeed = (uint)NetJson.Integer(obj, "seed", 0, uint.MaxValue);
-            ReceiveTimerHello(obj);
+            if (rulesetProtocol)
+            {
+                if (obj.ContainsKey("timer")) throw new FormatException("完整赛制握手不能额外覆盖计时配置。");
+            }
+            else
+            {
+                if (IsRulesetMatch && obj.ContainsKey("timer"))
+                    throw new FormatException("旧协议休闲单局不能接受额外计时配置。");
+                ReceiveTimerHello(obj);
+            }
             var teams = new IList<string>[2];
             var names = new string[2];
             teams[MySide] = myTeam;
@@ -205,8 +223,14 @@ namespace StreamDuel.Core
             names[MySide] = myName;
             names[1 - MySide] = name;
             var peerRating = ReadRatingHello(obj);
-            Battle = new Battle(db, teams, names, sharedSeed);
             opponentRating = peerRating;
+            peerHelloReceived = true;
+            if (IsRulesetMatch)
+            {
+                StartRulesetMatch(teams, names, sharedSeed);
+                return;
+            }
+            Battle = new Battle(db, teams, names, sharedSeed);
             rngCheckpoint = Battle.NetRngState;
             BeginPhase();
         }
@@ -214,6 +238,7 @@ namespace StreamDuel.Core
         private void Advance()
         {
             if (Terminal || Battle == null || hashes.Count > 0 || terminationFrozen) return;
+            if (rulesetProtocol && matchStage != MatchSyncStage.Playing) return;
             RevealIfReady();
             if (Faulted) return;
             if (!SelectionsReady()) return;
@@ -224,13 +249,24 @@ namespace StreamDuel.Core
         private bool SelectionsReady()
         {
             return phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue
+                || (phase == Phase.Ban || phase == Phase.Lead) && openingChoices[0].HasValue && openingChoices[1].HasValue
                 || phase == Phase.Replace && (!needsReplacement[0] || replacements[0].HasValue)
                     && (!needsReplacement[1] || replacements[1].HasValue);
         }
 
         private void ResolveSelections()
         {
-            if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
+            if ((phase == Phase.Ban || phase == Phase.Lead) && openingChoices[0].HasValue && openingChoices[1].HasValue)
+            {
+                State = NetState.Waiting;
+                Battle.RestoreReplayRng(rngCheckpoint);
+                int resolvedTurn = Battle.Turn;
+                for (int side = 0; side < 2; side++)
+                    if (phase == Phase.Ban) Battle.ChooseBan(side, openingChoices[side].Value);
+                    else Battle.ChooseLead(side, openingChoices[side].Value);
+                CaptureHash(resolvedTurn);
+            }
+            else if (phase == Phase.Choose && actions[0].HasValue && actions[1].HasValue)
             {
                 State = NetState.Waiting;
                 // 本端 AI 建议可能消费 RNG；只以双方共享的结算检查点推进对战随机流。
@@ -269,7 +305,7 @@ namespace StreamDuel.Core
             string hash = Battle.StateHash().ToString("x16", CultureInfo.InvariantCulture);
             if (hashes.Count == 0) BeginHashTimer();
             hashes.Enqueue(new HashStamp { Turn = operationTurn, Hash = hash });
-            Send("{\"type\":\"hash\",\"turn\":" + Number(operationTurn) + ",\"hash\":" + NetJson.Quote(hash) + "}");
+            Send("{\"type\":\"hash\",\"turn\":" + Number(operationTurn) + GameField + ",\"hash\":" + NetJson.Quote(hash) + "}");
         }
 
         private void ReceiveHash(Dictionary<string, object> obj)
@@ -296,6 +332,7 @@ namespace StreamDuel.Core
 
         private void BeginPhase()
         {
+            ResetMatchWait();
             if (terminationEnabled) terminationPhase++;
             phase = Battle.Phase;
             turn = Battle.Turn;
@@ -307,11 +344,15 @@ namespace StreamDuel.Core
             {
                 actions[side] = null;
                 replacements[side] = null;
+                openingChoices[side] = null;
                 needsReplacement[side] = Battle.Need[side];
             }
+            if (phase == Phase.Over && IsRulesetMatch) { ConfirmMatchGame(); return; }
             if (phase == Phase.Over) State = NetState.Over;
             else if (phase == Phase.Choose) State = NetState.Choose;
             else if (phase == Phase.Replace) State = needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
+            else if (rulesetProtocol && phase == Phase.Ban) State = NetState.Ban;
+            else if (rulesetProtocol && phase == Phase.Lead) State = NetState.Lead;
             else Fault(NetState.Error, "同步协议暂不支持禁用或首发选择阶段。");
             BeginTimerPhase();
         }

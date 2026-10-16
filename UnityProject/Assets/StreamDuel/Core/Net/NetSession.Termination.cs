@@ -12,7 +12,7 @@ namespace StreamDuel.Core
         string terminationRequest;
         double terminationWaitSeconds;
 
-        public int SessionProtocolVersion { get { return terminationEnabled ? TerminationProtocolVersion : ProtocolVersion; } }
+        public int SessionProtocolVersion { get { return rulesetProtocol ? RulesetProtocolVersion : terminationEnabled ? TerminationProtocolVersion : ProtocolVersion; } }
         public bool DrawOffered { get { return Battle != null && Battle.HasDrawOffer(1 - MySide); } }
         public bool DrawOfferPending { get { return Battle != null && Battle.HasDrawOffer(MySide); } }
         public bool CanSurrender { get { return CanRequestTermination; } }
@@ -24,6 +24,7 @@ namespace StreamDuel.Core
             get
             {
                 return terminationEnabled && Battle != null && !Terminal && !terminationFrozen && hashes.Count == 0
+                    && (!rulesetProtocol || matchStage == MatchSyncStage.Playing)
                     && (Battle.Phase == Phase.Choose || Battle.Phase == Phase.Replace);
             }
         }
@@ -81,6 +82,7 @@ namespace StreamDuel.Core
 
         void FreezeTermination()
         {
+            ResetMatchWait();
             terminationFrozen = true;
             terminationWaitSeconds = 0;
             State = NetState.Waiting;
@@ -90,7 +92,7 @@ namespace StreamDuel.Core
         string TerminationMessage(string kind, bool sequence = true)
         {
             return "{\"type\":\"termination-" + kind + "\",\"phase\":" + Number(terminationPhase)
-                + ",\"turn\":" + Number(turn) + (sequence ? ",\"seq\":" + Number(terminationSequence) : string.Empty);
+                + ",\"turn\":" + Number(turn) + GameField + (sequence ? ",\"seq\":" + Number(terminationSequence) : string.Empty);
         }
 
         void ReceiveTermination(string type, Dictionary<string, object> obj)
@@ -171,6 +173,8 @@ namespace StreamDuel.Core
                 string request = requests[side];
                 if (request != "none" && request != "surrender" && request != "offer" && request != "accept" && request != "reject")
                     throw new FormatException("未知投降或和局请求：" + request);
+                if (rulesetProtocol && phase != Phase.Choose && phase != Phase.Replace && request != "none")
+                    throw new FormatException("禁用或首发阶段只能同步已承诺选择，不能提交投降或和局请求。");
                 if (request == "offer" && !Battle.CanOfferDraw(side))
                     throw new FormatException("和局提议重复或未满足 5 回合间隔。");
                 if ((request == "accept" || request == "reject") && !Battle.HasDrawOffer(1 - side))
@@ -210,7 +214,10 @@ namespace StreamDuel.Core
             // 拒绝或仅提出和局不会撤回承诺、重置剩余时间，也不会丢失已提交的选择。
             Battle.RestoreReplayRng(rngCheckpoint);
             State = HasSubmitted ? NetState.Waiting : phase == Phase.Choose ? NetState.Choose
+                : rulesetProtocol && phase == Phase.Ban ? NetState.Ban
+                : rulesetProtocol && phase == Phase.Lead ? NetState.Lead
                 : needsReplacement[MySide] ? NetState.Replace : NetState.Waiting;
+            ResetMatchWait();
             if (Clock != null) TimerRevision++;
         }
 

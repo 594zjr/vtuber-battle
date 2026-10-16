@@ -1,6 +1,6 @@
-# 联网对战协议 v3 与可选终止协议 v4
+# 联网对战协议 v3、可选终止协议 v4 与赛制扩展
 
-第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
+第 1～9 节保留 `NetSession.ProtocolVersion = 3` 的线路格式与接收行为，供实现对端、审查兼容性和维护固定样例使用。T-98 增加的显式启用协议 v4 独立列在第 10 节；T-128 的完整赛制协议列在第 12 节，分支暂用版本 5，最终编号由审查员按合并顺序分配。规则以 [design.md 第 10 节](design.md#10-联网对战进行中) 为准；版本 3 已由 T-62 引入，版本 1、2 握手仍被拒绝，普通承诺、公开选择和哈希流程沿用版本 2。源码入口是 [NetSession](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.cs)、[CommitReveal](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.CommitReveal.cs)、[NetJson](../UnityProject/Assets/StreamDuel/Core/Net/NetJson.cs)、[TcpTransport](../UnityProject/Assets/StreamDuel/Core/Net/TcpTransport.cs)、[计时扩展](../UnityProject/Assets/StreamDuel/Core/Net/NetSession.Timer.cs)、[快捷语](../UnityProject/Assets/StreamDuel/Core/Net/QuickChat.cs) 和 [CLI 收尾](../Tools/Cli/Program.Network.cs)。
 
 v3 适用于可信本机或局域网的单局双人对战，无加密、身份认证、账号、重连或版本协商。主机固定为 0 方，客机为 1 方；队伍、显示名及结算参数始终按此顺序排列。消息不携带 `side`，发送方身份由连接两端确定。禁用和首发选择不在本协议内。
 
@@ -287,3 +287,61 @@ v3 的既有已知问题仍保留，本扩展不增加认证、加密或可信�
 库的两参数 `SpectatorFeed` 不开启双向读取；三个参数的重载处理上传，`chatEnabled: true` 才转发，false 则按读取预算丢弃。CLI 主机默认显式开启，`--spectator-chat off` 关闭。`SpectatorClient` 缺省不登记，`enableChat: true` 才能发送和收集聊天。未升级客户端不懂未知消息，因此主机**不会向未登记客户端发送扩展**，而不是假定旧二进制会自动忽略。更新后的客户端即使关闭聊天，也会在战斗版本/顺序校验前忽略 `spectator_chat`，不会改动 `seq` 或因该扩展而停止观战。旧主机忽略观众上传，继续提供原有单向观战；不保证聊天送达，也不提供身份认证。
 
 聊天发送或转发失败只影响对应观众；主机不把错误发送给选手。观众上传方向正常 EOF 只停止读取该方向，保留观战帧、其他观众聊天和结束标记的下行，允许 `TcpTransport.CompleteSending()` 后继续只读观看；其他读取异常或下行发送失败才移除对应观众。真实终局未由 `Finish()` 释放前，仍按可见回合处理聊天；释放结束后不再转发。快捷语不是战斗事件，客户端处理它时不替换已确认的 `Battle`。
+
+## 12. T-128：完整赛制与同连接多局
+
+本扩展通过 `NetSession` 尾部的 `ruleset` 参数显式启用，`RulesetProtocolVersion` 在本分支暂定为 5。编号依 TASKS 决定记录由审查员在合并时重新核对；默认 3 和显式终止 4 的旧消息及黄金样例不修改。新协议仍只面向可信本机或局域网，不提供身份认证。两端均提供预期赛制，主机公布完整规则，客机校验后确认。
+
+### 12.1 完整规则握手
+
+hello 保留原有包、内容指纹、队伍、名字、角色种子、计时能力与可选自报评级。新增：
+
+| 字段 | 主机 | 客机 |
+|---|---|---|
+| `version` | 5（暂定） | 同版本 |
+| `ruleset` | 完整对象，字段如下 | 必须为 null |
+| `rulesetHash` | 64 位小写十六进制 SHA-256 | 本地预期赛制的相同指纹 |
+
+赛制对象必须完整包含 `id,name,season,banOne,leadPick,bestOf,modifiers,turnSeconds,bankSeconds`，不能缺字段或携带未知字段。文本字段可为 null，布尔、整数及修饰器数组必须类型正确。先按 Ruleset 校验赛季存在、修饰器存在、局数为 1/3/5、计时非负，双方名单也按该赛季检查。修饰器规范化为去重、ordinal 排序的列表；缺省修饰器与空列表等价。双方分别规范化，不能以对方提供的指纹替代本地计算。
+
+指纹为 `lowercase_hex(SHA256(UTF8("StreamDuel.NetRuleset.v1\n" + ruleset.ToJson())))`；这里 `\n` 表示一个 LF 字符，ToJson 使用第 14 节的固定字段顺序。包/内容不同、规则与所报指纹不同、双方预期规则不同或握手期间本地内容改变，均中文拒绝，不能开始第一局。名字、评级和规则显示名仍不提供身份认证；赛制显示名作为完整赛制字段参与规则指纹。
+
+成功建立 Match 后双方各发 `{"type":"ruleset-ready","rulesetHash":"<相同指纹>"}`。收到对应确认后才创建第一局；重复 hello、重复确认或错误阶段均拒绝。
+
+### 12.2 局号、选择与结束确认
+
+| type | 必需字段 | 接收条件 |
+|---|---|---|
+| `game-ready` | `game,seed,hash` | 局号从 1 开始；种子为 `unchecked(比赛种子 + game - 1)`；hash 为新 Battle 初始状态的 16 位小写十六进制值 |
+| `game-result` | `game,winner,hash,wins,draws` | 已核对本局最后一个状态哈希；winner 为 -1/0/1，wins 为 `[主机胜局,客机胜局]`，draws 为平局数，必须与本机 Match 的结果全部相同 |
+| `match-end` | `game,winner,wins,draws,digest` | Match 已结束，最后一局结果已双方核对；winner 比较最终胜局数，相同为 -1；digest 汇总完整已确认局序列 |
+
+每局的 commit、reveal、hash 与终止控制消息新增 `game`，必须等于当前局号；不会把局号缺失、过去或未来局的消息用于当前阶段。原有 turn、kind、阶段与序号检查继续执行，消息仍按 FIFO 处理。game-ready 的种子不匹配拒绝，开局或终局哈希不匹配进入 Desync。比分与整场摘要不一致也停止整场，任何前局胜负都不能提前结算排位。
+
+禁用使用 `kind:"ban"`，首发使用 `kind:"lead"`；选择编码仍为 `W0` 到 `W5`。禁用下标指向对手原始六人名单，首发下标指向禁用后的己方名单。复用先承诺再公开流程，双方承诺齐备后才公开，验证两方选择后才固定按主机、客机顺序调用 Battle；公开前不会把本方私密选择写入 Battle。原协议的摘要算法、nonce 格式与第 9 节已知限制不因新增阶段而改变。
+
+每局重建 TurnClock，以赛制的 turnSeconds/bankSeconds 为唯一预算；0/0 不启用决策计时。禁用、首发不扣决策预算；行动和补位沿用原有超时选择与 10 秒网络宽限。握手、规则确认、开局确认、逐局结果和整场确认由调用者 Tick 推进独立的 10 秒等待上限，不因赛制关闭决策计时而无限等待。无决策计时的阶段也对双方承诺齐备后的公开、已发送状态哈希及终止控制确认等待最多 10 秒；尚未承诺的人工选招、禁用或首发没有因此增加思考时限。调用者仍需先 Poll 后 Tick，并在 TimerRevision 改变时重设时间基线。
+
+整场摘要的 UTF-8 原文为 `StreamDuel.NetMatch.v1`、LF、rulesetHash、LF，再按局号从小到大追加 `game:seed:winner:hash` 和 LF；数字使用 invariant 十进制，状态哈希使用 16 位小写十六进制。digest 为该原文的 SHA-256 小写十六进制。确认最后一局后发送 match-end，收到对方一致确认才设 `MatchConfirmed=true` 和 `State=Over`。在此之前整场不能保存排位；之后仍处理迟到 error 和非法协议消息，并撤销资格。TCP 正常 EOF 收尾沿用第 6 节，错误或收尾超时也不能保存。
+
+### 12.3 旧对端的休闲入口
+
+旧二进制对未知版本立即报错，不能在同一连接先发版本 5、再假装已经协商降级。`legacyCasual:true` 是连接开始前的明确兼容选择：只有 BestOf=1、无禁用/首发/赛季/修饰器/计时的赛制可以启用。此时采用默认 3 或已启用终止功能的 4，发送原格式 hello、commit/reveal/hash；不发送规则或多局控制消息。原单局最终哈希确认即为这一场的确认。非休闲规则明确拒绝，不能静默删去赛制功能。
+
+CLI `--ruleset casual` 采用此兼容入口，ranked/chaos 采用新线路；两边仍需选择兼容的版本入口，既有无参数联网默认启用终止协议 4。直接使用新协议休闲的 Core 调用者可省略 legacyCasual，但旧端不会接受它。
+
+### 12.4 房间显示与固定样例
+
+新赛制 LAN 公告在原六字段后成对增加 `rulesetName` 与 `bestOf`；前者为非空显示名，后者仅为 1/3/5。不完整、类型不符、重复字段、非法 Unicode 或超过 512 字节的公告拒绝。旧公告没有新字段时仍可读，旧对象编码保持原字节；房间列表快照复制新字段，广告值只用于显示，TCP 握手始终是规则依据。
+
+固定样例使用已有 `Golden/replays/content` 冻结原创包，内容指纹 `63a758a4fa663be9`、比赛种子 128；样例赛制为一局、禁用、首发、half_pp 与 10/30 秒计时，规范赛制指纹为 `096f6ccfaa2459bb011cebc50b2e75a500256953fd77b6f93388c16ab26a705a`。目录 `Engine.Tests/Golden/net/` 中的样例为：
+
+| 样例 | 对应报文 |
+|---|---|
+| `t128-hello-host.json`、`t128-hello-guest.json` | 完整赛制主机声明与客机预期指纹 |
+| `t128-ruleset-ready.json`、`t128-game-ready.json` | 规则确认、首局种子及开局哈希 |
+| `t128-commit-ban.json`、`t128-reveal-ban.json` | 私密禁用 W5 |
+| `t128-commit-lead.json`、`t128-reveal-lead.json` | 私密首发 W0 |
+| `t128-game-result.json`、`t128-match-end.json` | 单局结果、整场比分和摘要 |
+
+`T128_NetRulesetTests` 逐字段对照真实 Loopback 报文；只有 nonce 统一为 `000102030405060708090a0b0c0d0e0f`，并独立计算对应承诺摘要。旧 T-79、T-98 样例全部保留。协议分配时只改新样例的版本字段，不重新生成旧黄金消息或录像。

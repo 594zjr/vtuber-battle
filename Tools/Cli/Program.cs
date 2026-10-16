@@ -104,9 +104,11 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --team-code 码    使用码内本方队伍，与 --team 互斥；显式 --pack/--packs 必须匹配，外部包另加 --pack-dir。");
             Console.WriteLine("  --export-team     开局前打印本方原始六人队伍码后继续对战；与 --team-code 同用时保留预设名称。");
             Console.WriteLine("  --auto            双方自动操作；回放模式下连续播放全部回合。");
-            Console.WriteLine("  --ruleset 编号    本地赛制：casual（休闲一局）、ranked（禁用、首发、计时三局两胜）、chaos（双修饰器一局）。");
-            Console.WriteLine("                    每个完成局独立保存回放、录像库与战绩；仅整场完成时导出一份汇总 --report，提前退出保留已完成局。");
-            Console.WriteLine("                    不计联网排位分；计时每局重新开始。与 --timer、--ban、--lead、联网、赛事及独立查询模式互斥。");
+            Console.WriteLine("  --ruleset 编号    赛制：casual（休闲一局）、ranked（禁用、首发、计时三局两胜）、chaos（双修饰器一局）。");
+            Console.WriteLine("                    本地每局独立保存回放与战绩，不计联网排位；整场完成时导出汇总 --report，提前退出保留已完成局。");
+            Console.WriteLine("                    可与 --host/--join/--lan-host 同用，双方指定相同赛制，在同一连接完成全部局后保存、整场只结算一次排位。");
+            Console.WriteLine("                    casual 兼容旧单局端；其他赛制拒绝旧协议与不一致配置。中断或不同步不计整场战绩和排位。");
+            Console.WriteLine("                    每局重置计时。与 --timer、--ban、--lead、赛事、独立查询及单局观战配置互斥。");
             Console.WriteLine("                    支持队伍码、混合包和随机队伍；含禁用或首发的赛制可搭配 --advice。");
             Console.WriteLine("  --tournament 文件 新建或继续赛事 JSON；交互选择循环赛/瑞士轮/单败/双败、录入姓名与队伍码、记录胜负。");
             Console.WriteLine("                    可搭配 --format、--pack、--pack-dir、--auto，以及下述淘汰赛配置；续赛默认使用存档内容包。--auto 以普通 AI 代打。");
