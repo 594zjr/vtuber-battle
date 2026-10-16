@@ -40,21 +40,6 @@ namespace StreamDuel.PackCheck
             {
                 var streamer = db.Streamers[i];
                 string location = packPath + ":$.streamers[" + i + "]（id=" + streamer.Id + "）";
-                if (string.IsNullOrWhiteSpace(streamer.Blurb))
-                {
-                    report(true, location + ".blurb", "主播简介 blurb 不能为空。");
-                    errors++;
-                }
-                else
-                {
-                    int length = CountCharacters(streamer.Blurb);
-                    if (length > 40)
-                    {
-                        report(true, location + ".blurb", "主播简介最多 40 个 Unicode 字符，当前为 " + length + " 个。");
-                        errors++;
-                    }
-                }
-
                 foreach (string skillId in streamer.Skills) usedSkills.Add(skillId);
                 usedSkills.Add(streamer.Fifth);
 
@@ -123,19 +108,6 @@ namespace StreamDuel.PackCheck
         private static string LoadedLocation(string packPath, string section, string id)
         {
             return packPath + "（载入后规则）:$." + section + "[\"" + id + "\"]";
-        }
-
-        private static int CountCharacters(string value)
-        {
-            int count = 0;
-            for (int i = 0; i < value.Length; i++)
-            {
-                // UTF-16 代理对只代表一个 Unicode 字符，不能按两个字扣减简介额度。
-                if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
-                    i++;
-                count++;
-            }
-            return count;
         }
     }
 }

@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using StreamDuel.Core;
 using Xunit;
 
+[Collection("TCP loopback")]
 public class T31_TcpTransportEdgeTests
 {
     static readonly string[] HostTeam = { "bell", "enka", "shiori", "lumi", "hane", "momo" };

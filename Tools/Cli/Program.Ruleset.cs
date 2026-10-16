@@ -9,24 +9,31 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        private static int PlayRuleset(ContentDb db, CliOptions options)
+        private static int PlayRuleset(ContentDb db, CliOptions options, TeamPreset imported)
         {
             var ruleset = Rulesets.All.FirstOrDefault(item => string.Equals(item.Id, options.RulesetId, StringComparison.Ordinal));
             if (ruleset == null)
                 throw new ArgumentException("未知赛制：" + options.RulesetId + "；可用赛制：" + string.Join("、", Rulesets.All.Select(item => item.Id)) + "。");
             ruleset.Validate(db);
-            var player = options.Team ?? TeamBuilder.Suggest(db, ruleset.Season, new string[0], options.Seed).ToArray();
-            var errors = ruleset.CheckTeam(db, player);
-            if (errors.Count > 0) throw new ArgumentException("我方队伍不符合赛制：" + string.Join("；", errors));
-            var opponent = db.Streamers.Select(streamer => streamer.Id).Where(id => !player.Contains(id))
-                .Concat(player).Take(6).ToArray();
+            if (options.Advice && !ruleset.BanOne && !ruleset.LeadPick)
+                throw new ArgumentException(Loc.Current.T("advice.cli.phase.required"));
+            var preset = PrepareTeam(db, options, imported, ruleset.Season);
+            var player = preset.Ids.ToArray();
+            var opponent = PrepareOpponent(db, player, options);
             // 保留旧的对手选择顺序；赛季限制使该队无效时再交给引擎重新组队。
             if (ruleset.CheckTeam(db, opponent).Count > 0)
+            {
+                if (options.TeamB != null)
+                    throw new ArgumentException("对方队伍不符合赛制：" + string.Join("；", ruleset.CheckTeam(db, opponent)));
                 opponent = TeamBuilder.Suggest(db, ruleset.Season, new string[0], unchecked(options.Seed + 1)).ToArray();
+            }
             var match = new Match(db, ruleset, new IList<string>[] { player, opponent }, new[] { "你", "电脑" }, options.Seed);
             var completed = new List<Battle>();
+            // 超时阶段可能仍有未完成的 ReadLine；整场复用读取器，下一局不能另开读者争抢输入。
+            var input = new ConsoleInput();
             int exitCode = 0;
 
+            if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
             Console.WriteLine("开播对决 · 赛制对战");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
@@ -35,14 +42,18 @@ namespace StreamDuel.Cli
                 + "；模式：" + (options.Auto ? "双方自动" : "手动"));
             if (ruleset.Season != null) Console.WriteLine("赛季：" + ruleset.Season);
             if (ruleset.TurnSeconds > 0 || ruleset.BankSeconds > 0)
-                Console.WriteLine("计时配置：每回合 " + ruleset.TurnSeconds + " 秒，储备 " + ruleset.BankSeconds + " 秒；当前 CLI 尚未启用倒计时。");
+                Console.WriteLine("计时配置：每阶段基本 " + ruleset.TurnSeconds + " 秒，每方总时间 " + ruleset.BankSeconds
+                    + " 秒；禁用与首发不计时，每局重置预算。");
 
             while (!match.Over)
             {
                 var battle = match.StartNextGame();
                 Console.WriteLine();
                 Console.WriteLine("===== 赛制第 " + (completed.Count + 1) + " 局 · 种子 " + battle.Seed + " =====");
-                if (!PlayLocalBattle(battle, options))
+                input.DiscardCompleted(preserveCommands: true);
+                var clock = ruleset.TurnSeconds > 0 || ruleset.BankSeconds > 0
+                    ? new TurnClock(ruleset.TurnSeconds, ruleset.BankSeconds) : null;
+                if (!PlayLocalBattle(battle, options, clock, input))
                 {
                     Quit();
                     Console.WriteLine("赛制未完成；已完成 " + completed.Count + " 局的回放与战绩保留，未完成局不计入比分。");
@@ -77,7 +88,8 @@ namespace StreamDuel.Cli
                 .Append("种子：").Append(options.Seed).Append("；完成局数：").Append(completed.Count).Append('\n')
                 .Append("\n比分：你 ").Append(match.Wins[0]).Append(" : ").Append(match.Wins[1]).Append(" 电脑；平局 ").Append(match.Draws).Append("\n");
             for (int index = 0; index < completed.Count; index++)
-                markdown.Append("\n---\n\n## 第 ").Append(index + 1).Append(" 局\n\n").Append(BattleReport.Markdown(completed[index]));
+                markdown.Append("\n---\n\n## 第 ").Append(index + 1).Append(" 局\n\n")
+                    .Append(BattleReport.Markdown(TextInput.ForDisplay(completed[index])));
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
