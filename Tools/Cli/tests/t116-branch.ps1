@@ -348,6 +348,7 @@ try {
         @('--replay', $sourcePath), @('--replay-best-effort'), @('--host', '0'), @('--hotseat'), @('--ban'), @('--lead'),
         @('--report', 'should-not-exist.md'), @('--tournament-report', 'missing.json'), @('--json'), @('--replays'),
         @('--card', 'bell'), @('--cards', 'original'),
+        @('--watch', '127.0.0.1:9'), @('--spectate-port', '0'), @('--host', '0', '--spectate-port', '0'),
         @('--branch', $sourcePath), @('--turn', '2'), @('--side', '0'), @('--ai', 'hard', '--ai', 'normal'),
         @('--save-dir', 'saves', '--save-dir', 'saves'), @('--pack-dir', $external, '--pack-dir', $external))) {
         $invalid += ,($baseArgs + $extra)
@@ -357,6 +358,17 @@ try {
         Check ($result.Out.Length -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $result.Work 'saves'))) '参数错误仍开始了接手或创建了存档。'
         if ($invalid[$i] -contains '--card' -or $invalid[$i] -contains '--cards') {
             Check ($result.Err.Contains('不能与') -and $result.Err.Contains('--branch')) '资料卡与接手组合未由独立模式互斥校验拒绝。'
+        }
+        if ($invalid[$i] -contains '--watch') {
+            Check ($result.Err.Contains('--watch 只读观战，不支持') -and $result.Err.Contains('--branch')) '观战与接手组合未在连接之前由模式校验拒绝。'
+        }
+        if ($invalid[$i] -contains '--spectate-port') {
+            if ($invalid[$i] -contains '--host') {
+                Check ($result.Err.Contains('--branch 是独立') -and $result.Err.Contains('不能与') -and $result.Err.Contains('--spectate-port')) '主机观战端口与接手组合未由独立模式互斥校验拒绝。'
+            }
+            else {
+                Check ($result.Err.Contains('--spectate-port 只能与 --host 或 --lan-host 一起使用')) '接手模式的孤立观战端口未明确拒绝。'
+            }
         }
     }
     $checks.Add('必填、范围、空值、重复参数与独立模式互斥全部在开局前拒绝')
