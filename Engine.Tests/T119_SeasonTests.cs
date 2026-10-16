@@ -334,6 +334,58 @@ public class T119_SeasonTests
         Assert.False(File.Exists(Path.Combine(files.Root, ".profile.json.tmp")));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StrictSeasonCommandsRejectInvalidUtf8WithoutRewritingProfile(bool newSeason)
+    {
+        using var files = new TestDirectory();
+        string path = Path.Combine(files.Root, "profile.json");
+        byte[] bytes = Encoding.UTF8.GetBytes("{\"packs\":{},\"ratings\":{\"X\":{\"games\":12,\"rating\":1510}}}");
+        bytes[Array.IndexOf(bytes, (byte)'X')] = 0xff;
+        File.WriteAllBytes(path, bytes);
+        File.WriteAllText(Path.Combine(files.Root, ".profile.lock"), "");
+        File.SetLastWriteTimeUtc(path, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+        string[] before = FileSnapshot(files.Root);
+        var store = new FileSaveStore(files.Root);
+        // 普通入口继续兼容旧的替换式读取，只有新严格入口拒绝损坏编码。
+        Assert.Equal(1510, store.LoadProfile().Ratings["\ufffd"].Rating);
+
+        var error = Assert.Throws<FormatException>(() =>
+        {
+            if (newSeason) store.NewRatingSeason();
+            else FileSaveStore.LoadProfileSnapshot(files.Root, true);
+        });
+
+        Assert.Contains("UTF-8", error.Message);
+        Assert.Equal(before, FileSnapshot(files.Root));
+        Assert.Equal(bytes, File.ReadAllBytes(path));
+        Assert.False(File.Exists(Path.Combine(files.Root, ".profile.json.tmp")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StrictSeasonCommandsAcceptUtf8WithOrWithoutBom(bool withBom)
+    {
+        using var files = new TestDirectory();
+        string path = Path.Combine(files.Root, "profile.json");
+        var encoding = new UTF8Encoding(withBom, true);
+        string json = "{\"packs\":{},\"ratings\":{\"默认\":" + ValidSeason + "}}";
+        File.WriteAllBytes(path, encoding.GetPreamble().Concat(encoding.GetBytes(json)).ToArray());
+        byte[] before = File.ReadAllBytes(path);
+
+        var profile = FileSaveStore.LoadProfileSnapshot(files.Root, true);
+
+        Assert.Equal(ValidSeason, profile.Ratings[Profile.DefaultRatingFormat].ToJson());
+        Assert.Equal(before, File.ReadAllBytes(path));
+        var next = new FileSaveStore(files.Root).NewRatingSeason();
+        Assert.Equal(3, next.Ratings[Profile.DefaultRatingFormat].Season);
+        Assert.Equal(1505, next.Ratings[Profile.DefaultRatingFormat].Rating);
+        Assert.Equal(2, next.Ratings[Profile.DefaultRatingFormat].History.Count);
+        Assert.Equal(next.ToJson(), FileSaveStore.LoadProfileSnapshot(files.Root, true).ToJson());
+    }
+
     [Fact]
     public void MissingProfileCanStartANewSeasonAndReadOnlyQueriesNeverCreateOrRewriteFiles()
     {

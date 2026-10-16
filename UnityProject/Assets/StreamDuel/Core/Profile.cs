@@ -25,6 +25,8 @@ namespace StreamDuel.Core
             if (playerSide < 0 || playerSide >= b.Sides.Length) throw new ArgumentOutOfRangeException(nameof(playerSide));
             if (b.Phase != Phase.Over) throw new InvalidOperationException("对战尚未结束，不能记录战绩");
             if (b.Winner < -1 || b.Winner >= b.Sides.Length) throw new InvalidOperationException("对战没有有效的胜负结果");
+            // 接手局允许保存录像，但不能把已知历史的练习结果累计为正式战绩。
+            if (b.IsBranch) return;
 
             PackStats stats;
             if (!Packs.TryGetValue(b.Db.PackId, out stats)) stats = new PackStats();

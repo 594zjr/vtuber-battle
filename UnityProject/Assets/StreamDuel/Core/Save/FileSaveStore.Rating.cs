@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 
 namespace StreamDuel.Core
 {
@@ -12,7 +13,16 @@ namespace StreamDuel.Core
 
         private Profile LoadProfileStrict()
         {
-            string json = ReadOptional("profile.json");
+            string json;
+            try
+            {
+                // 手动切季不能把损坏字节替换后覆盖来源，普通读档继续保留旧容错行为。
+                json = ReadOptional("profile.json", true);
+            }
+            catch (DecoderFallbackException ex)
+            {
+                throw new FormatException("档案文件不是有效的 UTF-8 文本，原文件已保留。", ex);
+            }
             return json == null ? new Profile() : Profile.FromJsonStrict(json);
         }
 

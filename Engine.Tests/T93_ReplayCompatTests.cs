@@ -48,11 +48,13 @@ public class T93_ReplayCompatTests
     }
 
     [Fact]
-    public void CurrentVersionSupportsThreeWhileOrdinaryNewBattlesStillUseTwo()
+    public void CurrentVersionSupportsFourWhileOrdinaryNewBattlesStillUseTwo()
     {
         var db = BattleTests.LoadPack("original");
-        // T-98 新增终局事件使用 v3；没有新事件的普通录像继续保留 v2。
-        Assert.Equal(3, BattleRecord.CurrentVersion);
+        // T-116 接手事件使用 v4；终局事件仍用 v3，没有新事件的普通录像继续保留 v2。
+        Assert.Equal(4, BattleRecord.CurrentVersion);
+        Assert.Equal(3, BattleRecord.TerminationVersion);
+        Assert.Equal(4, BattleRecord.BranchVersion);
         Assert.Equal(2, BattleRecord.DefaultVersion);
         Assert.Equal(2, new BattleRecord().Version);
         var battle = Make(db);
@@ -140,7 +142,7 @@ public class T93_ReplayCompatTests
     }
 
     [Theory]
-    [InlineData(4)]
+    [InlineData(BattleRecord.CurrentVersion + 1)]
     [InlineData(int.MaxValue)]
     public void FutureVersionParsingPreservesTheVersionAndStillValidatesPayloadStructure(int version)
     {
@@ -168,7 +170,7 @@ public class T93_ReplayCompatTests
     }
 
     [Theory]
-    [InlineData(4)]
+    [InlineData(BattleRecord.CurrentVersion + 1)]
     [InlineData(int.MaxValue)]
     public void FutureRecordsRequireCompatibilityRejectionWhileStrictRunKeepsLegacyBehavior(int version)
     {

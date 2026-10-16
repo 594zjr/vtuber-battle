@@ -232,7 +232,7 @@ try {
         @('--replay', 'unused.json'), @('--replay-code', 'unused'), @('--replays'), @('--replay-best-effort'),
         @('--list-packs'), @('--glossary'), @('--card', 'bell'), @('--cards', 'original'),
         @('--report', 'unused.md'), @('--tournament', 'unused.json'), @('--tournament-report', 'unused.json'), @('--json'),
-        @('--format', 'single'),
+        @('--format', 'single'), @('--branch', 'unused.json', '--turn', '1', '--side', '0'),
         @('--calc', 'bell', '1', 'enka'), @('--matchup', $hostTeam, 'vs', $guestTeam)
     )
     foreach ($mode in @('--new-season', '--rating-history')) {
@@ -274,6 +274,32 @@ try {
         }
     }
     $checks.Add('PASS_corrupt_or_empty_profile_rejected_without_overwrite')
+
+    $invalidUtf8 = Join-Path $run 'invalid-utf8'
+    $invalidPath = Join-Path $invalidUtf8 'profile.json'
+    Write-Text $invalidPath ''
+    Write-Text (Join-Path $invalidUtf8 '.profile.lock') ''
+    $bytes = $utf8.GetBytes('{"packs":{},"ratings":{"X":{"games":12,"rating":1510}}}')
+    $bytes[[Array]::IndexOf($bytes, [byte][char]'X')] = 0xff
+    [IO.File]::WriteAllBytes($invalidPath, $bytes)
+    $before = Fingerprint $invalidUtf8
+    foreach ($mode in '--rating-history', '--new-season') {
+        $rejected = Invoke-Cli ('invalid-utf8-' + $mode.Substring(2)) @($mode, '--save-dir', $invalidUtf8) 1
+        Check ($rejected.Out.Length -eq 0 -and $rejected.Err.Contains('UTF-8') -and (Fingerprint $invalidUtf8) -ceq $before) '损坏 UTF-8 没有明确拒绝，或改写了原文件字节、mtime、目录。'
+    }
+    $checks.Add('PASS_invalid_utf8_rejected_without_lossy_rewrite')
+
+    $bomSave = Join-Path $run 'utf8-bom'
+    Write-Fixture $bomSave 1700 20
+    $bomPath = Join-Path $bomSave 'profile.json'
+    [IO.File]::WriteAllBytes($bomPath, [byte[]](@(0xef, 0xbb, 0xbf) + [IO.File]::ReadAllBytes($bomPath)))
+    $bomHistory = Invoke-History 'history-utf8-bom' $bomSave
+    Check ($bomHistory.Out.Contains('1700 分')) 'UTF-8 BOM 合法档案无法查询。'
+    $null = Invoke-Cli 'new-season-utf8-bom' @('--new-season', '--save-dir', $bomSave)
+    $bomRating = (Read-Profile $bomSave).ratings.'默认'
+    Check ($bomRating.season -eq 2 -and $bomRating.rating -eq 1600 -and (Placed $bomRating)) 'UTF-8 BOM 合法档案无法切季。'
+    Assert-History $bomRating 0 1700 1700 20
+    $checks.Add('PASS_valid_utf8_bom_history_and_new_season')
 
     $beforeLock = Fingerprint $highDirectory
     $held = [IO.File]::Open((Join-Path $highDirectory 'profile.json'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)

@@ -47,7 +47,7 @@ public class T93_ReviewIntegrationTests
     }
 
     [Theory]
-    [InlineData(4)]
+    [InlineData(BattleRecord.CurrentVersion + 1)]
     [InlineData(int.MaxValue)]
     public void CursorRejectsFutureInMemoryRecordWithTheUpgradeReason(int futureVersion)
     {
