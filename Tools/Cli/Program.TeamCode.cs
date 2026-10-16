@@ -27,15 +27,15 @@ namespace StreamDuel.Cli
             return preset;
         }
 
-        private static TeamPreset PrepareTeam(ContentDb db, CliOptions options, TeamPreset imported)
+        private static TeamPreset PrepareTeam(ContentDb db, CliOptions options, TeamPreset imported, string season = null)
         {
             var preset = imported ?? new TeamPreset
             {
                 Name = "我的队伍",
                 PackId = db.PackId,
-                Ids = (options.Team ?? TeamBuilder.Suggest(db, null, new string[0], options.Seed).ToArray()).ToList()
+                Ids = (options.Team ?? TeamBuilder.Suggest(db, season, new string[0], options.Seed).ToArray()).ToList()
             };
-            var errors = preset.Check(db, null);
+            var errors = preset.Check(db, season);
             if (errors.Count > 0)
                 throw new ArgumentException((imported == null ? "" : "队伍码无效：") + string.Join("；", errors));
             return preset;

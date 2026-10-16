@@ -19,7 +19,7 @@ namespace StreamDuel.Cli
             Console.WriteLine("开播对决 · 局域网对战（仅用于可信局域网，无加密、无账号）");
             Console.WriteLine("内容包：" + db.PackName);
             Console.WriteLine(db.PackNotice);
-            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value) : null;
+            using var spectators = options.SpectatePort.HasValue ? new SpectatorHost(options.SpectatePort.Value, options.SpectatorChat) : null;
             if (host)
             {
                 connection = WaitForNetworkGuest(db, options, () => spectators?.Pump());
@@ -197,7 +197,8 @@ namespace StreamDuel.Cli
             }
         }
 
-        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null)
+        static int SaveCompletedBattle(Battle battle, CliOptions options, int mySide, PlayerRating opponentRating = null,
+            bool exportReport = true)
         {
             var display = TextInput.ForDisplay(battle);
             Console.WriteLine();
@@ -220,7 +221,7 @@ namespace StreamDuel.Cli
             bool reportFailed = false;
             try
             {
-                SaveReport(battle, options, mySide);
+                if (exportReport) SaveReport(battle, options, mySide);
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException)
             {
@@ -243,6 +244,7 @@ namespace StreamDuel.Cli
             Profile profile = null;
             RankedReplayTag rankedReplay = null;
             bool profileFailed = false;
+            Exception profileError = null;
             try
             {
                 // 排位关联必须取自持锁结算后的赛季与局序，不能使用开局快照或写盘时间推断。
@@ -251,7 +253,9 @@ namespace StreamDuel.Cli
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
                 || ex is ArgumentException || ex is FormatException || ex is InvalidOperationException || ex is OverflowException)
             {
-                Console.Error.WriteLine("警告：档案保存失败：" + ex.Message);
+                // 多局调用层带有局号，先保留独立录像，再交回它输出原有的逐局错误。
+                if (options.RulesetId == null) Console.Error.WriteLine("警告：档案保存失败：" + ex.Message);
+                profileError = ex;
                 profileFailed = true;
             }
             bool libraryFailed = false;
@@ -286,6 +290,8 @@ namespace StreamDuel.Cli
                 }
                 Console.WriteLine("档案已保存：" + Path.Combine(options.SaveDir, "profile.json"));
             }
+            if (profileError != null && options.RulesetId != null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(profileError).Throw();
             return replayWarning == null && !reportFailed && !shareFailed && !libraryFailed && !profileFailed ? 0 : 1;
         }
     }

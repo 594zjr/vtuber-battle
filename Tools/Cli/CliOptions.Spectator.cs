@@ -9,6 +9,8 @@ namespace StreamDuel.Cli
         public int? SpectatePort;
         public string WatchHost;
         public int WatchPort;
+        public string WatchName = "观众";
+        public bool SpectatorChat = true;
 
         static void ValidateSpectatorOptions(CliOptions options, List<string> provided)
         {
@@ -17,12 +19,16 @@ namespace StreamDuel.Cli
             {
                 var allowed = new HashSet<string>(StringComparer.Ordinal)
                 {
-                    "--watch", "--pack", "--packs", "--pack-dir", "--hash", "--list-packs", "--help", "-h"
+                    "--watch", "--watch-name", "--pack", "--packs", "--pack-dir", "--hash", "--list-packs", "--help", "-h"
                 };
                 var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
                 if (unsupported.Length > 0)
                     throw new ArgumentException("--watch 只读观战，不支持 " + string.Join("、", unsupported) + "。");
             }
+            if (provided.Contains("--watch-name") && options.WatchHost == null)
+                throw new ArgumentException("--watch-name 只能与 --watch 一起使用。");
+            if (provided.Contains("--spectator-chat") && !options.SpectatePort.HasValue)
+                throw new ArgumentException("--spectator-chat 只能与 --spectate-port 一起使用。");
             if (options.SpectatePort.HasValue)
             {
                 if (!options.HostPort.HasValue && options.LanHostName == null)
