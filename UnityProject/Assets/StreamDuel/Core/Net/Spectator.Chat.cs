@@ -110,7 +110,7 @@ namespace StreamDuel.Core
 
         public bool SendQuickChat(int index)
         {
-            if (!ChatEnabled || !chatJoined || Battle == null || Error != null || IsFinished
+            if (!ChatEnabled || !chatJoined || Battle == null || Error != null || IsFinished || gameEnded
                 || index < 0 || index >= QuickChat.Count) return false;
             if (chatSendTurn != Battle.Turn)
             {
@@ -141,7 +141,7 @@ namespace StreamDuel.Core
 
         void ReceiveQuickChat(Dictionary<string, object> obj)
         {
-            if (!ChatEnabled || Battle == null || IsFinished) return;
+            if (!ChatEnabled || Battle == null || IsFinished || gameEnded) return;
             try
             {
                 SpectatorProtocol.Keys(obj, "type", "version", "kind", "name", "index", "turn");

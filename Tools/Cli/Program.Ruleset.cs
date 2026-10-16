@@ -31,6 +31,8 @@ namespace StreamDuel.Cli
             var completed = new List<Battle>();
             // 超时阶段可能仍有未完成的 ReadLine；整场复用读取器，下一局不能另开读者争抢输入。
             var input = new ConsoleInput();
+            using var spectators = options.SpectatePort.HasValue
+                ? new MatchSpectatorHost(ruleset, options.SpectatePort.Value, options.SpectatorChat) : null;
             int exitCode = 0;
 
             if (options.ExportTeam) Console.WriteLine("本方队伍码：" + TeamCode.Encode(preset));
@@ -48,18 +50,20 @@ namespace StreamDuel.Cli
             while (!match.Over)
             {
                 var battle = match.StartNextGame();
+                spectators?.StartGame(battle);
                 Console.WriteLine();
                 Console.WriteLine("===== 赛制第 " + (completed.Count + 1) + " 局 · 种子 " + battle.Seed + " =====");
                 input.DiscardCompleted(preserveCommands: true);
                 var clock = ruleset.TurnSeconds > 0 || ruleset.BankSeconds > 0
                     ? new TurnClock(ruleset.TurnSeconds, ruleset.BankSeconds) : null;
-                if (!PlayLocalBattle(battle, options, clock, input))
+                if (!PlayLocalBattle(battle, options, clock, input, spectators == null ? null : spectators.Pump))
                 {
                     Quit();
                     Console.WriteLine("赛制未完成；已完成 " + completed.Count + " 局的回放与战绩保留，未完成局不计入比分。");
                     return exitCode;
                 }
                 match.ReportResult(battle);
+                spectators?.FinishGame();
                 completed.Add(battle);
                 try
                 {
@@ -75,6 +79,7 @@ namespace StreamDuel.Cli
                 Console.WriteLine("赛制比分：你 " + match.Wins[0] + " : " + match.Wins[1] + " 电脑；平局 " + match.Draws);
             }
 
+            spectators?.Finish();
             Console.WriteLine("赛制结束：共 " + completed.Count + " 局；你 " + match.Wins[0] + " : " + match.Wins[1] + " 电脑；平局 " + match.Draws);
             SaveRulesetReport(ruleset, match, completed, options);
             return exitCode;

@@ -15,7 +15,7 @@ namespace StreamDuel.Cli
             {
                 "--ruleset", "--pack", "--packs", "--pack-dir", "--level", "--seed", "--team", "--team-b",
                 "--team-code", "--export-team", "--random-teams", "--save-dir", "--auto", "--hash",
-                "--share", "--report", "--advice"
+                "--share", "--report", "--advice", "--spectate-port", "--spectator-chat"
             };
             var unsupported = provided.Where(option => !allowed.Contains(option)).Distinct().ToArray();
             if (unsupported.Length > 0)

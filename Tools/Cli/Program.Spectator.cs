@@ -17,18 +17,21 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             using (var connection = TcpTransport.Connect(options.WatchHost, options.WatchPort, 10000))
             {
-                var viewer = new SpectatorClient(db, connection, enableChat: true, displayName: options.WatchName);
+                var viewer = new SpectatorClient(db, connection, enableChat: true, displayName: options.WatchName, enableMatch: true);
                 Console.WriteLine("已连接观战，等待房主发送延迟数据……（Ctrl+C 退出）");
                 Console.Out.Flush();
                 int logIndex = 0, hashEventCount = -1, chatIndex = 0;
                 bool started = false;
+                Battle provisionalBattle = null;
                 var input = new ConsoleInput();
+                var matchDisplay = new MatchSpectatorDisplay();
                 while (true)
                 {
                     viewer.Poll();
                     if (viewer.Error != null) throw new IOException("观战失败：" + viewer.Error);
                     var battle = viewer.Battle;
-                    if (battle != null)
+                    if (viewer.HasMatch) matchDisplay.Render(viewer, options, provisionalBattle, logIndex);
+                    else if (battle != null)
                     {
                         if (!started)
                         {
@@ -36,12 +39,10 @@ namespace StreamDuel.Cli
                             Console.WriteLine("观战开始；种子：" + battle.Seed);
                             PrintTeams(TextInput.ForDisplay(battle));
                             PrintMixedNotices(db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
-                            Console.WriteLine("观众昵称：" + viewer.DisplayName + "；快捷语只发给其他观众，房主可关闭转发。");
-                            Console.WriteLine("输入 /say 编号；每个可见回合最多 3 条。q 退出；输入结束后仍继续观战。");
-                            for (int index = 0; index < QuickChat.Count; index++)
-                                Console.WriteLine("  /say " + index + "：" + QuickChat.Text(index));
+                            PrintSpectatorChatHelp(viewer);
                         }
                         PrintNewLog(battle, ref logIndex);
+                        provisionalBattle = battle;
                         if (options.Hash && !viewer.IsFinished && battle.Record.Events.Count != hashEventCount)
                         {
                             hashEventCount = battle.Record.Events.Count;
@@ -56,6 +57,13 @@ namespace StreamDuel.Cli
                     }
                     if (viewer.IsFinished)
                     {
+                        if (viewer.HasMatch)
+                        {
+                            if (!viewer.IsMatchFinished) throw new IOException("观战比赛缺少整场结束标记。");
+                            Console.WriteLine("观战比赛结束：最终比分 " + viewer.ReleasedWins[0] + ":" + viewer.ReleasedWins[1]
+                                + "；平局 " + viewer.MatchDraws);
+                            return 0;
+                        }
                         if (battle == null || battle.Phase != Phase.Over)
                             throw new IOException("观战结束标记缺少完整的终局。");
                         var display = TextInput.ForDisplay(battle);

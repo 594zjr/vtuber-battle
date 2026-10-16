@@ -196,13 +196,15 @@ namespace StreamDuel.Core
         public string Error { get; private set; }
         public bool IsFinished { get; private set; }
 
-        public SpectatorClient(ContentDb db, INetTransport t, bool enableChat = false, string displayName = "观众")
+        public SpectatorClient(ContentDb db, INetTransport t, bool enableChat = false, string displayName = "观众", bool enableMatch = false)
         {
             this.db = db ?? throw new ArgumentNullException(nameof(db));
             transport = t ?? throw new ArgumentNullException(nameof(t));
             contentHash = db.ContentHash();
             ChatEnabled = enableChat;
             DisplayName = TextInput.Clean(displayName, TextInputKind.PlayerName).Text;
+            MatchEnabled = enableMatch;
+            JoinMatch();
         }
 
         public void Poll()
@@ -217,16 +219,18 @@ namespace StreamDuel.Core
             }
             catch (TcpDisconnectedException ex)
             {
+                if (MatchEnabled && !HasMatch && gameEnded) IsFinished = true;
                 if (!IsFinished) Error = "观战结束标记到达前连接中断：" + ex.Message;
             }
             catch (Exception ex)
             {
                 Error = "观战消息无效或接收失败：" + ex.Message;
                 IsFinished = false;
+                IsMatchFinished = false;
             }
         }
 
-        bool Receive(string message)
+        bool Receive(string message, bool matchFrame = false)
         {
             Dictionary<string, object> obj;
             try { obj = SpectatorProtocol.Object(message); }
@@ -240,6 +244,13 @@ namespace StreamDuel.Core
                 ReceiveQuickChat(obj);
                 return true;
             }
+            if (rawType as string == SpectatorMatchProtocol.Type)
+            {
+                if (matchFrame) throw new FormatException("多局观战帧不能嵌套扩展消息。");
+                ReceiveMatch(obj);
+                return false;
+            }
+            if (HasMatch && !matchFrame) throw new FormatException("多局观战事件缺少局号封装。");
             int version = (int)NetJson.Integer(obj, "version", 1, int.MaxValue);
             if (version != 1 && version != SpectatorFeed.ProtocolVersion
                 || protocolVersion != 0 && version != protocolVersion)
@@ -247,7 +258,7 @@ namespace StreamDuel.Core
             long sequence = NetJson.Integer(obj, "seq", 0, int.MaxValue);
             if (sequence != nextSequence) throw new FormatException("观战消息顺序不匹配。");
             string type = NetJson.Text(obj, "type");
-            if (IsFinished) throw new FormatException("观战已经结束，不能接收额外消息。");
+            if (gameEnded || IsFinished) throw new FormatException("观战已经结束，不能接收额外消息。");
             if (type == "spectator_start")
             {
                 ReceiveOpening(obj, version);
@@ -261,7 +272,8 @@ namespace StreamDuel.Core
                 SpectatorProtocol.Keys(obj, "type", "version", "seq", "turn", "hash");
                 if (Battle.Phase != Phase.Over) throw new FormatException("对战尚未结束，不能接收观战结束标记。");
                 SpectatorProtocol.VerifyHash(obj, Battle);
-                IsFinished = true;
+                gameEnded = true;
+                IsFinished = !MatchEnabled;
                 nextSequence++;
                 return false;
             }
@@ -339,6 +351,7 @@ namespace StreamDuel.Core
                 throw new FormatException("观战内容指纹不一致。");
             var initial = SpectatorProtocol.CreateBattle(db, record);
             SpectatorProtocol.VerifyHash(obj, initial);
+            ValidateMatchOpening(record);
             Battle = initial;
             protocolVersion = version;
             nextSequence = 1;

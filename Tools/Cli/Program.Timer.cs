@@ -109,6 +109,15 @@ namespace StreamDuel.Cli
                 clock.Tick(1, seconds);
                 display.Show(clock, battle, 0);
             }
+
+            public void Pump(Action observer)
+            {
+                Pump();
+                if (observer == null) return;
+                // 观众写入有独立网络超时，不能因此扣除选手思考时间。
+                try { observer(); }
+                finally { elapsed.Restart(); }
+            }
         }
 
         private readonly struct ChoiceStamp
@@ -210,10 +219,11 @@ namespace StreamDuel.Cli
         }
 
         private static bool ReadTimedActions(Battle battle, CliOptions options, TurnClock clock, ConsoleInput input,
-            out BattleAction action, out BattleAction foeAction)
+            out BattleAction action, out BattleAction foeAction, Action observer = null)
         {
             action = foeAction = default;
             var timer = new LocalTimer(clock, battle);
+            Action pump = () => timer.Pump(observer);
             var actions = new BattleAction[2];
             if (!options.Auto)
             {
@@ -223,7 +233,7 @@ namespace StreamDuel.Cli
             foreach (int side in options.Auto ? new[] { 0, 1 } : new[] { 1, 0 })
             {
                 if (!options.Auto && input.EndRequested) return false;
-                timer.Pump();
+                pump();
                 if (!clock.TimedOut(side))
                 {
                     if (side != 0 || options.Auto) actions[side] = Ai.Choose(battle, side, options.Level);
@@ -232,14 +242,14 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadAction(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                prompt => ReadPumpedNumber(input, prompt, pump, () => clock.TimedOut(side),
                                     line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             actions[side] = selected.Value;
                         }
                         catch (ChoiceExpiredException) { }
                     }
-                    timer.Pump();
+                    pump();
                 }
                 if (clock.TimedOut(side))
                 {
@@ -254,9 +264,11 @@ namespace StreamDuel.Cli
             return true;
         }
 
-        private static bool ReadTimedReplacements(Battle battle, CliOptions options, TurnClock clock, ConsoleInput input)
+        private static bool ReadTimedReplacements(Battle battle, CliOptions options, TurnClock clock, ConsoleInput input,
+            Action observer = null)
         {
             var timer = new LocalTimer(clock, battle);
+            Action pump = () => timer.Pump(observer);
             var choices = new[] { -1, -1 };
             if (!options.Auto && battle.Need[0])
             {
@@ -267,7 +279,7 @@ namespace StreamDuel.Cli
             {
                 if (!battle.Need[side]) continue;
                 if (!options.Auto && input.EndRequested) return false;
-                timer.Pump();
+                pump();
                 if (!clock.TimedOut(side))
                 {
                     if (side != 0 || options.Auto) choices[side] = Ai.ChooseReplacement(battle, side, options.Level);
@@ -276,14 +288,14 @@ namespace StreamDuel.Cli
                         try
                         {
                             var selected = ReadReplacement(battle, side,
-                                prompt => ReadPumpedNumber(input, prompt, timer.Pump, () => clock.TimedOut(side),
+                                prompt => ReadPumpedNumber(input, prompt, pump, () => clock.TimedOut(side),
                                     line => HandleLocalCommand(battle, side, line)));
                             if (!selected.HasValue) return false;
                             choices[side] = selected.Value;
                         }
                         catch (ChoiceExpiredException) { }
                     }
-                    timer.Pump();
+                    pump();
                 }
                 if (clock.TimedOut(side))
                 {

@@ -31,8 +31,8 @@ namespace StreamDuel.Cli
                 throw new ArgumentException("--spectator-chat 只能与 --spectate-port 一起使用。");
             if (options.SpectatePort.HasValue)
             {
-                if (!options.HostPort.HasValue && options.LanHostName == null)
-                    throw new ArgumentException("--spectate-port 只能与 --host 或 --lan-host 一起使用。");
+                if (!options.HostPort.HasValue && options.LanHostName == null && options.RulesetId == null)
+                    throw new ArgumentException("--spectate-port 只能与 --host、--lan-host 或 --ruleset 一起使用。");
                 if (options.SpectatePort.Value != 0 && options.SpectatePort == options.HostPort)
                     throw new ArgumentException("--spectate-port 必须与 --host 使用不同端口；0 可分别自动分配。");
             }

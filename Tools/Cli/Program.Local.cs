@@ -7,7 +7,8 @@ namespace StreamDuel.Cli
 {
     internal static partial class Program
     {
-        private static bool PlayLocalBattle(Battle battle, CliOptions options, TurnClock clock, ConsoleInput input)
+        private static bool PlayLocalBattle(Battle battle, CliOptions options, TurnClock clock, ConsoleInput input,
+            Action observer = null)
         {
             PrintTeams(battle);
             PrintMixedNotices(battle.Db, battle.Sides.SelectMany(side => side.Team).Select(fighter => fighter.Def.Id));
@@ -17,13 +18,15 @@ namespace StreamDuel.Cli
                 battle.Sides[1].Team.Select(fighter => fighter.Def.Id).ToArray());
             int logIndex = 0;
             PrintNewLog(battle, ref logIndex);
-            Func<string, int?> readNumber = prompt => ReadPumpedNumber(input, prompt, () => { }, () => false,
+            Action pump = observer ?? (() => { });
+            Func<string, int?> readNumber = prompt => ReadPumpedNumber(input, prompt, pump, () => false,
                 line => HandleLocalCommand(battle, 0, line));
 
             try
             {
                 while (battle.Phase != Phase.Over)
                 {
+                    pump();
                     if (battle.Phase == Phase.Ban)
                     {
                         Console.WriteLine();
@@ -40,6 +43,7 @@ namespace StreamDuel.Cli
                             }
                             else to = Ai.ChooseBan(battle, side);
                             battle.ChooseBan(side, to);
+                            pump();
                             PrintNewLog(battle, ref logIndex);
                         }
                         PrintTeams(battle);
@@ -62,6 +66,7 @@ namespace StreamDuel.Cli
                             }
                             else to = Ai.ChooseLead(battle, side);
                             battle.ChooseLead(side, to);
+                            pump();
                             PrintNewLog(battle, ref logIndex);
                         }
                         PrintTeams(battle);
@@ -76,7 +81,8 @@ namespace StreamDuel.Cli
                     {
                         if (clock != null)
                         {
-                            if (!ReadTimedReplacements(battle, options, clock, input)) return false;
+                            if (!ReadTimedReplacements(battle, options, clock, input, observer)) return false;
+                            pump();
                             PrintNewLog(battle, ref logIndex);
                             continue;
                         }
@@ -92,6 +98,7 @@ namespace StreamDuel.Cli
                             }
                             else to = Ai.ChooseReplacement(battle, side, options.Level);
                             battle.Replace(side, to);
+                            pump();
                             PrintNewLog(battle, ref logIndex);
                         }
                         continue;
@@ -101,7 +108,7 @@ namespace StreamDuel.Cli
                     BattleAction foeAction;
                     if (clock != null)
                     {
-                        if (!ReadTimedActions(battle, options, clock, input, out action, out foeAction)) return false;
+                        if (!ReadTimedActions(battle, options, clock, input, out action, out foeAction, observer)) return false;
                     }
                     else if (options.Auto)
                     {
@@ -117,12 +124,14 @@ namespace StreamDuel.Cli
                     }
                     int resolvedTurn = battle.Turn;
                     battle.ResolveTurn(action, foeAction);
+                    pump();
                     PrintNewLog(battle, ref logIndex);
                     if (options.Hash)
                         Console.WriteLine("第 " + resolvedTurn + " 回合状态哈希：" + battle.StateHash().ToString("x16", CultureInfo.InvariantCulture));
                 }
             }
             catch (BattleFinishedException) { }
+            pump();
             PrintNewLog(battle, ref logIndex);
             return true;
         }

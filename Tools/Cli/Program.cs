@@ -141,9 +141,11 @@ namespace StreamDuel.Cli
             Console.WriteLine("  --join 地址:端口  加入房主，IPv6 地址用 [地址]:端口；双方各用自己的 --team 或 --team-code。");
             Console.WriteLine("  --lan-host 房名   开房并广播到局域网，默认自动分配 TCP 端口，可与 --host 指定端口。");
             Console.WriteLine("  --lan-list        独立搜索 5 秒，列出房间及可复制的 --join 参数，不保存数据。");
-            Console.WriteLine("  --spectate-port 端口  主机另开观战端口，固定延迟 2 回合；0 自动分配，可搭配 --host 或 --lan-host。");
+            Console.WriteLine("  --spectate-port 端口  另开观战端口，固定延迟 2 回合；0 自动分配，可搭配 --host、--lan-host 或本地 --ruleset。");
+            Console.WriteLine("                     --ruleset ranked 可连续发布多局；观众显示每局比分与整场结果。");
             Console.WriteLine("  --spectator-chat on|off  房主是否转发观众快捷语，默认 on；只能搭配 --spectate-port，选手不接收。");
             Console.WriteLine("  --watch 地址:端口  只读观看，使用匹配的 --pack/--packs、--pack-dir，可用 --hash；收到结束标记后退出，不写存档。");
+            Console.WriteLine("                    自动协商多局观战并显示每局比分；旧单局主机需在终局后正常关闭连接。");
             Console.WriteLine("                    --watch-name 设置观众昵称；/say 0～7 向其他观众发固定短句，每个可见回合最多 3 条；q 退出观战。");
             Console.WriteLine("  --save-dir 目录    本机存档目录，默认 ./saves；profile.json 累计战绩，replays 保留最近 50 局，replay-library 为独立录像库（默认上限 200 份，有备注不自动清理）。");
             Console.WriteLine("  --new-season      手动开始默认赛制的下个排位赛季，归档旧赛季并软重置分数；已定级资格保留。");
