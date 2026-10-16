@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 
 namespace StreamDuel.Core
 {
@@ -17,6 +19,7 @@ namespace StreamDuel.Core
 
         readonly ContentDb db;
         readonly Dictionary<string, StreamerArt> streamers = new Dictionary<string, StreamerArt>(StringComparer.Ordinal);
+        readonly Dictionary<string, string> portraitDirectories = new Dictionary<string, string>(StringComparer.Ordinal);
         readonly Dictionary<string, string> skillFx = new Dictionary<string, string>(StringComparer.Ordinal);
         readonly Dictionary<string, string> statusIcons = new Dictionary<string, string>(StringComparer.Ordinal);
         string portraitDir;
@@ -30,7 +33,7 @@ namespace StreamDuel.Core
         {
             var streamer = db.Streamer(streamerId);
             streamers.TryGetValue(streamerId, out var entry);
-            string directory = portraitDir ?? DefaultPortraitDirectory();
+            string directory = PortraitDirectory(streamerId);
             string portrait = entry?.Portrait ?? streamer.Id;
             ValidatePath(directory, "portraitDir");
             ValidatePath(portrait, "streamers." + streamerId + ".portrait", true);
@@ -91,7 +94,68 @@ namespace StreamDuel.Core
         {
             // 保留 PackLoader 已有的空包 id 错误及本地化，避免被资源路径错误遮盖。
             if (string.IsNullOrWhiteSpace(db.PackId)) throw new KeyError(Loc.Current.T("pack.err.id.empty"));
-            return "Portraits/" + db.PackId;
+            ValidatePath("Portraits/" + db.PackId, "portraitDir", logicalPackId: true);
+            // 逻辑包 id 可含冒号等标点；编码为单个目录段并转义百分号，避免不同包共用路径。
+            var segment = new StringBuilder();
+            foreach (char c in db.PackId)
+            {
+                if ("%:/\\<>\"|?*".IndexOf(c) >= 0) segment.Append('%').Append(((int)c).ToString("X2"));
+                else segment.Append(c);
+            }
+            return "Portraits/" + segment;
+        }
+
+        string PortraitDirectory(string streamerId)
+        {
+            return portraitDirectories.TryGetValue(streamerId, out string directory)
+                ? directory : portraitDir ?? DefaultPortraitDirectory();
+        }
+
+        internal ArtManifest CopyTo(ContentDb destination)
+        {
+            var copy = new ArtManifest(destination) { portraitDir = portraitDir };
+            foreach (var pair in streamers)
+                copy.streamers.Add(pair.Key, new StreamerArt { Accent = pair.Value.Accent, Portrait = pair.Value.Portrait });
+            foreach (var pair in portraitDirectories) copy.portraitDirectories.Add(pair.Key, pair.Value);
+            foreach (var pair in skillFx) copy.skillFx.Add(pair.Key, pair.Value);
+            foreach (var pair in statusIcons) copy.statusIcons.Add(pair.Key, pair.Value);
+            return copy;
+        }
+
+        internal static ArtManifest Merge(ContentDb destination, IEnumerable<ContentDb> sources)
+        {
+            var result = new ArtManifest(destination);
+            foreach (var source in sources.OrderBy(p => p.PackId, StringComparer.Ordinal))
+            {
+                var art = source.Art;
+                foreach (var streamer in source.Streamers.OrderBy(s => s.Id, StringComparer.Ordinal))
+                {
+                    // 混合包 id 不是资源目录；默认路径也必须保留该主播的来源包。
+                    result.portraitDirectories.Add(streamer.Id, art.PortraitDirectory(streamer.Id));
+                    if (art.streamers.TryGetValue(streamer.Id, out var entry))
+                        result.streamers.Add(streamer.Id, new StreamerArt { Accent = entry.Accent, Portrait = entry.Portrait });
+                }
+                result.MergeOverrides(result.skillFx, art.skillFx, "skillFx");
+                result.MergeOverrides(result.statusIcons, art.statusIcons, "statusIcons");
+            }
+            return result;
+        }
+
+        void MergeOverrides(Dictionary<string, string> destination, Dictionary<string, string> source, string category)
+        {
+            // 缺省值不构成覆盖；显式声明相互冲突时不能由来源顺序决定画面。
+            foreach (var pair in source.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                if (destination.TryGetValue(pair.Key, out string previous) && previous != pair.Value)
+                    throw Error(category + "." + pair.Key, "资源覆盖冲突：" + pair.Key);
+                destination[pair.Key] = pair.Value;
+            }
+        }
+
+        internal void RemoveStreamers(Predicate<string> removed)
+        {
+            foreach (string id in streamers.Keys.Where(id => removed(id)).ToArray()) streamers.Remove(id);
+            foreach (string id in portraitDirectories.Keys.Where(id => removed(id)).ToArray()) portraitDirectories.Remove(id);
         }
 
         internal static ArtManifest Read(ContentDb db, Dictionary<string, object> pack)
@@ -176,14 +240,14 @@ namespace StreamDuel.Core
             if (!valid) throw Error("streamers." + streamerId + ".accent", "颜色必须是 #RRGGBB：" + accent);
         }
 
-        void ValidatePath(string path, string location, bool portrait = false)
+        void ValidatePath(string path, string location, bool portrait = false, bool logicalPackId = false)
         {
             if (string.IsNullOrWhiteSpace(path) || path.IndexOf("..", StringComparison.Ordinal) >= 0
                 || path.IndexOf("http", StringComparison.OrdinalIgnoreCase) >= 0)
                 throw Error(location, "资源路径必须是相对路径，不得为空或含 ..、http：" + path);
             foreach (char c in path)
             {
-                if (char.IsControl(c) || ":\\<>\"|?*".IndexOf(c) >= 0)
+                if (char.IsControl(c) || (!logicalPackId && ":\\<>\"|?*".IndexOf(c) >= 0))
                     throw Error(location, "资源路径含非法字符：" + path);
             }
             string[] segments = path.Split('/');

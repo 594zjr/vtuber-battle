@@ -54,7 +54,9 @@ namespace StreamDuel.Core
         {
             Phase = Phase.Choose;
             Add(Node.Start, "对决开始", "turn");
+            LogModifiers();
             foreach (int s in SpeedOrder()) Enter(s, Node.Start);
+            StartModifiers();
         }
     }
 }

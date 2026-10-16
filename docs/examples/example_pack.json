@@ -1,0 +1,208 @@
+{
+  "id": "example_pack",
+  "name": "教程示例包（全员虚构）",
+  "notice": "本包角色全部为教程原创虚构示例，与现实人物及机构无关；不含官方素材。",
+  "art": {
+    "portraitDir": "Portraits/example_pack",
+    "streamers": { "ex_a": { "accent": "#ffcc33", "portrait": "ex_a_v2" } },
+    "skillFx": { "ex_opening_note": "wave" },
+    "statusIcons": { "ex_short_pause": "clock" }
+  },
+  "skills": {
+    "ex_opening_note": {
+      "name": "示例·开场音符",
+      "type": "song",
+      "cat": "talent",
+      "power": 75,
+      "pp": 15,
+      "acc": 100,
+      "prio": 0,
+      "effects": [
+        {
+          "at": "pre",
+          "code": "STATUS",
+          "chance": 20,
+          "target": "foe",
+          "status": "ex_short_pause",
+          "cond": { "kind": "foeHpAbove", "value": 0.5 }
+        }
+      ]
+    },
+    "ex_light_setup": {
+      "name": "示例·柔光布置",
+      "type": "talk",
+      "cat": "status",
+      "power": 0,
+      "pp": 6,
+      "acc": 100,
+      "prio": 0,
+      "effects": [
+        {
+          "at": "post",
+          "code": "FIELD",
+          "target": "self",
+          "field": "ex_soft_light",
+          "turns": 2
+        }
+      ]
+    },
+    "ex_echo_talk": {
+      "name": "示例·回声话题",
+      "type": "talk",
+      "cat": "talent",
+      "power": 70,
+      "pp": 15,
+      "acc": 100,
+      "prio": 0,
+      "effects": [
+        {
+          "at": "post",
+          "code": "STATUS",
+          "chance": 30,
+          "target": "foe",
+          "status": "ex_echo_weak"
+        }
+      ]
+    },
+    "ex_color_finish": {
+      "name": "示例·彩色收笔",
+      "type": "art",
+      "cat": "talent",
+      "power": 95,
+      "pp": 5,
+      "acc": 100,
+      "prio": 0,
+      "effects": [
+        {
+          "at": "pre",
+          "code": "POWER_MUL",
+          "mul": 1.25,
+          "cond": { "kind": "foeWeak" }
+        },
+        {
+          "at": "post",
+          "code": "DISPEL_BOOST",
+          "target": "foe"
+        }
+      ]
+    }
+  },
+  "personas": {
+    "ex_opening_light": {
+      "name": "示例·开场柔光",
+      "code": "T_ENTER_FIELD",
+      "node": "登场时",
+      "field": "ex_soft_light",
+      "params": { "turns": 2 },
+      "desc": "登场时获得「示例·柔光保护」2 回合。人设本身不可消除，产生的直播间效果可被消回合。"
+    }
+  },
+  "fields": {
+    "ex_soft_light": {
+      "name": "示例·柔光保护",
+      "kind": "turn",
+      "when": "受到伤害时",
+      "dispel": true,
+      "dmgTakenMul": 0.9,
+      "desc": "受到的普通技能伤害 ×0.9；属于回合类，可被消回合，下场清空。"
+    }
+  },
+  "statuses": {
+    "ex_short_pause": {
+      "name": "示例·短暂停顿",
+      "cat": "control",
+      "skip": 1,
+      "cleanse": false,
+      "desc": "控制类状态，跳过下一次行动；不可净化，下场保留。"
+    },
+    "ex_echo_weak": {
+      "name": "示例·余响",
+      "cat": "weak",
+      "turns": 3,
+      "dot": 0.0625,
+      "cleanse": true,
+      "desc": "弱化类状态，持续 3 回合；回合结束失去最大人气的 1/16，可净化，下场保留。"
+    }
+  },
+  "streamers": [
+    {
+      "id": "ex_a",
+      "name": "示例主播·甲",
+      "org": "示例虚构社团",
+      "type": "song",
+      "type2": "art",
+      "stats": { "hp": 360, "atk": 220, "def": 240, "spa": 310, "sdef": 250, "spd": 300 },
+      "persona": "ex_opening_light",
+      "skills": ["ex_opening_note", "ex_light_setup", "warm_up", "ex_echo_talk"],
+      "fifth": "ex_color_finish",
+      "blurb": "教程用虚构角色，演示歌回与绘画双赛道。"
+    },
+    {
+      "id": "ex_b",
+      "name": "示例主播·乙",
+      "org": "示例虚构社团",
+      "type": "talk",
+      "type2": "game",
+      "stats": { "hp": 400, "atk": 285, "def": 260, "spa": 270, "sdef": 250, "spd": 240 },
+      "persona": "ex_opening_light",
+      "skills": ["ex_echo_talk", "ex_light_setup", "map_cannon", "noise_cancel"],
+      "fifth": "ex_color_finish",
+      "blurb": "教程用虚构角色，演示弱化状态与包内人设。"
+    },
+    {
+      "id": "ex_c",
+      "name": "示例主播·丙",
+      "org": "示例虚构社团",
+      "type": "art",
+      "type2": "song",
+      "stats": { "hp": 380, "atk": 210, "def": 260, "spa": 315, "sdef": 285, "spd": 250 },
+      "persona": "pure",
+      "skills": ["sketch", "ex_opening_note", "ex_light_setup", "redraw"],
+      "fifth": "ex_color_finish",
+      "blurb": "教程用虚构角色，演示共用人设和条件增伤。"
+    },
+    {
+      "id": "ex_d",
+      "name": "示例主播·丁",
+      "org": "示例虚构社团",
+      "type": "game",
+      "stats": { "hp": 375, "atk": 310, "def": 250, "spa": 220, "sdef": 240, "spd": 310 },
+      "persona": "punctual",
+      "skills": ["aim_burst", "quick_mic", "pregame", "ex_light_setup"],
+      "fifth": "endgame",
+      "blurb": "教程用虚构角色，演示互动技能与先制。"
+    },
+    {
+      "id": "ex_e",
+      "name": "示例主播·戊",
+      "org": "示例虚构社团",
+      "type": "asmr",
+      "stats": { "hp": 410, "atk": 220, "def": 280, "spa": 280, "sdef": 300, "spd": 200 },
+      "persona": "healing",
+      "skills": ["whisper_tide", "ex_echo_talk", "deep_breath", "ex_light_setup"],
+      "fifth": "late_reply",
+      "blurb": "教程用虚构角色，演示回复与后手条件。"
+    },
+    {
+      "id": "ex_f",
+      "name": "示例主播·己",
+      "org": "示例虚构社团",
+      "type": "tech",
+      "type2": "talk",
+      "stats": { "hp": 420, "atk": 290, "def": 310, "spa": 240, "sdef": 250, "spd": 180 },
+      "persona": "ex_opening_light",
+      "skills": ["teardown", "gear_blade", "ex_echo_talk", "ex_light_setup"],
+      "fifth": "hammer_review",
+      "blurb": "教程用虚构角色，演示耐久与包内直播间效果。"
+    }
+  ],
+  "seasons": {
+    "ex_demo": {
+      "name": "示例赛季",
+      "banned": [],
+      "limited": [
+        { "max": 2, "ids": ["ex_a", "ex_b"] }
+      ]
+    }
+  }
+}

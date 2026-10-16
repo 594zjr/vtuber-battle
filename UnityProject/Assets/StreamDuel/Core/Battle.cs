@@ -16,7 +16,7 @@ namespace StreamDuel.Core
     }
 
     public enum Phase { Choose, Replace, Over, Lead, Ban }
-    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled }
+    public enum ActionType { Skill, Switch, Pass, Struggle, PassControlled, Surrender }
 
     public partial struct BattleAction
     {
@@ -24,6 +24,7 @@ namespace StreamDuel.Core
         public static BattleAction Skill(int i) { return new BattleAction { Type = ActionType.Skill, Index = i }; }
         public static BattleAction SwitchTo(int i) { return new BattleAction { Type = ActionType.Switch, Index = i }; }
         public static BattleAction Pass() { return new BattleAction { Type = ActionType.Pass }; }
+        public static BattleAction Surrender() { return new BattleAction { Type = ActionType.Surrender }; }
         public override string ToString() { return Type + ":" + Index; }
     }
 
@@ -110,6 +111,7 @@ namespace StreamDuel.Core
         public Battle(ContentDb db, IList<string>[] teams, string[] names, BattleOptions opt)
         {
             if (opt == null) throw new ArgumentNullException(nameof(opt));
+            modifiers = BattleModifiers.Normalize(opt.Modifiers);
             Db = db;
             Seed = opt.Seed ?? (uint)Environment.TickCount;
             rng = new Rng(Seed);
@@ -121,6 +123,7 @@ namespace StreamDuel.Core
                 PackId = db.PackId,
                 LeadPick = opt.LeadPick,
                 BanOne = opt.BanOne,
+                Modifiers = new List<string>(modifiers),
                 Names = names.ToArray(),
                 Teams = teams.Select(team => (IList<string>)new List<string>(team)).ToArray()
             };
@@ -140,6 +143,7 @@ namespace StreamDuel.Core
             var f = new Fighter { Def = d, Slot = slot, Side = side, MaxHp = d.Stats["hp"], Hp = d.Stats["hp"] };
             foreach (var sid in d.Skills) f.Skills.Add(new SkillSlot { Id = sid, Pp = Db.Skills[sid].Pp, Max = Db.Skills[sid].Pp });
             f.Skills.Add(new SkillSlot { Id = d.Fifth, Pp = Db.Skills[d.Fifth].Pp, Max = Db.Skills[d.Fifth].Pp, Fifth = true });
+            InitializeModifiers(f);
             return f;
         }
 
@@ -221,7 +225,7 @@ namespace StreamDuel.Core
             foreach (var kv in changes)
             {
                 int before = p.Stages[kv.Key];
-                p.Stages[kv.Key] = Math.Max(-6, Math.Min(6, before + kv.Value));
+                p.Stages[kv.Key] = ClampStage((long)before + kv.Value);
                 int d = p.Stages[kv.Key] - before;
                 if (d != 0) deltas.Add(new KeyValuePair<string, int>(kv.Key, d));
                 parts.Add(d == 0 ? Db.StatName(kv.Key) + "已到极限" : Db.StatName(kv.Key) + (d > 0 ? "+" : "") + d);
@@ -585,6 +589,8 @@ namespace StreamDuel.Core
                 {
                     int amt = Math.Max(1, (int)(p.MaxHp * d.Dot));
                     Damage(p, amt, Node.TurnEnd, p.Name + " 因「" + d.Name + "」人气 -{n}", false);
+                    // 最后一位下播后整局立即停止，不能再引流回血或追加结束后的日志。
+                    if (Phase == Phase.Over) return;
                     if (d.Leech) { var f = Active(1 - s); if (!f.Fainted) Heal(f, amt, Node.TurnEnd, "引流："); }
                 }
                 if (p.Fainted || Phase == Phase.Over) return;
@@ -599,11 +605,17 @@ namespace StreamDuel.Core
                 if (fl.Turns >= 0 && --fl.Turns <= 0) { p.Fields.Remove(fl); Add(Node.TurnEnd, p.Name + " 的「" + fd.Name + "」结束", "field", s); Emit(BattleEventKind.FieldRemove, p, fl.Id); }
             }
             PersonaTurnEnd(s, p);
+            TurnEndModifiers(p);
         }
 
         // ================= 主流程 =================
         public void ResolveTurn(BattleAction a0, BattleAction a1)
         {
+            if (a0.Type == ActionType.Surrender || a1.Type == ActionType.Surrender)
+            {
+                ResolveSurrenders(a0.Type == ActionType.Surrender, a1.Type == ActionType.Surrender);
+                return;
+            }
             if (Phase != Phase.Choose) throw new InvalidOperationException("现在不是选择行动的阶段");
             Record.Events.Add(new BattleRecordEvent { Type = BattleRecordEventType.Turn, A0 = a0, A1 = a1, RngState = rng.State });
             var acts = new[] { Normalize(0, a0), Normalize(1, a1) };
