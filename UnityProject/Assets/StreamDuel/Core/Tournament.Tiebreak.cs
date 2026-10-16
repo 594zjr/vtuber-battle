@@ -28,7 +28,9 @@ namespace StreamDuel.Core
         public uint GameSeed(Pairing pairing, int attempt)
         {
             RequireGamePairing(pairing);
-            if (attempt < 0 || attempt > 3) throw new ArgumentOutOfRangeException(nameof(attempt), "对局序号只能是原局 0 或加赛 1～3。");
+            if (attempt < 0 || attempt > MaximumGameIndex)
+                throw new ArgumentOutOfRangeException(nameof(attempt), HasRuleset
+                    ? "对局序号须位于规定局数加三次加赛的范围内。" : "对局序号只能是原局 0 或加赛 1～3。");
             unchecked
             {
                 uint value = (Seed ?? 0) ^ (uint)pairing.Id * 0x9E3779B9u ^ (uint)attempt * 0x85EBCA6Bu ^ 0x54423138u;
@@ -48,7 +50,12 @@ namespace StreamDuel.Core
             var first = players[pairing.Player0];
             var second = players[pairing.Player1];
             return new Battle(db, new IList<string>[] { first.Team.ToList(), second.Team.ToList() },
-                new[] { first.Name, second.Name }, GameSeed(pairing, pairing.Games.Count));
+                new[] { first.Name, second.Name }, new BattleOptions
+                {
+                    Seed = GameSeed(pairing, pairing.Games.Count),
+                    BanOne = seriesRuleset?.BanOne ?? false, LeadPick = seriesRuleset?.LeadPick ?? false,
+                    Modifiers = seriesRuleset?.Modifiers == null ? null : new List<string>(seriesRuleset.Modifiers)
+                });
         }
 
         public void ReportGame(Pairing pairing, Battle battle)
@@ -78,6 +85,8 @@ namespace StreamDuel.Core
             uint seed = GameSeed(pairing, attempt);
             if (attempt > pairing.Games.Count || attempt == pairing.Games.Count && pairing.WinnerSide.HasValue)
                 throw new InvalidOperationException("只能登记下一局，或核对已经登记的赛事对局。");
+            if (attempt == pairing.Games.Count && PendingDecision(pairing) != null)
+                throw new InvalidOperationException(PendingDecision(pairing));
             var first = players[pairing.Player0];
             var second = players[pairing.Player1];
             if (record == null || record.PackId != packId || record.ContentHash != contentHash
@@ -92,7 +101,8 @@ namespace StreamDuel.Core
                 || !record.Teams[1].SequenceEqual(second.Team, StringComparer.Ordinal)
                 || record.Names == null || record.Names.Length != 2 || record.Names[0] != first.Name || record.Names[1] != second.Name)
                 throw new InvalidOperationException("对局的原始队伍、顺序或选手姓名与本场对阵不一致。");
-            if (record.LeadPick || record.BanOne || record.Modifiers != null && record.Modifiers.Count != 0)
+            if (HasRuleset) ValidateSeriesRecord(record);
+            else if (record.LeadPick || record.BanOne || record.Modifiers != null && record.Modifiers.Count != 0)
                 throw new InvalidOperationException("赛事对局不能更改默认首发、禁用或规则修饰器配置。");
             var compatibility = Replay.Check(db, record);
             if (!compatibility.CanReplay) throw new InvalidOperationException(compatibility.Reason);
@@ -124,6 +134,8 @@ namespace StreamDuel.Core
             RequireGamePairing(pairing);
             if (!AutoTiebreak) throw new InvalidOperationException("此赛事未开启自动加赛，请沿用手工报分方式。");
             if (pairing.WinnerSide.HasValue) throw new InvalidOperationException("这场对阵已经决定晋级，不能再登记对局。");
+            string decision = PendingDecision(pairing);
+            if (decision != null) throw new InvalidOperationException(decision);
         }
 
         void ApplyTournamentGame(Pairing pairing, TournamentGame game)
@@ -132,6 +144,11 @@ namespace StreamDuel.Core
             if (game.Attempt != pairing.Games.Count || game.Seed != GameSeed(pairing, game.Attempt)
                 || game.WinnerSide < -1 || game.WinnerSide > 1 || !ValidTournamentRecordHash(game.RecordHash))
                 throw new FormatException("赛事单局的序号、种子、胜负或录像摘要无效。");
+            if (HasRuleset)
+            {
+                ApplySeriesGame(pairing, game);
+                return;
+            }
             int? winner = game.WinnerSide == -1 ? (int?)null : game.WinnerSide;
             bool advancedBySeed = game.WinnerSide == -1 && game.Attempt == 3;
             if (advancedBySeed)
@@ -183,7 +200,7 @@ namespace StreamDuel.Core
                 if (!(game["seed"] is double seed) || double.IsNaN(seed) || double.IsInfinity(seed)
                     || seed < 0 || seed > uint.MaxValue || seed != Math.Truncate(seed))
                     throw new FormatException("单局种子必须为无符号 32 位整数。");
-                ApplyTournamentGame(pairing, new TournamentGame(TournamentJson.Integer(game, "attempt", 0, 3), (uint)seed,
+                ApplyTournamentGame(pairing, new TournamentGame(TournamentJson.Integer(game, "attempt", 0, MaximumGameIndex), (uint)seed,
                     TournamentJson.Integer(game, "winnerSide", -1, 1), TournamentJson.Text(game, "recordHash")));
             }
             if (!(saved["advancedBySeed"] is bool advanced) || advanced != pairing.AdvancedBySeed)

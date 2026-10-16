@@ -12,6 +12,8 @@ namespace StreamDuel.Core
         {
             public Pairing Pairing;
             public string Name0, Name1, Status, ReplayId, Message;
+            public string PendingDecision;
+            public int Wins0, Wins1, Draws;
             public readonly List<Game> Games = new List<Game>();
         }
 
@@ -64,7 +66,11 @@ namespace StreamDuel.Core
                 var second = pairing.IsBye ? null : tournament.Players[pairing.Player1];
                 var match = new Match
                 {
-                    Pairing = pairing, Name0 = PlayerName(first.Name), Name1 = second == null ? null : PlayerName(second.Name)
+                    Pairing = pairing, Name0 = PlayerName(first.Name), Name1 = second == null ? null : PlayerName(second.Name),
+                    PendingDecision = tournament.HasRuleset && !pairing.IsBye ? tournament.PendingDecision(pairing) : null,
+                    Wins0 = pairing.Games.Count(game => game.WinnerSide == 0),
+                    Wins1 = pairing.Games.Count(game => game.WinnerSide == 1),
+                    Draws = pairing.Games.Count(game => game.WinnerSide == -1)
                 };
                 matches.Add(match);
                 if (pairing.IsBye) { SetStatus(match, "not_applicable", "轮空，无录像。"); continue; }
@@ -86,7 +92,10 @@ namespace StreamDuel.Core
                     }
                     if (match.Games.Count == 0) SetStatus(match, "pending", "待赛，尚无已确认单局结果。");
                     else if (match.Games.All(game => game.Status == "saved"))
-                        SetStatus(match, "saved", "已登记的每局均已保存并严格复算。" + (pairing.WinnerSide.HasValue ? "" : "尚待加赛。"));
+                        SetStatus(match, "saved", "已登记的每局均已保存并严格复算。" + (pairing.WinnerSide.HasValue ? ""
+                            : tournament.HasRuleset ? match.PendingDecision != null ? "等待规则决定。"
+                                : pairing.Games.Count < tournament.BestOf ? "尚待后续正规局。" : "尚待加赛。"
+                            : "尚待加赛。"));
                     else if (match.Games.All(game => game.Status == "not_saved"))
                         SetStatus(match, "not_saved", "已登记的各局均未找到归档录像。");
                     else SetStatus(match, "partial", "部分单局录像缺失或不可用，详见逐局记录。");
@@ -201,6 +210,8 @@ namespace StreamDuel.Core
                 return Failure("unavailable", "关联录像含已下架内容，不能重放或计入数据之最。");
             if (candidate.Record == null || !string.IsNullOrEmpty(candidate.Error))
                 return Failure("corrupt", "关联录像无法读取，未计入数据之最。");
+            if (candidate.Entry.TournamentArchive.HasRuleset != tournament.HasRuleset)
+                return Failure("mismatch", "关联录像的逐局标签版本与赛事赛制不一致。");
             if (candidate.Entry.Winner != source.WinnerSide
                 || candidate.Entry.Turns != candidate.Record.Events.Count(entry => entry.Type == BattleRecordEventType.Turn)
                 || Tournament.TournamentRecordHash(candidate.Record.ToJson()) != source.RecordHash)
@@ -274,6 +285,18 @@ namespace StreamDuel.Core
             return pairing.WinnerSide.Value == -1 ? "平局" : pairing.WinnerSide.Value == 0 ? "甲方获胜" : "乙方获胜";
         }
 
+        static string Result(Match match)
+        {
+            return match.PendingDecision == null ? Result(match.Pairing) : "等待规则决定：" + match.PendingDecision;
+        }
+
+        static string GameName(Tournament tournament, int attempt)
+        {
+            if (!tournament.HasRuleset) return attempt == 0 ? "原局" : "加赛 " + Number(attempt);
+            return "第 " + Number(attempt + 1) + " 局（" + (attempt < tournament.BestOf
+                ? "正规局 " + Number(attempt + 1) : "加赛 " + Number(attempt - tournament.BestOf + 1)) + "）";
+        }
+
         static string WriteText(Tournament tournament, List<Standing> standings, List<Match> matches,
             int completed, int archived, int missing, int invalid, DamageBest damage, StreamerTotal kos, StreamerTotal appearances)
         {
@@ -283,9 +306,18 @@ namespace StreamDuel.Core
                 .Append(Number(tournament.Round)).Append('/').Append(Number(tournament.Rounds))
                 .Append(tournament.IsElimination && !tournament.IsFinished ? "（后者为轮数上限）" : "")
                 .Append("；状态：").Append(tournament.IsFinished ? "已结束" : "进行中").Append("。\n");
+            if (tournament.HasRuleset)
+            {
+                output.Append("每场正规局上限 ").Append(Number(tournament.BestOf)).Append(" 局，先获得 ")
+                    .Append(Number(tournament.BestOf / 2 + 1)).Append(" 胜获胜；平局计入局数，不计胜场。\n");
+                output.Append(tournament.IsElimination
+                    ? "正规局打满同分后最多加赛 3 局，首个非平局决定晋级；加赛仍全平按种子顺位晋级。\n"
+                    : "循环赛逐局记录；正规局打满但无人达到胜场门槛时保留比分，等待规则决定。\n");
+            }
             if (tournament.IsElimination)
             {
-                output.Append(tournament.AutoTiebreak ? "每场原局平局后最多加赛 3 次；重置总决赛：" : "每场一局；重置总决赛：").Append(tournament.Format == Tournament.DoubleElimination
+                output.Append(tournament.HasRuleset ? "重置总决赛："
+                    : tournament.AutoTiebreak ? "每场原局平局后最多加赛 3 次；重置总决赛：" : "每场一局；重置总决赛：").Append(tournament.Format == Tournament.DoubleElimination
                     ? tournament.ResetFinal ? "开启" : "关闭" : "不适用").Append("；冠军：");
                 if (tournament.Champion.HasValue)
                     output.Append(PlayerName(tournament.Players[tournament.Champion.Value].Name))
@@ -313,12 +345,16 @@ namespace StreamDuel.Core
                     output.Append("对局 #").Append(Number(match.Pairing.Id + 1)).Append("：报名 #")
                         .Append(Number(match.Pairing.Player0 + 1)).Append(' ').Append(match.Name0);
                     if (!match.Pairing.IsBye) output.Append(" 对 报名 #").Append(Number(match.Pairing.Player1 + 1)).Append(' ').Append(match.Name1);
-                    output.Append("；").Append(Result(match.Pairing)).Append("；录像：");
+                    output.Append("；").Append(Result(match));
+                    if (tournament.HasRuleset && !match.Pairing.IsBye)
+                        output.Append("；局比分 ").Append(Number(match.Wins0)).Append(':').Append(Number(match.Wins1))
+                            .Append("，平 ").Append(Number(match.Draws)).Append(" 局");
+                    output.Append("；录像：");
                     if (match.ReplayId != null) output.Append(match.ReplayId).Append("；");
                     output.Append(match.Message).Append('\n');
                     foreach (var game in match.Games)
                     {
-                        output.Append("  ").Append(game.Source.Attempt == 0 ? "原局" : "加赛 " + Number(game.Source.Attempt))
+                        output.Append("  ").Append(GameName(tournament, game.Source.Attempt))
                             .Append("；种子：").Append(Number(game.Source.Seed)).Append("；")
                             .Append(game.Source.WinnerSide == -1 ? "平局" : game.Source.WinnerSide == 0 ? "甲方获胜" : "乙方获胜")
                             .Append("；录像：");
@@ -339,7 +375,9 @@ namespace StreamDuel.Core
             output.Append("最多击倒：").Append(kos == null ? "暂无可复算击倒记录。" : kos.Name + "（" + kos.Id + "）· " + Number(kos.Kos) + " 次。").Append('\n');
             output.Append("出场最多：").Append(appearances == null ? "暂无可复算登场记录。" : appearances.Name + "（" + appearances.Id + "）· " + Number(appearances.Appearances) + " 局次。").Append('\n');
             output.Append("单次伤害包含持续伤害、反弹和自伤的实际扣血；击倒归属沿用引擎；出场按每局每方实际登场去重。\n")
-                .Append(tournament.AutoTiebreak
+                .Append(tournament.HasRuleset
+                    ? "并列时，击倒及出场按主播 id 顺序取首；伤害按对阵编号、连续局序、日志顺序取首。\n"
+                    : tournament.AutoTiebreak
                     ? "并列时，击倒及出场按主播 id 顺序取首；伤害按对阵编号、原局/加赛序号、日志顺序取首。\n"
                     : "并列时，击倒及出场按主播 id 顺序取首；伤害按对阵编号、日志顺序取首。\n");
             return output.ToString();
@@ -348,14 +386,21 @@ namespace StreamDuel.Core
         static string WriteJson(Tournament tournament, List<Standing> standings, List<Match> matches,
             int completed, int archived, int missing, int invalid, DamageBest damage, StreamerTotal kos, StreamerTotal appearances)
         {
-            var output = new StringBuilder(tournament.AutoTiebreak ? "{\"version\":2,\"packId\":" : "{\"version\":1,\"packId\":");
+            var output = new StringBuilder(tournament.HasRuleset ? "{\"version\":3,\"packId\":"
+                : tournament.AutoTiebreak ? "{\"version\":2,\"packId\":" : "{\"version\":1,\"packId\":");
             String(output, tournament.ReportPackId);
             output.Append(",\"format\":"); String(output, tournament.Format);
             output.Append(",\"roundCount\":").Append(Number(tournament.Rounds)).Append(",\"playedRounds\":").Append(Number(tournament.Round))
                 .Append(",\"isFinished\":").Append(tournament.IsFinished ? "true" : "false");
             if (tournament.IsElimination)
                 output.Append(",\"resetFinal\":").Append(tournament.ResetFinal ? "true" : "false")
-                    .Append(",\"bestOf\":1,\"champion\":").Append(tournament.Champion.HasValue ? Number(tournament.Champion.Value) : "null");
+                    .Append(",\"bestOf\":").Append(Number(tournament.BestOf))
+                    .Append(",\"champion\":").Append(tournament.Champion.HasValue ? Number(tournament.Champion.Value) : "null");
+            if (tournament.HasRuleset)
+            {
+                if (!tournament.IsElimination) output.Append(",\"bestOf\":").Append(Number(tournament.BestOf));
+                output.Append(",\"ruleset\":").Append(tournament.Ruleset.ToJson());
+            }
             if (tournament.AutoTiebreak) output.Append(",\"autoTiebreak\":true");
             output.Append(",\"standings\":[");
             for (int i = 0; i < standings.Count; i++)
@@ -389,7 +434,13 @@ namespace StreamDuel.Core
                         output.Append(",\"bracket\":"); String(output, pairing.Bracket);
                         output.Append(",\"bracketRound\":").Append(Number(pairing.BracketRound));
                     }
-                    output.Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append(",\"result\":"); String(output, Result(pairing));
+                    output.Append(",\"winnerSide\":").Append(pairing.WinnerSide.HasValue ? Number(pairing.WinnerSide.Value) : "null").Append(",\"result\":"); String(output, Result(match));
+                    if (tournament.HasRuleset)
+                    {
+                        output.Append(",\"wins\":[").Append(Number(match.Wins0)).Append(',').Append(Number(match.Wins1))
+                            .Append("],\"draws\":").Append(Number(match.Draws)).Append(",\"pendingDecision\":");
+                        String(output, match.PendingDecision);
+                    }
                     output.Append(",\"replay\":{\"status\":"); String(output, match.Status);
                     output.Append(",\"id\":"); String(output, match.ReplayId);
                     output.Append(",\"message\":"); String(output, match.Message);
@@ -406,6 +457,10 @@ namespace StreamDuel.Core
                                 .Append(",\"seed\":").Append(Number(game.Source.Seed))
                                 .Append(",\"winnerSide\":").Append(Number(game.Source.WinnerSide))
                                 .Append(",\"recordHash\":"); String(output, game.Source.RecordHash);
+                            if (tournament.HasRuleset)
+                                output.Append(",\"gameNumber\":").Append(Number(game.Source.Attempt + 1))
+                                    .Append(",\"tiebreakNumber\":").Append(game.Source.Attempt < tournament.BestOf
+                                        ? "null" : Number(game.Source.Attempt - tournament.BestOf + 1));
                             output.Append(",\"replay\":{\"status\":"); String(output, game.Status);
                             output.Append(",\"id\":"); String(output, game.ReplayId);
                             output.Append(",\"message\":"); String(output, game.Message);

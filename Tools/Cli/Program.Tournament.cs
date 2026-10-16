@@ -31,6 +31,7 @@ namespace StreamDuel.Cli
             if (saved != null)
             {
                 tournament = Tournament.FromJson(db, saved);
+                ValidateSavedTournamentRuleset(options, tournament);
                 if (options.TournamentFormat != null && options.TournamentFormat != tournament.Format)
                     throw new ArgumentException("--format 与已保存的赛事赛制不一致，不能更改续赛事制；原文件未修改。");
                 ValidateTournamentTiebreakOptions(options, tournament.Format);
@@ -40,14 +41,24 @@ namespace StreamDuel.Cli
                     throw new ArgumentException("已保存的赛事启用了自动加赛，不能通过 --no-auto-tiebreak 更改；原文件未修改。");
                 if (tournament.AutoTiebreak && !options.Auto)
                 {
+                    if (tournament.HasRuleset)
+                    {
+                        Console.WriteLine("本赛事使用逐局赛制，请加 --auto 继续真实对战与逐局归档；当前仅查看配置，未改动赛事进度。");
+                        PrintTournamentRuleset(tournament);
+                        return 0;
+                    }
                     Console.WriteLine("本赛事启用了自动加赛，请加 --auto 继续真实对战与逐局归档；当前仅查看配置，未改动赛事进度。");
                     return 0;
                 }
             }
             else
             {
+                if (options.TournamentRulesetId != null && !options.Auto)
+                    throw new ArgumentException("新建 --tournament-ruleset 赛事必须同时提供 --auto；未创建赛事文件。");
                 string format = options.TournamentFormat ?? ReadTournamentFormat();
                 if (format == null) return 0;
+                if (options.TournamentRulesetId != null && format == "swiss")
+                    throw new ArgumentException("--tournament-ruleset 仅支持单败、双败淘汰赛与循环赛，不支持瑞士轮；未创建赛事文件。");
                 ValidateTournamentTiebreakOptions(options, format);
                 int? rounds = format == "swiss" ? ReadTournamentRounds() : 0;
                 if (!rounds.HasValue) return 0;
@@ -56,7 +67,7 @@ namespace StreamDuel.Cli
                 {
                     Seed = options.TournamentSeed,
                     AutoTiebreak = options.Auto && !options.NoAutoTiebreak
-                } : null);
+                } : null, TournamentRuleset(options));
                 file.Save(tournament);
             }
 
@@ -65,7 +76,8 @@ namespace StreamDuel.Cli
             Console.WriteLine(db.PackNotice);
             Console.WriteLine("赛制：" + tournament.FormatName
                 + "；模式：" + (options.Auto ? "普通 AI 自动代打" : "交互式记录结果"));
-            if (tournament.IsElimination)
+            if (tournament.HasRuleset) PrintTournamentRuleset(tournament);
+            else if (tournament.IsElimination)
             {
                 Console.WriteLine((tournament.AutoTiebreak
                     ? "自动加赛开启：原场平局后最多加赛 3 次，仍平则按种子顺位晋级；"
@@ -107,6 +119,12 @@ namespace StreamDuel.Cli
                     if (pairing.WinnerSide.HasValue)
                     {
                         PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已记录：");
+                        continue;
+                    }
+                    if (tournament.HasRuleset)
+                    {
+                        if (!RunTournamentRuleset(tournament, pairing, file)) return 1;
+                        PrintTournamentResult(firstName, secondName, pairing.WinnerSide.Value, "已保存结果：");
                         continue;
                     }
                     if (tournament.AutoTiebreak)
@@ -240,7 +258,17 @@ namespace StreamDuel.Cli
         {
             while (battle.Phase != Phase.Over)
             {
-                if (battle.Phase == Phase.Replace)
+                if (battle.Phase == Phase.Ban)
+                {
+                    for (int side = 0; side < 2 && battle.Phase == Phase.Ban; side++)
+                        if (!battle.HasChosenBan(side)) battle.ChooseBan(side, Ai.ChooseBan(battle, side));
+                }
+                else if (battle.Phase == Phase.Lead)
+                {
+                    for (int side = 0; side < 2 && battle.Phase == Phase.Lead; side++)
+                        if (!battle.HasChosenLead(side)) battle.ChooseLead(side, Ai.ChooseLead(battle, side));
+                }
+                else if (battle.Phase == Phase.Replace)
                 {
                     for (int side = 0; side < 2 && battle.Phase == Phase.Replace; side++)
                         if (battle.Need[side]) battle.Replace(side, Ai.ChooseReplacement(battle, side, AiLevel.Normal));

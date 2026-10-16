@@ -22,7 +22,7 @@ namespace StreamDuel.Core
         public IReadOnlyList<int> SeedOrder { get; private set; }
         public bool ResetFinal { get; private set; } = true;
         public bool AutoTiebreak { get; private set; }
-        public int BestOf { get { return 1; } }
+        public int BestOf { get { return seriesRuleset?.BestOf ?? 1; } }
         public int? Champion
         {
             get
