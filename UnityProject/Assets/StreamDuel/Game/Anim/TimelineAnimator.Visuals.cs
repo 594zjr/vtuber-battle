@@ -9,6 +9,20 @@ namespace StreamDuel.Game
 {
     public sealed partial class TimelineAnimator
     {
+        public Color TrackColorFor(VisualElement fighter)
+        {
+            // 使用当前动画快照中的演员，避免换人动画读到引擎已推进后的上场位置。
+            for (int side = 0; side < visuals.Length; side++)
+                if (ReferenceEquals(visuals[side].Root, fighter) && display != null)
+                {
+                    string id = display.Team[side][display.Active[side]].Id;
+                    string track = db.Streamer(id).Type;
+                    if (db.Types.TryGetValue(track, out var definition)
+                        && ColorUtility.TryParseHtmlString(definition.Color, out var color)) return color;
+                }
+            return Color.gray;
+        }
+
         void Render(DisplaySnapshot snapshot)
         {
             display = snapshot.Clone();
@@ -46,7 +60,8 @@ namespace StreamDuel.Game
 
         VisualElement MakeChip(ChipData data)
         {
-            var element = icons.Make(data.Id, data.Name)
+            var element = (icons is IStatusDurationIconProvider timed
+                ? timed.Make(data.Id, data.Name, data.Remaining) : icons.Make(data.Id, data.Name))
                 ?? throw new InvalidOperationException("状态图标提供者必须返回一个节点。");
             element.name = "timeline-icon-" + data.Key;
             element.pickingMode = PickingMode.Ignore;
@@ -275,7 +290,8 @@ namespace StreamDuel.Game
                         if (fighter.Statuses != null)
                             foreach (var chip in fighter.Statuses)
                                 copy.Chips.Add(new ChipData { Key = ChipKey(chip.IsStatus, chip.Id), Id = chip.Id,
-                                    Name = chip.Name, Tooltip = chip.Tooltip });
+                                    Name = chip.Name, Tooltip = chip.Tooltip,
+                                    Remaining = chip.Turns > 0 ? (int?)chip.Turns : null });
                         snapshot.Team[side].Add(copy);
                     }
                 }
@@ -313,6 +329,7 @@ namespace StreamDuel.Game
         sealed class ChipData
         {
             public string Key, Id, Name, Tooltip;
+            public int? Remaining;
         }
 
         sealed class LogSnapshot
